@@ -429,8 +429,9 @@ impl App {
                 {
                     self.focus = Focus::Channels;
 
-                    // Calculate which channel was clicked (accounting for border)
-                    let clicked_row = (y - self.channels_area.y).saturating_sub(1) as usize;
+                    // Calculate which channel was clicked (accounting for border and scroll offset)
+                    let clicked_row = (y - self.channels_area.y).saturating_sub(1) as usize
+                        + self.channels_scroll;
                     let total = self.total_channel_count();
 
                     // Account for DM separator if present

@@ -374,7 +374,13 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
         None
     };
 
+    let hide_system = app.hide_system_messages();
+
     for (idx, msg) in messages.iter().enumerate() {
+        if hide_system && is_system_message(msg) {
+            continue;
+        }
+
         // Insert separator BEFORE the first new message
         if let Some(pos) = separator_pos
             && idx == pos
@@ -787,30 +793,42 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
     // Show different key hints based on focus
     let status = if app.focus() == Focus::Input {
         Line::from(vec![
-            Span::styled(" ctrl+s ", Style::default().fg(HELP_KEY)),
+            Span::styled(" [ctrl+s] ", Style::default().fg(HELP_KEY)),
             Span::raw("send  "),
-            Span::styled("enter ", Style::default().fg(HELP_KEY)),
+            Span::styled("[enter] ", Style::default().fg(HELP_KEY)),
             Span::raw("newline  "),
-            Span::styled("ctrl+f ", Style::default().fg(HELP_KEY)),
+            Span::styled("[ctrl+h] ", Style::default().fg(HELP_KEY)),
+            Span::raw(if app.hide_system_messages() {
+                "show sys  "
+            } else {
+                "hide sys  "
+            }),
+            Span::styled("[ctrl+f] ", Style::default().fg(HELP_KEY)),
             Span::raw("maximize  "),
-            Span::styled("esc ", Style::default().fg(HELP_KEY)),
+            Span::styled("[esc] ", Style::default().fg(HELP_KEY)),
             Span::raw("clear  "),
-            Span::styled("ctrl+q ", Style::default().fg(HELP_KEY)),
+            Span::styled("[ctrl+q] ", Style::default().fg(HELP_KEY)),
             Span::raw("quit"),
         ])
     } else {
         Line::from(vec![
-            Span::styled(" Tab ", Style::default().fg(HELP_KEY)),
+            Span::styled(" [Tab] ", Style::default().fg(HELP_KEY)),
             Span::raw("pane  "),
-            Span::styled("j/k ", Style::default().fg(HELP_KEY)),
+            Span::styled("[j/k] ", Style::default().fg(HELP_KEY)),
             Span::raw("scroll  "),
-            Span::styled("u/d ", Style::default().fg(HELP_KEY)),
+            Span::styled("[u/d] ", Style::default().fg(HELP_KEY)),
             Span::raw("½page  "),
-            Span::styled("ctrl+f ", Style::default().fg(HELP_KEY)),
+            Span::styled("[ctrl+h] ", Style::default().fg(HELP_KEY)),
+            Span::raw(if app.hide_system_messages() {
+                "show sys  "
+            } else {
+                "hide sys  "
+            }),
+            Span::styled("[ctrl+f] ", Style::default().fg(HELP_KEY)),
             Span::raw("maximize  "),
-            Span::styled("? ", Style::default().fg(HELP_KEY)),
+            Span::styled("[?] ", Style::default().fg(HELP_KEY)),
             Span::raw("help  "),
-            Span::styled("q ", Style::default().fg(HELP_KEY)),
+            Span::styled("[q] ", Style::default().fg(HELP_KEY)),
             Span::raw("quit"),
         ])
     };

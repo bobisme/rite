@@ -80,6 +80,8 @@ pub struct App {
     agents_height: Option<u16>,
     /// Whether the channel/chat view is maximized (sidebar hidden)
     maximized: bool,
+    /// Whether system messages are hidden in the current channel
+    hide_system_messages: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -144,6 +146,7 @@ impl App {
             dragging_sidebar_split: false,
             agents_height: None,
             maximized: false,
+            hide_system_messages: false,
         };
 
         app.update_new_message_counts();
@@ -258,6 +261,14 @@ impl App {
             if self.maximized && self.focus == Focus::Channels {
                 self.focus = Focus::Messages;
             }
+            return Ok(());
+        }
+
+        // Ctrl+H toggles system message visibility
+        if let KeyCode::Char('h') = key
+            && ctrl
+        {
+            self.hide_system_messages = !self.hide_system_messages;
             return Ok(());
         }
 
@@ -976,7 +987,11 @@ impl App {
 
     /// Get current sidebar width (0 when maximized)
     pub fn sidebar_width(&self) -> u16 {
-        if self.maximized { 0 } else { self.sidebar_width }
+        if self.maximized {
+            0
+        } else {
+            self.sidebar_width
+        }
     }
 
     /// Whether the channel/chat view is currently maximized
@@ -992,6 +1007,11 @@ impl App {
     /// Get user-override for agents pane height (None = auto-calculate)
     pub fn agents_height_override(&self) -> Option<u16> {
         self.agents_height
+    }
+
+    /// Whether system messages are currently hidden
+    pub fn hide_system_messages(&self) -> bool {
+        self.hide_system_messages
     }
 }
 
@@ -1090,12 +1110,43 @@ fn count_new_messages(path: &Path, start: u64, end: u64) -> usize {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crossterm::event::{KeyCode, KeyModifiers};
     use serial_test::serial;
     use std::env;
     use std::fs;
     use tempfile::TempDir;
 
     const DATA_DIR_ENV_VAR: &str = "BOTBUS_DATA_DIR";
+
+    #[test]
+    #[serial]
+    fn test_ctrl_h_toggles_system_visibility() {
+        let temp = TempDir::new().unwrap();
+        let temp_path = temp.path().to_str().unwrap();
+
+        unsafe {
+            env::set_var(DATA_DIR_ENV_VAR, temp_path);
+            env::set_var("BOTBUS_AGENT", "test-agent");
+        }
+
+        let mut app = App::new(None).unwrap();
+        assert!(!app.hide_system_messages());
+
+        // Toggle on
+        app.handle_key(KeyCode::Char('h'), KeyModifiers::CONTROL)
+            .unwrap();
+        assert!(app.hide_system_messages());
+
+        // Toggle off
+        app.handle_key(KeyCode::Char('h'), KeyModifiers::CONTROL)
+            .unwrap();
+        assert!(!app.hide_system_messages());
+
+        unsafe {
+            env::remove_var(DATA_DIR_ENV_VAR);
+            env::remove_var("BOTBUS_AGENT");
+        }
+    }
 
     #[test]
     #[serial]

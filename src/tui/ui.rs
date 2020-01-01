@@ -21,43 +21,53 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .constraints([Constraint::Min(10), Constraint::Length(1)])
         .split(f.area());
 
-    // Main content: sidebar | messages
-    // Sidebar contains: channels on top, agents below
-    // Use dynamic sidebar width from app state (user can resize by dragging border)
-    let sidebar_width = app.sidebar_width();
-    let main_chunks = Layout::default()
-        .direction(Direction::Horizontal)
-        .constraints([
-            Constraint::Length(sidebar_width), // sidebar (channels + agents) - user-resizable
-            Constraint::Min(40),               // messages - expands with available space
-        ])
-        .split(outer_chunks[0]);
+    if app.maximized() {
+        // Maximized mode: no sidebar, messages fill the entire area
+        // Set layout areas to zero-size rects so mouse detection skips sidebar
+        app.set_layout_areas(Rect::default(), outer_chunks[0]);
+        app.set_agents_area(Rect::default());
 
-    // Split sidebar vertically: channels on top, agents below
-    // Use user-override height if set (from drag resize), otherwise auto-calculate
-    let agent_height = if let Some(h) = app.agents_height_override() {
-        h
+        draw_messages(f, app, outer_chunks[0]);
+        draw_status(f, app, outer_chunks[1]);
     } else {
-        let agent_count = app.agent_statuses().len();
-        ((agent_count * 2) + 2).clamp(5, 20) as u16
-    };
+        // Normal mode: sidebar | messages
+        // Sidebar contains: channels on top, agents below
+        // Use dynamic sidebar width from app state (user can resize by dragging border)
+        let sidebar_width = app.sidebar_width();
+        let main_chunks = Layout::default()
+            .direction(Direction::Horizontal)
+            .constraints([
+                Constraint::Length(sidebar_width), // sidebar (channels + agents) - user-resizable
+                Constraint::Min(40),               // messages - expands with available space
+            ])
+            .split(outer_chunks[0]);
 
-    let sidebar_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(5),               // channels (flexible, min 5 lines)
-            Constraint::Length(agent_height), // agents (user-resizable or dynamic)
-        ])
-        .split(main_chunks[0]);
+        // Split sidebar vertically: channels on top, agents below
+        // Use user-override height if set (from drag resize), otherwise auto-calculate
+        let agent_height = if let Some(h) = app.agents_height_override() {
+            h
+        } else {
+            let agent_count = app.agent_statuses().len();
+            ((agent_count * 2) + 2).clamp(5, 20) as u16
+        };
 
-    // Update cached layout areas for mouse detection
-    app.set_layout_areas(sidebar_chunks[0], main_chunks[1]);
-    app.set_agents_area(sidebar_chunks[1]);
+        let sidebar_chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Min(5),               // channels (flexible, min 5 lines)
+                Constraint::Length(agent_height), // agents (user-resizable or dynamic)
+            ])
+            .split(main_chunks[0]);
 
-    draw_channels(f, app, sidebar_chunks[0]);
-    draw_agents(f, app, sidebar_chunks[1]);
-    draw_messages(f, app, main_chunks[1]);
-    draw_status(f, app, outer_chunks[1]);
+        // Update cached layout areas for mouse detection
+        app.set_layout_areas(sidebar_chunks[0], main_chunks[1]);
+        app.set_agents_area(sidebar_chunks[1]);
+
+        draw_channels(f, app, sidebar_chunks[0]);
+        draw_agents(f, app, sidebar_chunks[1]);
+        draw_messages(f, app, main_chunks[1]);
+        draw_status(f, app, outer_chunks[1]);
+    }
 
     // Draw help overlay if active
     if app.show_help() {
@@ -781,6 +791,8 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             Span::raw("send  "),
             Span::styled("[enter] ", Style::default().fg(HELP_KEY)),
             Span::raw("newline  "),
+            Span::styled("[ctrl+f] ", Style::default().fg(HELP_KEY)),
+            Span::raw("maximize  "),
             Span::styled("[esc] ", Style::default().fg(HELP_KEY)),
             Span::raw("clear  "),
             Span::styled("[ctrl+q] ", Style::default().fg(HELP_KEY)),
@@ -794,6 +806,8 @@ fn draw_status(f: &mut Frame, app: &App, area: Rect) {
             Span::raw("scroll  "),
             Span::styled("[u/d] ", Style::default().fg(HELP_KEY)),
             Span::raw("½page  "),
+            Span::styled("[ctrl+f] ", Style::default().fg(HELP_KEY)),
+            Span::raw("maximize  "),
             Span::styled("[?] ", Style::default().fg(HELP_KEY)),
             Span::raw("help  "),
             Span::styled("[q] ", Style::default().fg(HELP_KEY)),
@@ -810,7 +824,7 @@ fn draw_help_overlay(f: &mut Frame) {
 
     // Center a box in the middle of the screen
     let width = 60.min(area.width.saturating_sub(4));
-    let height = 24.min(area.height.saturating_sub(4));
+    let height = 25.min(area.height.saturating_sub(4));
     let x = (area.width.saturating_sub(width)) / 2;
     let y = (area.height.saturating_sub(height)) / 2;
     let popup_area = Rect::new(x, y, width, height);
@@ -855,6 +869,10 @@ fn draw_help_overlay(f: &mut Frame) {
         Line::from(vec![
             Span::styled("  Enter     ", Style::default().fg(HELP_KEY)),
             Span::raw("Select channel"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl-F    ", Style::default().fg(HELP_KEY)),
+            Span::raw("Toggle maximize channel view"),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled(

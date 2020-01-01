@@ -78,6 +78,8 @@ pub struct App {
     dragging_sidebar_split: bool,
     /// User-override for agents pane height (None = auto-calculate)
     agents_height: Option<u16>,
+    /// Whether the channel/chat view is maximized (sidebar hidden)
+    maximized: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -141,6 +143,7 @@ impl App {
             agents_area: Rect::default(),
             dragging_sidebar_split: false,
             agents_height: None,
+            maximized: false,
         };
 
         app.update_new_message_counts();
@@ -246,6 +249,18 @@ impl App {
             return Ok(());
         }
 
+        // Ctrl+F toggles maximize from any focus
+        if let KeyCode::Char('f') = key
+            && ctrl
+        {
+            self.maximized = !self.maximized;
+            // When maximizing from sidebar, switch focus to messages
+            if self.maximized && self.focus == Focus::Channels {
+                self.focus = Focus::Messages;
+            }
+            return Ok(());
+        }
+
         match key {
             KeyCode::Esc => {
                 // Esc clears input if focused, otherwise quits
@@ -260,6 +275,8 @@ impl App {
                 self.focus = match self.focus {
                     Focus::Channels => Focus::Messages,
                     Focus::Messages => Focus::Input,
+                    // Skip Channels pane when maximized (sidebar hidden)
+                    Focus::Input if self.maximized => Focus::Messages,
                     Focus::Input => Focus::Channels,
                 };
                 return Ok(());
@@ -450,7 +467,7 @@ impl App {
                     // Update sidebar width, enforcing minimum widths for both panes
                     // Min sidebar: 20 columns, Min messages: 40 columns
                     let terminal_width = self.messages_area.x + self.messages_area.width;
-                    let min_sidebar = 20;
+                    let min_sidebar = 10;
                     let min_messages = 40;
                     let max_sidebar = terminal_width.saturating_sub(min_messages);
 
@@ -957,9 +974,14 @@ impl App {
         self.input_area = input;
     }
 
-    /// Get current sidebar width
+    /// Get current sidebar width (0 when maximized)
     pub fn sidebar_width(&self) -> u16 {
-        self.sidebar_width
+        if self.maximized { 0 } else { self.sidebar_width }
+    }
+
+    /// Whether the channel/chat view is currently maximized
+    pub fn maximized(&self) -> bool {
+        self.maximized
     }
 
     /// Update cached agents pane area for mouse detection

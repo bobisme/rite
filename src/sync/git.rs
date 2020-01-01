@@ -3,6 +3,7 @@
 use anyhow::{Context, Result, bail};
 use std::path::Path;
 use std::process::Command;
+use tracing::warn;
 
 /// Check if git is available on the system.
 pub fn check_git_available() -> bool {
@@ -148,9 +149,7 @@ pub fn init_repo(data_dir: &Path, remote_url: Option<&str>) -> Result<()> {
             .context("Failed to push to remote")?;
 
         if !status.success() {
-            eprintln!(
-                "Warning: Failed to push to remote. You may need to run 'bus sync --push' manually."
-            );
+            warn!("failed to push to remote during init; run 'bus sync --push' manually");
         }
     }
 
@@ -174,7 +173,7 @@ pub fn commit_files(data_dir: &Path, files: &[&str], message: &str) -> Result<()
     let status = cmd.status();
     if status.is_err() || !status.unwrap().success() {
         // Log warning but don't fail
-        eprintln!("Warning: git add failed (auto-commit)");
+        warn!("git add failed (auto-commit)");
         return Ok(());
     }
 

@@ -3,6 +3,7 @@
 use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
+use tracing::warn;
 
 use super::OutputFormat;
 use crate::core::project::data_dir;
@@ -89,13 +90,13 @@ pub fn pull() -> Result<()> {
                         }
                     }
                 }
-                Err(e) => {
-                    eprintln!("{} Failed to rebuild index: {}", "Warning:".yellow(), e);
+                Err(error) => {
+                    warn!(%error, "failed to rebuild index after sync pull");
                     eprintln!("  You can manually rebuild with: bus index rebuild");
                 }
             },
-            Err(e) => {
-                eprintln!("{} Failed to open index: {}", "Warning:".yellow(), e);
+            Err(error) => {
+                warn!(%error, "failed to open index after sync pull");
                 eprintln!("  You can manually rebuild with: bus index rebuild");
             }
         }

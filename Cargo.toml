@@ -7,6 +7,16 @@ edition = "2024"
 name = "bus"
 path = "src/main.rs"
 
+[features]
+default = ["otel"]
+otel = [
+    "dep:opentelemetry",
+    "dep:opentelemetry_sdk",
+    "dep:opentelemetry-otlp",
+    "dep:opentelemetry-appender-tracing",
+    "dep:tracing-opentelemetry",
+]
+
 [dependencies]
 anyhow = "1.0.100"
 chrono = { version = "0.4.43", features = ["serde"] }
@@ -32,6 +42,13 @@ toml = "0.9.11"
 infer = "0.16"
 mime2ext = "0.1"
 sha2 = "0.10"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter", "json"] }
+opentelemetry = { version = "0.31", optional = true }
+opentelemetry_sdk = { version = "0.31", optional = true }
+opentelemetry-otlp = { version = "0.31", features = ["http-proto", "reqwest-blocking-client"], optional = true }
+opentelemetry-appender-tracing = { version = "0.31", optional = true }
+tracing-opentelemetry = { version = "0.32", optional = true }
 ulid = { version = "1.2.1", features = ["serde"] }
 
 [dev-dependencies]

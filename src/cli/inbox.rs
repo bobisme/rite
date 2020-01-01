@@ -4,6 +4,7 @@ use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
 use std::collections::HashMap;
+use tracing::instrument;
 
 use crate::cli::OutputFormat;
 use crate::cli::history::{self, HistoryOptions, HistoryOutput};
@@ -72,6 +73,7 @@ pub struct MentionsOutput {
 }
 
 /// Show unread messages for the current agent.
+#[instrument(skip(options, explicit_agent), fields(all = options.all, mentions = options.mentions, count = options.count, mark_read = options.mark_read))]
 pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
     let agent = require_agent(explicit_agent)?;
 

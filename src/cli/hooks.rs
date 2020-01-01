@@ -6,6 +6,7 @@ use colored::Colorize;
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::PathBuf;
+use tracing::{info, instrument, warn};
 
 use super::OutputFormat;
 use crate::core::claim::FileClaim;
@@ -505,6 +506,7 @@ pub struct HookFireResult {
 
 /// Evaluate all hooks for a channel after a message is sent.
 /// Returns info about hooks that fired (for caller to display).
+#[instrument(skip(meta, mentions), fields(channel = channel, message_id = message_id, agent = agent))]
 pub fn evaluate_hooks(
     channel: &str,
     message_id: &str,
@@ -524,6 +526,7 @@ pub fn evaluate_hooks(
 
 /// Evaluate hooks with explicit flag control.
 /// Flags can suppress channel hooks, mention hooks, or both.
+#[instrument(skip(meta, mentions, flags), fields(channel = channel, message_id = message_id, agent = agent))]
 pub fn evaluate_hooks_with_flags(
     channel: &str,
     message_id: &str,
@@ -534,8 +537,8 @@ pub fn evaluate_hooks_with_flags(
 ) -> Vec<HookFireResult> {
     match evaluate_hooks_inner(channel, message_id, meta, agent, mentions, flags) {
         Ok(results) => results,
-        Err(e) => {
-            eprintln!("Warning: hook evaluation failed: {}", e);
+        Err(error) => {
+            warn!(%error, "hook evaluation failed");
             vec![]
         }
     }
@@ -796,7 +799,8 @@ fn evaluate_hooks_inner(
             }
             false
         } else {
-            match std::process::Command::new(&hook.command[0])
+            let mut command = std::process::Command::new(&hook.command[0]);
+            command
                 .args(&hook.command[1..])
                 .current_dir(&hook.cwd)
                 .env("BOTBUS_CHANNEL", channel)
@@ -805,9 +809,13 @@ fn evaluate_hooks_inner(
                 .env("BOTBUS_HOOK_ID", &hook.id)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-            {
+                .stderr(std::process::Stdio::null());
+
+            if let Some(traceparent) = crate::telemetry::current_traceparent() {
+                command.env("TRACEPARENT", traceparent);
+            }
+
+            match command.spawn() {
                 Ok(mut child) => {
                     if is_on_exit {
                         // Block until command exits, then release claim
@@ -834,6 +842,7 @@ fn evaluate_hooks_inner(
 
         // Post system message to channel
         if executed {
+            info!(hook_id = %hook.id, channel, message_id, "hook fired");
             let sys_msg = Message::new(
                 "system",
                 channel,

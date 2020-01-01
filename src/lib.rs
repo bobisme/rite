@@ -5,6 +5,7 @@ pub mod index;
 pub mod storage;
 pub mod sync;
 pub mod telegram;
+pub mod telemetry;
 pub mod tui;
 
 // Re-export commonly used types

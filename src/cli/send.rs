@@ -2,6 +2,7 @@
 
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
+use tracing::instrument;
 
 use crate::attachments::{AttachmentCache, AttachmentSource, attachments_dir};
 use crate::core::channel::{dm_channel_name, is_valid_channel_name};
@@ -17,6 +18,7 @@ pub fn run_simple(target: String, message: String, agent: Option<&str>) -> Resul
 }
 
 /// Send a message with pre-parsed Attachment structs (for Telegram bridge).
+#[instrument(skip(message, _meta, labels, attachments), fields(target = %target, no_hooks))]
 pub fn run_with_attachments(
     target: String,
     message: String,
@@ -82,6 +84,7 @@ pub fn run_with_attachments(
 }
 
 /// Send a message to a channel or agent.
+#[instrument(skip(message, _meta, labels, attachments), fields(target = %target, no_hooks))]
 pub fn run(
     target: String,
     message: String,

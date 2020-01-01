@@ -4,6 +4,7 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use colored::Colorize;
 use serde::Serialize;
+use tracing::warn;
 
 use super::OutputFormat;
 use crate::core::channel::{dm_agents, is_dm_channel};
@@ -470,7 +471,7 @@ pub fn rename(old_name: &str, new_name: &str) -> Result<()> {
     match crate::telegram::config::rename_channel_in_telegram_config(old_name, new_name) {
         Ok(true) => eprintln!("✓ Updated Telegram mapping"),
         Ok(false) => {} // No mapping or no config - skip silently
-        Err(e) => eprintln!("⚠ Warning: Failed to update Telegram config: {}", e),
+        Err(error) => warn!(%error, "failed to update Telegram config during channel rename"),
     }
 
     eprintln!(

@@ -4,6 +4,7 @@ use colored::Colorize;
 use globset::{Glob, GlobSetBuilder};
 use serde::Serialize;
 use std::path::Path;
+use tracing::instrument;
 
 use super::OutputFormat;
 use crate::core::claim::FileClaim;
@@ -98,6 +99,7 @@ pub struct ClaimOptions {
 }
 
 /// Claim files for editing.
+#[instrument(skip(options), fields(pattern_count = options.patterns.len(), ttl = options.ttl, extend = options.extend.is_some()))]
 pub fn claim(options: ClaimOptions) -> Result<()> {
     let agent_name = require_agent(options.agent.as_deref())?;
 
@@ -591,6 +593,7 @@ pub fn claims(
 }
 
 /// Release file claims.
+#[instrument(skip(patterns, agent), fields(pattern_count = patterns.len(), release_all))]
 pub fn release(patterns: Vec<String>, release_all: bool, agent: Option<&str>) -> Result<()> {
     let agent_name = require_agent(agent)?;
 

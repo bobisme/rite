@@ -5,6 +5,7 @@
 
 use crate::sync::git;
 use std::path::Path;
+use tracing::warn;
 
 /// Auto-commit after sending a message to a channel.
 pub fn auto_commit_after_send(data_dir: &Path, channel: &str) {
@@ -12,8 +13,8 @@ pub fn auto_commit_after_send(data_dir: &Path, channel: &str) {
     let message = format!("add message to #{}", channel);
 
     // Best-effort commit - log warning on error but don't fail
-    if let Err(e) = git::commit_files(data_dir, &[&file], &message) {
-        eprintln!("Warning: auto-commit failed: {}", e);
+    if let Err(error) = git::commit_files(data_dir, &[&file], &message) {
+        warn!(%error, "auto-commit failed");
     }
 }
 
@@ -21,8 +22,8 @@ pub fn auto_commit_after_send(data_dir: &Path, channel: &str) {
 pub fn auto_commit_after_claim(data_dir: &Path, patterns: &[String]) {
     let message = format!("claim {}", patterns.join(", "));
 
-    if let Err(e) = git::commit_files(data_dir, &["claims.jsonl"], &message) {
-        eprintln!("Warning: auto-commit failed: {}", e);
+    if let Err(error) = git::commit_files(data_dir, &["claims.jsonl"], &message) {
+        warn!(%error, "auto-commit failed");
     }
 }
 
@@ -30,8 +31,8 @@ pub fn auto_commit_after_claim(data_dir: &Path, patterns: &[String]) {
 pub fn auto_commit_after_release(data_dir: &Path, claim_id: &str) {
     let message = format!("release claim {}", claim_id);
 
-    if let Err(e) = git::commit_files(data_dir, &["claims.jsonl"], &message) {
-        eprintln!("Warning: auto-commit failed: {}", e);
+    if let Err(error) = git::commit_files(data_dir, &["claims.jsonl"], &message) {
+        warn!(%error, "auto-commit failed");
     }
 }
 

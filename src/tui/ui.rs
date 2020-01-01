@@ -75,12 +75,19 @@ pub fn draw(f: &mut Frame, app: &mut App) {
     }
 }
 
-fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
+fn draw_channels(f: &mut Frame, app: &mut App, area: Rect) {
     let selected = app.selected_channel_index();
     let public_count = app.channels().len();
     let is_focused = app.focus() == Focus::Channels;
 
-    let mut items: Vec<ListItem> = Vec::new();
+    // Calculate viewport height (account for top and bottom borders)
+    let viewport_height = area.height.saturating_sub(2) as usize;
+
+    // Update scroll to keep selected channel visible
+    app.update_channels_scroll(viewport_height);
+    let channels_scroll = app.channels_scroll();
+
+    let mut all_items: Vec<(usize, ListItem)> = Vec::new();
 
     // Public channels
     for (i, ch) in app.channels().iter().enumerate() {
@@ -88,29 +95,41 @@ fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
         let is_selected = i == selected;
 
         let line = format_channel_line(&format!("#{}", ch), new_count, is_selected, is_focused);
-        items.push(ListItem::new(line));
+        all_items.push((i, ListItem::new(line)));
     }
 
     // DM section separator (if there are DMs)
     if !app.dm_channels().is_empty() {
-        items.push(ListItem::new(Line::from(vec![Span::styled(
-            "── DMs ──",
-            Style::default()
-                .fg(Color::DarkGray)
-                .add_modifier(Modifier::ITALIC),
-        )])));
+        let separator_idx = public_count;
+        all_items.push((
+            separator_idx,
+            ListItem::new(Line::from(vec![Span::styled(
+                "── DMs ──",
+                Style::default()
+                    .fg(Color::DarkGray)
+                    .add_modifier(Modifier::ITALIC),
+            )])),
+        ));
     }
 
     // DM channels - show as Agent1↔Agent2
     for (i, dm) in app.dm_channels().iter().enumerate() {
-        let global_idx = public_count + i;
+        let global_idx = public_count + if !app.dm_channels().is_empty() { 1 } else { 0 } + i;
         let display_name = format_dm_channel(dm);
         let new_count = app.new_message_count(dm);
         let is_selected = global_idx == selected;
 
         let line = format_channel_line_dm(&display_name, new_count, is_selected, is_focused);
-        items.push(ListItem::new(line));
+        all_items.push((global_idx, ListItem::new(line)));
     }
+
+    // Apply scroll: only show items within viewport range
+    let visible_items: Vec<ListItem> = all_items
+        .into_iter()
+        .skip(channels_scroll)
+        .take(viewport_height)
+        .map(|(_, item)| item)
+        .collect();
 
     let (border_style, title_style) = if is_focused {
         (
@@ -121,7 +140,7 @@ fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
         (Style::default(), Style::default().fg(INACTIVE_TITLE))
     };
 
-    let list = List::new(items).block(
+    let list = List::new(visible_items).block(
         Block::default()
             .title(Span::styled(" Conversations ", title_style))
             .borders(Borders::ALL)

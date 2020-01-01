@@ -41,6 +41,8 @@ pub struct App {
     selected_channel: usize,
     messages: Vec<Message>,
     message_scroll: usize,
+    /// Scroll offset for the channels list to keep selected channel visible
+    channels_scroll: usize,
     should_quit: bool,
     focus: Focus,
     channel_offset: u64,
@@ -124,6 +126,7 @@ impl App {
             selected_channel,
             messages: Vec::new(),
             message_scroll: 0,
+            channels_scroll: 0,
             should_quit: false,
             focus: Focus::Channels,
             channel_offset: 0,
@@ -963,11 +966,35 @@ impl App {
         self.message_scroll
     }
 
+    pub fn channels_scroll(&self) -> usize {
+        self.channels_scroll
+    }
+
     /// Clamp scroll offset to valid range based on rendered line count.
     /// Called by UI after layout and line wrapping is calculated.
     pub fn clamp_scroll_lines(&mut self, max_scroll: usize, viewport_height: usize) {
         self.viewport_height = viewport_height;
         self.message_scroll = self.message_scroll.min(max_scroll);
+    }
+
+    /// Update channels scroll to keep the selected channel visible.
+    /// The selected channel should be kept within the visible viewport.
+    pub fn update_channels_scroll(&mut self, viewport_height: usize) {
+        let selected = self.selected_channel;
+
+        // Calculate total items to show: public channels + separator (if any DMs) + DMs
+        let _total_items = self.channels.len()
+            + if !self.dm_channels.is_empty() { 1 } else { 0 }
+            + self.dm_channels.len();
+
+        // Ensure the selected channel is visible by scrolling if necessary
+        if selected < self.channels_scroll {
+            // Selected channel is above the current scroll position, scroll up to show it
+            self.channels_scroll = selected;
+        } else if selected >= self.channels_scroll + viewport_height {
+            // Selected channel is below the visible area, scroll down to show it at the bottom
+            self.channels_scroll = selected.saturating_sub(viewport_height.saturating_sub(1));
+        }
     }
 
     pub fn show_help(&self) -> bool {

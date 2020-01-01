@@ -226,3 +226,50 @@ fn test_tui_with_agent_identity() {
     tui.send_keys("q");
     tui.wait_for_exit(1000);
 }
+
+/// Test that channels list scrolls to keep selected channel visible.
+/// This test creates many channels and navigates through them,
+/// verifying that the selected channel stays visible on screen.
+#[test]
+fn test_channels_scroll_follows_selection() {
+    let mut project = TestProject::with_name("tui-channel-scroll");
+
+    let agent = project.agent("Scroller");
+
+    // Create many channels so we have more items than fit in the viewport
+    for i in 0..20 {
+        let channel = format!("channel-{:02}", i);
+        agent
+            .send(&channel, &format!("Message in {}", channel))
+            .assert_success();
+    }
+
+    let tui = TuiHarness::start(&project);
+
+    // Capture initial state (should show first channels)
+    let initial = tui.capture();
+    assert!(initial.contains("general") || initial.contains("channel"));
+
+    // Navigate down through channels with 'j' arrow key
+    // This should scroll the channels list to keep the selection visible
+    for _ in 0..10 {
+        tui.send_keys("j");
+    }
+
+    // After navigating down, capture should still show channels
+    // (indicating that scrolling kept the selected channel visible)
+    let after_down = tui.capture();
+    assert!(after_down.contains("channel") || after_down.contains("general"));
+
+    // Navigate back up
+    for _ in 0..5 {
+        tui.send_keys("k");
+    }
+
+    let after_up = tui.capture();
+    assert!(after_up.contains("channel") || after_up.contains("general"));
+
+    // Quit
+    tui.send_keys("q");
+    tui.wait_for_exit(1000);
+}

@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 
@@ -22,21 +22,16 @@ pub fn draw(f: &mut Frame, app: &App) {
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(main_chunks[0]);
 
-    // Content: messages | input | status
+    // Content: messages | status
     let content_chunks = Layout::default()
         .direction(Direction::Vertical)
-        .constraints([
-            Constraint::Min(10),
-            Constraint::Length(3),
-            Constraint::Length(1),
-        ])
+        .constraints([Constraint::Min(10), Constraint::Length(1)])
         .split(main_chunks[1]);
 
     draw_channels(f, app, sidebar_chunks[0]);
     draw_agents(f, app, sidebar_chunks[1]);
     draw_messages(f, app, content_chunks[0]);
-    draw_input(f, app, content_chunks[1]);
-    draw_status(f, app, content_chunks[2]);
+    draw_status(f, app, content_chunks[1]);
 }
 
 fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
@@ -66,6 +61,7 @@ fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
         Block::default()
             .title(" Channels ")
             .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
             .border_style(border_style),
     );
 
@@ -88,7 +84,12 @@ fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
-    let list = List::new(items).block(Block::default().title(" Agents ").borders(Borders::ALL));
+    let list = List::new(items).block(
+        Block::default()
+            .title(" Agents ")
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded),
+    );
 
     f.render_widget(list, area);
 }
@@ -120,6 +121,7 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
             Block::default()
                 .title(format!(" #{} ", channel_name))
                 .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
                 .border_style(border_style),
         )
         .wrap(Wrap { trim: false });
@@ -160,36 +162,14 @@ fn agent_color(name: &str) -> Color {
     colors[hash % colors.len()]
 }
 
-fn draw_input(f: &mut Frame, app: &App, area: Rect) {
-    let border_style = if app.focus() == Focus::Input {
-        Style::default().fg(Color::Cyan)
-    } else {
-        Style::default()
-    };
-
-    let input = Paragraph::new(app.input()).block(
-        Block::default()
-            .title(" Message ")
-            .borders(Borders::ALL)
-            .border_style(border_style),
-    );
-
-    f.render_widget(input, area);
-
-    // Show cursor in input mode
-    if app.focus() == Focus::Input {
-        f.set_cursor_position((area.x + app.input().len() as u16 + 1, area.y + 1));
-    }
-}
-
 fn draw_status(f: &mut Frame, _app: &App, area: Rect) {
     let status = Line::from(vec![
         Span::styled(" [Tab] ", Style::default().fg(Color::Cyan)),
         Span::raw("pane  "),
-        Span::styled("[Enter] ", Style::default().fg(Color::Cyan)),
-        Span::raw("send  "),
         Span::styled("[j/k] ", Style::default().fg(Color::Cyan)),
         Span::raw("scroll  "),
+        Span::styled("[g/G] ", Style::default().fg(Color::Cyan)),
+        Span::raw("top/bottom  "),
         Span::styled("[q] ", Style::default().fg(Color::Cyan)),
         Span::raw("quit"),
     ]);

@@ -20,7 +20,6 @@ pub struct App {
     selected_channel: usize,
     agents: Vec<Agent>,
     messages: Vec<Message>,
-    input: String,
     message_scroll: usize,
     should_quit: bool,
     focus: Focus,
@@ -31,7 +30,6 @@ pub struct App {
 pub enum Focus {
     Channels,
     Messages,
-    Input,
 }
 
 impl App {
@@ -56,10 +54,9 @@ impl App {
             selected_channel,
             agents,
             messages: Vec::new(),
-            input: String::new(),
             message_scroll: 0,
             should_quit: false,
-            focus: Focus::Input,
+            focus: Focus::Messages,
             channel_offset: 0,
         };
 
@@ -107,34 +104,40 @@ impl App {
     }
 
     fn handle_key(&mut self, key: KeyCode) -> Result<()> {
+        // Global keys
+        match key {
+            KeyCode::Char('q') | KeyCode::Esc => {
+                self.should_quit = true;
+                return Ok(());
+            }
+            KeyCode::Tab => {
+                self.focus = match self.focus {
+                    Focus::Channels => Focus::Messages,
+                    Focus::Messages => Focus::Channels,
+                };
+                return Ok(());
+            }
+            _ => {}
+        }
+
+        // Focus-specific keys
         match self.focus {
-            Focus::Input => match key {
-                KeyCode::Esc => self.focus = Focus::Messages,
-                KeyCode::Enter => self.send_message()?,
-                KeyCode::Backspace => {
-                    self.input.pop();
-                }
-                KeyCode::Char(c) => self.input.push(c),
-                KeyCode::Tab => self.focus = Focus::Channels,
-                _ => {}
-            },
             Focus::Messages => match key {
-                KeyCode::Char('q') => self.should_quit = true,
-                KeyCode::Char('i') | KeyCode::Enter => self.focus = Focus::Input,
-                KeyCode::Tab => self.focus = Focus::Channels,
                 KeyCode::Up | KeyCode::Char('k') => {
                     self.message_scroll = self.message_scroll.saturating_add(1);
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     self.message_scroll = self.message_scroll.saturating_sub(1);
                 }
-                KeyCode::Esc => self.should_quit = true,
+                KeyCode::Home | KeyCode::Char('g') => {
+                    self.message_scroll = self.messages.len().saturating_sub(1);
+                }
+                KeyCode::End | KeyCode::Char('G') => {
+                    self.message_scroll = 0;
+                }
                 _ => {}
             },
             Focus::Channels => match key {
-                KeyCode::Char('q') => self.should_quit = true,
-                KeyCode::Tab | KeyCode::Enter => self.focus = Focus::Input,
-                KeyCode::Esc => self.focus = Focus::Messages,
                 KeyCode::Up | KeyCode::Char('k') => {
                     if self.selected_channel > 0 {
                         self.selected_channel -= 1;
@@ -147,34 +150,12 @@ impl App {
                         self.load_messages()?;
                     }
                 }
+                KeyCode::Enter => {
+                    self.focus = Focus::Messages;
+                }
                 _ => {}
             },
         }
-        Ok(())
-    }
-
-    fn send_message(&mut self) -> Result<()> {
-        if self.input.trim().is_empty() {
-            return Ok(());
-        }
-
-        let agent = match &self.current_agent {
-            Some(a) => a.clone(),
-            None => return Ok(()),
-        };
-
-        let channel = match self.current_channel() {
-            Some(c) => c,
-            None => return Ok(()),
-        };
-
-        let msg = Message::new(&agent, &channel, &self.input);
-        let path = channel_path(&self.project_root, &channel);
-        crate::storage::jsonl::append_record(&path, &msg)?;
-
-        self.input.clear();
-        self.refresh_messages()?;
-
         Ok(())
     }
 
@@ -224,10 +205,6 @@ impl App {
 
     pub fn messages(&self) -> &[Message] {
         &self.messages
-    }
-
-    pub fn input(&self) -> &str {
-        &self.input
     }
 
     pub fn focus(&self) -> Focus {

@@ -1,3 +1,53 @@
+## Agent Communication
+
+This project uses BotBus for agent coordination. Before starting work, check for other agents and active claims.
+
+### Quick Start
+
+```bash
+# Register yourself (once per project)
+botbus register --name YourAgentName --description "Brief description"
+
+# Check what's happening
+botbus status              # Overview (once implemented)
+botbus history             # Recent messages
+botbus agents              # Who's registered
+
+# Communicate
+botbus send general "Starting work on X"
+botbus send general "Done with X, ready for review"
+botbus send @OtherAgent "Question about Y"
+
+# Coordinate file access
+botbus claim "src/api/**" -m "Working on API routes"
+botbus check-claim src/api/routes.rs   # Before editing (once implemented)
+botbus release --all                    # When done
+```
+
+### Best Practices
+
+1. **Announce your intent** before starting significant work
+2. **Claim files** you plan to edit to avoid conflicts
+3. **Check claims** before editing files outside your claimed area
+4. **Send updates** on blockers, questions, or completed work
+5. **Release claims** when done - don't hoard files
+
+### Channel Conventions
+
+- `#general` - Default channel for project-wide updates
+- `#backend`, `#frontend`, etc. - Create topic channels as needed
+- `@AgentName` - Direct messages for specific coordination
+
+### Message Conventions
+
+Keep messages concise and actionable:
+- "Starting work on bd-xyz: Add foo feature"
+- "Blocked: need database credentials to proceed"
+- "Question: should auth middleware go in src/api or src/auth?"
+- "Done: implemented bar, tests passing"
+
+---
+
 ## Tools
 
 ### Beads Workflow Integration
@@ -31,6 +81,17 @@ git add .beads/ && git commit -m "Update beads" && git push  # Manual git steps
 3. **Work**: Implement the task
 4. **Complete**: Use `br close <id>`
 5. **Sync**: Run `br sync --flush-only`, then manually `git add .beads/ && git commit && git push`
+
+#### Issue Quality
+
+When creating or updating issues, always include:
+- **Description**: What the issue is about, context, and acceptance criteria
+- **Labels**: Use `--add-label` to categorize (e.g., `cli`, `agent-ux`, `data-model`, `bug`, `enhancement`)
+
+```bash
+br create --title="Add foo feature" --type=task --priority=2
+br update <id> --description="Detailed description here" --add-label=cli --add-label=enhancement
+```
 
 ### Using bv as an AI sidecar
 

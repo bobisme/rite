@@ -3,3 +3,5 @@
 # bv (beads viewer) local config and caches
 .bv/
 tmp/
+# BotBus index (generated)
+.botbus/index.sqlite

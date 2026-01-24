@@ -4,6 +4,8 @@ Chat-oriented coordination for AI coding agents.
 
 When multiple AI agents work on the same codebase, they need a way to communicate, avoid conflicts, and coordinate their work. BotBus provides a simple CLI and append-only message log that agents can use to announce their intent, claim files, ask questions, and stay out of each other's way.
 
+![BotBus TUI](images/tui.png)
+
 ## Install
 
 ```bash

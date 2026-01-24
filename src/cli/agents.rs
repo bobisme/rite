@@ -1,5 +1,8 @@
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use colored::Colorize;
+use serde::Serialize;
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::core::agent::Agent;
@@ -7,33 +10,66 @@ use crate::core::message::Message;
 use crate::core::project::{agents_path, channels_dir};
 use crate::storage::jsonl::read_records;
 
+#[derive(Debug, Serialize)]
+pub struct AgentInfo {
+    pub name: String,
+    pub description: Option<String>,
+    pub registered_at: DateTime<Utc>,
+    pub last_seen: Option<DateTime<Utc>>,
+    pub active: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AgentsOutput {
+    pub agents: Vec<AgentInfo>,
+}
+
 /// List registered agents.
-pub fn run(_active_only: bool, project_root: &Path) -> Result<()> {
+pub fn run(json: bool, _active_only: bool, project_root: &Path) -> Result<()> {
     let agents: Vec<Agent> =
         read_records(&agents_path(project_root)).with_context(|| "Failed to read agents")?;
 
-    if agents.is_empty() {
+    let last_seen = get_last_seen_times(project_root);
+    let now = Utc::now();
+
+    let agent_infos: Vec<AgentInfo> = agents
+        .iter()
+        .map(|a| {
+            let seen = last_seen.get(&a.name).copied();
+            let active = seen.is_some_and(|ts| now.signed_duration_since(ts).num_minutes() < 30);
+            AgentInfo {
+                name: a.name.clone(),
+                description: a.description.clone(),
+                registered_at: a.ts,
+                last_seen: seen,
+                active,
+            }
+        })
+        .collect();
+
+    if json {
+        let output = AgentsOutput {
+            agents: agent_infos,
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
+
+    if agent_infos.is_empty() {
         println!("No agents registered yet.");
         return Ok(());
     }
 
-    // Build a map of agent -> last message time
-    let last_seen = get_last_seen_times(project_root);
-
     println!("{}", "Agents:".bold());
 
-    for agent in &agents {
-        let registered_ago = format_time_ago(agent.ts);
-        let last_seen_str = last_seen
-            .get(&agent.name)
-            .map(|ts| format_time_ago(*ts))
+    for info in &agent_infos {
+        let registered_ago = format_time_ago(info.registered_at);
+        let last_seen_str = info
+            .last_seen
+            .map(|ts| format_time_ago(ts))
             .unwrap_or_else(|| "never".to_string());
 
-        // Activity indicator
-        let indicator = if last_seen
-            .get(&agent.name)
-            .is_some_and(|ts| chrono::Utc::now().signed_duration_since(*ts).num_minutes() < 30)
-        {
+        let indicator = if info.active {
             "●".green()
         } else {
             "○".dimmed()
@@ -42,12 +78,12 @@ pub fn run(_active_only: bool, project_root: &Path) -> Result<()> {
         println!(
             "  {} {:<20} Registered {}, last seen {}",
             indicator,
-            agent.name.cyan(),
+            info.name.cyan(),
             registered_ago,
             last_seen_str
         );
 
-        if let Some(desc) = &agent.description {
+        if let Some(desc) = &info.description {
             println!("                         {}", desc.dimmed());
         }
     }
@@ -55,10 +91,8 @@ pub fn run(_active_only: bool, project_root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn get_last_seen_times(
-    project_root: &Path,
-) -> std::collections::HashMap<String, chrono::DateTime<chrono::Utc>> {
-    let mut last_seen = std::collections::HashMap::new();
+fn get_last_seen_times(project_root: &Path) -> HashMap<String, DateTime<Utc>> {
+    let mut last_seen = HashMap::new();
 
     let channels = channels_dir(project_root);
     if !channels.exists() {
@@ -84,8 +118,8 @@ fn get_last_seen_times(
     last_seen
 }
 
-fn format_time_ago(ts: chrono::DateTime<chrono::Utc>) -> String {
-    let now = chrono::Utc::now();
+fn format_time_ago(ts: DateTime<Utc>) -> String {
+    let now = Utc::now();
     let duration = now.signed_duration_since(ts);
 
     if duration.num_seconds() < 60 {
@@ -116,8 +150,16 @@ mod tests {
         )
         .unwrap();
 
-        // Should not error
-        run(false, temp.path()).unwrap();
+        run(false, false, temp.path()).unwrap();
+    }
+
+    #[test]
+    fn test_list_agents_json() {
+        let temp = TempDir::new().unwrap();
+        init::run(false, temp.path()).unwrap();
+        register::run(Some("Agent1".to_string()), None, temp.path()).unwrap();
+
+        run(true, false, temp.path()).unwrap();
     }
 
     #[test]
@@ -125,7 +167,6 @@ mod tests {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
 
-        // Should not error
-        run(false, temp.path()).unwrap();
+        run(false, false, temp.path()).unwrap();
     }
 }

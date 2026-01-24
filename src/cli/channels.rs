@@ -1,5 +1,7 @@
 use anyhow::{Context, Result};
+use chrono::{DateTime, Utc};
 use colored::Colorize;
+use serde::Serialize;
 use std::path::Path;
 
 use crate::core::channel::is_dm_channel;
@@ -7,23 +9,50 @@ use crate::core::message::Message;
 use crate::core::project::channels_dir;
 use crate::storage::jsonl::{count_records, read_last_n};
 
-/// List all channels.
-pub fn run(include_dms: bool, project_root: &Path) -> Result<()> {
-    let channels = channels_dir(project_root);
+#[derive(Debug, Serialize)]
+pub struct ChannelInfo {
+    pub name: String,
+    pub is_dm: bool,
+    pub message_count: usize,
+    pub last_activity: Option<DateTime<Utc>>,
+}
 
-    if !channels.exists() {
-        println!("No channels yet.");
+#[derive(Debug, Serialize)]
+pub struct ChannelsOutput {
+    pub channels: Vec<ChannelInfo>,
+}
+
+/// List all channels.
+pub fn run(json: bool, include_dms: bool, project_root: &Path) -> Result<()> {
+    let channels_path = channels_dir(project_root);
+
+    if !channels_path.exists() {
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&ChannelsOutput { channels: vec![] })?
+            );
+        } else {
+            println!("No channels yet.");
+        }
         return Ok(());
     }
 
-    let mut entries: Vec<_> = std::fs::read_dir(&channels)
+    let mut entries: Vec<_> = std::fs::read_dir(&channels_path)
         .with_context(|| "Failed to read channels directory")?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
         .collect();
 
     if entries.is_empty() {
-        println!("No channels yet.");
+        if json {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&ChannelsOutput { channels: vec![] })?
+            );
+        } else {
+            println!("No channels yet.");
+        }
         return Ok(());
     }
 
@@ -34,36 +63,59 @@ pub fn run(include_dms: bool, project_root: &Path) -> Result<()> {
         b_time.cmp(&a_time)
     });
 
-    println!("{}", "Channels:".bold());
+    let mut channel_infos: Vec<ChannelInfo> = Vec::new();
 
     for entry in entries {
         let path = entry.path();
         let channel_name = path
             .file_stem()
             .and_then(|s| s.to_str())
-            .unwrap_or("unknown");
+            .unwrap_or("unknown")
+            .to_string();
+
+        let is_dm = is_dm_channel(&channel_name);
 
         // Skip DMs unless --all
-        if is_dm_channel(channel_name) && !include_dms {
+        if is_dm && !include_dms {
             continue;
         }
 
-        let count = count_records(&path).unwrap_or(0);
+        let message_count = count_records(&path).unwrap_or(0);
         let last_msg: Option<Message> = read_last_n(&path, 1)
             .ok()
             .and_then(|v: Vec<Message>| v.into_iter().next());
 
-        let time_ago = last_msg
-            .map(|m| format_time_ago(m.ts))
+        channel_infos.push(ChannelInfo {
+            name: channel_name,
+            is_dm,
+            message_count,
+            last_activity: last_msg.map(|m| m.ts),
+        });
+    }
+
+    if json {
+        let output = ChannelsOutput {
+            channels: channel_infos,
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
+
+    println!("{}", "Channels:".bold());
+
+    for info in &channel_infos {
+        let time_ago = info
+            .last_activity
+            .map(|ts| format_time_ago(ts))
             .unwrap_or_else(|| "never".to_string());
 
-        let prefix = if is_dm_channel(channel_name) { "" } else { "#" };
+        let prefix = if info.is_dm { "" } else { "#" };
 
         println!(
             "  {}{:<20} {:>4} messages, last: {}",
             prefix,
-            channel_name.cyan(),
-            count,
+            info.name.cyan(),
+            info.message_count,
             time_ago
         );
     }
@@ -71,8 +123,8 @@ pub fn run(include_dms: bool, project_root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn format_time_ago(ts: chrono::DateTime<chrono::Utc>) -> String {
-    let now = chrono::Utc::now();
+fn format_time_ago(ts: DateTime<Utc>) -> String {
+    let now = Utc::now();
     let duration = now.signed_duration_since(ts);
 
     if duration.num_seconds() < 60 {
@@ -105,8 +157,23 @@ mod tests {
         )
         .unwrap();
 
-        // Should not error
-        run(false, temp.path()).unwrap();
+        run(false, false, temp.path()).unwrap();
+    }
+
+    #[test]
+    fn test_list_channels_json() {
+        let temp = TempDir::new().unwrap();
+        init::run(false, temp.path()).unwrap();
+        send::run(
+            "backend".to_string(),
+            "test".to_string(),
+            None,
+            Some("Agent"),
+            temp.path(),
+        )
+        .unwrap();
+
+        run(true, false, temp.path()).unwrap();
     }
 
     #[test]
@@ -122,7 +189,6 @@ mod tests {
         )
         .unwrap();
 
-        // Should not error
-        run(true, temp.path()).unwrap();
+        run(false, true, temp.path()).unwrap();
     }
 }

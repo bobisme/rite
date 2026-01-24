@@ -1,5 +1,6 @@
 use anyhow::{bail, Context, Result};
 use colored::Colorize;
+use serde::Serialize;
 use std::path::Path;
 
 use crate::core::agent::Agent;
@@ -7,11 +8,24 @@ use crate::core::identity::{format_export, resolve_agent, AGENT_ENV_VAR};
 use crate::core::project::agents_path;
 use crate::storage::jsonl::read_records;
 
+#[derive(Debug, Serialize)]
+pub struct WhoamiOutput {
+    pub agent: String,
+    pub project: String,
+    pub source: String,
+    pub registered: bool,
+    pub description: Option<String>,
+}
+
 /// Display current agent identity.
-pub fn run(agent: Option<&str>, project_root: &Path) -> Result<()> {
+pub fn run(json: bool, agent: Option<&str>, project_root: &Path) -> Result<()> {
     let agent_name = match resolve_agent(agent, project_root) {
         Some(name) => name,
         None => {
+            if json {
+                println!("{{\"error\": \"No agent identity configured\"}}");
+                return Ok(());
+            }
             bail!(
                 "No agent identity configured.\n\n\
                  To set your identity:\n\
@@ -25,21 +39,37 @@ pub fn run(agent: Option<&str>, project_root: &Path) -> Result<()> {
 
     // Check where identity came from
     let from_env = std::env::var(AGENT_ENV_VAR).ok().as_deref() == Some(&agent_name);
+    let source = if agent.is_some() {
+        "--agent flag".to_string()
+    } else if from_env {
+        format!("${}", AGENT_ENV_VAR)
+    } else {
+        "state.json".to_string()
+    };
 
     // Find the agent record for additional info
     let agents: Vec<Agent> =
         read_records(&agents_path(project_root)).with_context(|| "Failed to read agents")?;
 
-    let agent = agents.iter().find(|a| a.name == agent_name);
+    let agent_record = agents.iter().find(|a| a.name == agent_name);
+
+    if json {
+        let output = WhoamiOutput {
+            agent: agent_name,
+            project: project_root.display().to_string(),
+            source,
+            registered: agent_record.is_some(),
+            description: agent_record.and_then(|a| a.description.clone()),
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
 
     println!("{}: {}", "Agent".bold(), agent_name.cyan());
     println!("{}: {}", "Project".bold(), project_root.display());
+    println!("{}: {}", "Source".bold(), source);
 
-    if from_env {
-        println!("{}: {}", "Source".bold(), format!("${}", AGENT_ENV_VAR));
-    }
-
-    if let Some(a) = agent {
+    if let Some(a) = agent_record {
         println!(
             "{}: {}",
             "Registered".bold(),
@@ -77,12 +107,19 @@ mod tests {
             env::set_var(AGENT_ENV_VAR, "TestAgent");
         }
 
-        // Should not error (though agent won't be in agents.jsonl)
-        run(None, temp.path()).unwrap();
+        run(false, None, temp.path()).unwrap();
 
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
         }
+    }
+
+    #[test]
+    fn test_whoami_json() {
+        let temp = TempDir::new().unwrap();
+        init::run(false, temp.path()).unwrap();
+
+        run(true, Some("TestAgent"), temp.path()).unwrap();
     }
 
     #[test]
@@ -96,7 +133,7 @@ mod tests {
             env::remove_var(AGENT_ENV_VAR);
         }
 
-        let result = run(None, temp.path());
+        let result = run(false, None, temp.path());
         assert!(result.is_err());
     }
 }

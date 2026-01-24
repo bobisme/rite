@@ -24,7 +24,7 @@ fn main() -> Result<()> {
 
         Commands::Whoami => {
             let project_root = resolve_project_root(cli.project)?;
-            cli::whoami::run(cli.agent.as_deref(), &project_root)
+            cli::whoami::run(cli.json, cli.agent.as_deref(), &project_root)
         }
 
         Commands::Send {
@@ -71,12 +71,12 @@ fn main() -> Result<()> {
 
         Commands::Channels { all } => {
             let project_root = resolve_project_root(cli.project)?;
-            cli::channels::run(all, &project_root)
+            cli::channels::run(cli.json, all, &project_root)
         }
 
         Commands::Agents { active } => {
             let project_root = resolve_project_root(cli.project)?;
-            cli::agents::run(active, &project_root)
+            cli::agents::run(cli.json, active, &project_root)
         }
 
         Commands::Search {

@@ -13,6 +13,7 @@ pub mod search;
 pub mod send;
 pub mod status;
 pub mod ui;
+pub mod wait;
 pub mod watch;
 pub mod whoami;
 
@@ -239,4 +240,19 @@ pub enum Commands {
 
     /// Show project status overview
     Status,
+
+    /// Wait for a message to arrive
+    Wait {
+        /// Wait for @mention of current agent
+        #[arg(long)]
+        mention: bool,
+
+        /// Wait for messages in specific channel
+        #[arg(short, long)]
+        channel: Option<String>,
+
+        /// Timeout in seconds (0 = no timeout)
+        #[arg(short, long, default_value = "0")]
+        timeout: u64,
+    },
 }

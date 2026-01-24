@@ -180,6 +180,24 @@ fn main() -> Result<()> {
             let project_root = resolve_project_root(cli.project)?;
             cli::status::run(cli.json, cli.agent.as_deref(), &project_root)
         }
+
+        Commands::Wait {
+            mention,
+            channel,
+            timeout,
+        } => {
+            let project_root = resolve_project_root(cli.project)?;
+            cli::wait::run(
+                cli::wait::WaitOptions {
+                    mention,
+                    channel,
+                    timeout,
+                    json: cli.json,
+                },
+                cli.agent.as_deref(),
+                &project_root,
+            )
+        }
     }
 }
 

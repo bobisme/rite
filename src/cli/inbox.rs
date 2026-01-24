@@ -2,10 +2,12 @@
 
 use anyhow::{Context, Result};
 use colored::Colorize;
+use serde::Serialize;
 use std::path::Path;
 
 use crate::cli::history::{self, HistoryOptions, HistoryOutput};
 use crate::core::identity::resolve_agent;
+use crate::core::message::Message;
 use crate::storage::agent_state::AgentStateManager;
 
 pub struct InboxOptions {
@@ -15,6 +17,17 @@ pub struct InboxOptions {
     pub count: usize,
     /// Auto-mark as read after displaying
     pub mark_read: bool,
+    /// Output as JSON
+    pub json: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct InboxOutput {
+    pub channel: String,
+    pub unread_count: usize,
+    pub messages: Vec<Message>,
+    pub next_offset: u64,
+    pub marked_read: bool,
 }
 
 /// Show unread messages for the current agent.
@@ -42,10 +55,30 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>, project_root: &P
         after_offset: Some(cursor.offset),
         after_id: None,
         show_offset: false,
-        json: false, // inbox handles its own output
+        json: false,
     };
 
     let output: HistoryOutput = history::run_with_output(history_options, project_root)?;
+
+    // Mark as read if requested
+    let marked_read = if options.mark_read && !output.messages.is_empty() {
+        manager.mark_read(&channel, output.next_offset, output.last_id.as_deref())?;
+        true
+    } else {
+        false
+    };
+
+    if options.json {
+        let json_output = InboxOutput {
+            channel: channel.clone(),
+            unread_count: output.messages.len(),
+            messages: output.messages,
+            next_offset: output.next_offset,
+            marked_read,
+        };
+        println!("{}", serde_json::to_string_pretty(&json_output)?);
+        return Ok(());
+    }
 
     if output.messages.is_empty() {
         println!("{} No unread messages in #{}", "✓".green(), channel.cyan());
@@ -67,9 +100,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>, project_root: &P
         print_message(msg);
     }
 
-    // Auto mark as read if requested
-    if options.mark_read {
-        manager.mark_read(&channel, output.next_offset, output.last_id.as_deref())?;
+    if marked_read {
         println!();
         println!(
             "{} Marked as read (offset: {})",
@@ -90,7 +121,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>, project_root: &P
     Ok(())
 }
 
-fn print_message(msg: &crate::core::message::Message) {
+fn print_message(msg: &Message) {
     use chrono::{DateTime, Local};
 
     let local_time: DateTime<Local> = msg.ts.with_timezone(&Local);
@@ -134,15 +165,15 @@ mod tests {
             channel: Some("general".to_string()),
             count: 50,
             mark_read: false,
+            json: false,
         };
         run(options, Some("TestAgent"), temp.path()).unwrap();
     }
 
     #[test]
-    fn test_inbox_with_unread() {
+    fn test_inbox_json() {
         let temp = setup();
 
-        // Send a message
         send::run(
             "general".to_string(),
             "Hello!".to_string(),
@@ -152,11 +183,33 @@ mod tests {
         )
         .unwrap();
 
-        // Check inbox (should show 1 unread)
         let options = InboxOptions {
             channel: Some("general".to_string()),
             count: 50,
             mark_read: false,
+            json: true,
+        };
+        run(options, Some("Reader"), temp.path()).unwrap();
+    }
+
+    #[test]
+    fn test_inbox_with_unread() {
+        let temp = setup();
+
+        send::run(
+            "general".to_string(),
+            "Hello!".to_string(),
+            None,
+            Some("Sender"),
+            temp.path(),
+        )
+        .unwrap();
+
+        let options = InboxOptions {
+            channel: Some("general".to_string()),
+            count: 50,
+            mark_read: false,
+            json: false,
         };
         run(options, Some("Reader"), temp.path()).unwrap();
     }
@@ -165,7 +218,6 @@ mod tests {
     fn test_inbox_mark_read() {
         let temp = setup();
 
-        // Send a message
         send::run(
             "general".to_string(),
             "Hello!".to_string(),
@@ -175,21 +227,20 @@ mod tests {
         )
         .unwrap();
 
-        // Check inbox and mark as read
         let options = InboxOptions {
             channel: Some("general".to_string()),
             count: 50,
             mark_read: true,
+            json: false,
         };
         run(options, Some("Reader"), temp.path()).unwrap();
 
-        // Check inbox again (should be empty)
         let options2 = InboxOptions {
             channel: Some("general".to_string()),
             count: 50,
             mark_read: false,
+            json: false,
         };
-        // This should succeed and show no unread
         run(options2, Some("Reader"), temp.path()).unwrap();
     }
 
@@ -197,7 +248,6 @@ mod tests {
     fn test_inbox_per_agent_isolation() {
         let temp = setup();
 
-        // Send a message
         send::run(
             "general".to_string(),
             "Hello!".to_string(),
@@ -207,20 +257,19 @@ mod tests {
         )
         .unwrap();
 
-        // Agent1 marks as read
         let options = InboxOptions {
             channel: Some("general".to_string()),
             count: 50,
             mark_read: true,
+            json: false,
         };
         run(options, Some("Agent1"), temp.path()).unwrap();
 
-        // Agent2 should still see it as unread
-        // (This test just verifies no crash; proper assertion would need output capture)
         let options2 = InboxOptions {
             channel: Some("general".to_string()),
             count: 50,
             mark_read: false,
+            json: false,
         };
         run(options2, Some("Agent2"), temp.path()).unwrap();
     }

@@ -82,8 +82,24 @@ pub fn claim(options: ClaimOptions, project_root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Output for claims list.
+#[derive(Debug, Serialize)]
+pub struct ClaimsOutput {
+    pub claims: Vec<ClaimInfo>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClaimInfo {
+    pub agent: String,
+    pub patterns: Vec<String>,
+    pub active: bool,
+    pub expires_at: DateTime<Utc>,
+    pub expires_in_secs: i64,
+}
+
 /// List active file claims.
 pub fn claims(
+    json: bool,
     show_all: bool,
     mine_only: bool,
     agent: Option<&str>,
@@ -117,6 +133,23 @@ pub fn claims(
 
     claims_list.sort_by(|a, b| a.expires_at.cmp(&b.expires_at));
 
+    if json {
+        let output = ClaimsOutput {
+            claims: claims_list
+                .iter()
+                .map(|c| ClaimInfo {
+                    agent: c.agent.clone(),
+                    patterns: c.patterns.clone(),
+                    active: c.active,
+                    expires_at: c.expires_at,
+                    expires_in_secs: (c.expires_at - now).num_seconds(),
+                })
+                .collect(),
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
+
     if claims_list.is_empty() {
         println!("No active claims.");
         return Ok(());
@@ -133,7 +166,7 @@ pub fn claims(
             format!("expires in {}m", remaining).green()
         };
 
-        let agent = if claim.agent == current_agent {
+        let agent_display = if claim.agent == current_agent {
             claim.agent.cyan().bold()
         } else {
             claim.agent.yellow().normal()
@@ -141,7 +174,7 @@ pub fn claims(
 
         println!(
             "  {:<16} {:<30} {}",
-            agent,
+            agent_display,
             claim.patterns.join(", ").dimmed(),
             status
         );
@@ -475,7 +508,7 @@ mod tests {
         )
         .unwrap();
 
-        claims(false, false, Some("Claimer"), temp.path()).unwrap();
+        claims(false, false, false, Some("Claimer"), temp.path()).unwrap();
     }
 
     #[test]

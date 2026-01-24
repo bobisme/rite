@@ -117,7 +117,7 @@ fn main() -> Result<()> {
 
         Commands::Claims { all, mine } => {
             let project_root = resolve_project_root(cli.project)?;
-            cli::claim::claims(all, mine, cli.agent.as_deref(), &project_root)
+            cli::claim::claims(cli.json, all, mine, cli.agent.as_deref(), &project_root)
         }
 
         Commands::Release { patterns, all } => {
@@ -168,6 +168,7 @@ fn main() -> Result<()> {
                     channel,
                     count,
                     mark_read,
+                    json: cli.json,
                 },
                 cli.agent.as_deref(),
                 &project_root,

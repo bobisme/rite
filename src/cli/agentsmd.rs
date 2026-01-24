@@ -77,39 +77,11 @@ Keep messages concise and actionable:
     )
 }
 
-/// Options for the agentsmd command
-#[derive(Debug, Clone)]
-pub struct AgentsMdOptions {
-    pub add: bool,
-    pub remove: bool,
-    pub update: bool,
-    pub check: bool,
-    pub show: bool,
-    pub dry_run: bool,
-    pub force: bool,
-    pub file: Option<PathBuf>,
-}
-
-impl Default for AgentsMdOptions {
-    fn default() -> Self {
-        Self {
-            add: false,
-            remove: false,
-            update: false,
-            check: true, // default action
-            show: false,
-            dry_run: false,
-            force: false,
-            file: None,
-        }
-    }
-}
-
 /// Result of checking for existing instructions
 #[derive(Debug)]
 pub enum InstructionsStatus {
     /// Found instructions in a file
-    Found { path: PathBuf, current: bool },
+    Found { path: PathBuf },
     /// No instructions found, but found a candidate file
     NotFound { path: PathBuf },
     /// No agent file found at all
@@ -128,23 +100,15 @@ pub fn find_agent_file(project_root: &Path) -> Option<PathBuf> {
 }
 
 /// Check if the file contains BotBus instructions
-pub fn check_instructions(path: &Path) -> Result<Option<(usize, usize)>> {
+pub fn check_instructions(path: &Path) -> Result<bool> {
     let content = std::fs::read_to_string(path).context("Failed to read file")?;
+    let has_start = content.contains(MARKER_START);
+    let has_end = content.contains(MARKER_END);
 
-    let start_pos = content.find(MARKER_START);
-    let end_pos = content.find(MARKER_END);
-
-    match (start_pos, end_pos) {
-        (Some(start), Some(end)) if end > start => {
-            // Find line numbers
-            let start_line = content[..start].matches('\n').count();
-            let end_line = content[..end].matches('\n').count();
-            Ok(Some((start_line + 1, end_line + 1)))
-        }
-        (Some(_), None) | (None, Some(_)) => {
-            anyhow::bail!("Malformed BotBus instructions: mismatched markers")
-        }
-        _ => Ok(None),
+    match (has_start, has_end) {
+        (true, true) => Ok(true),
+        (false, false) => Ok(false),
+        _ => anyhow::bail!("Malformed BotBus instructions: mismatched markers"),
     }
 }
 
@@ -163,39 +127,34 @@ pub fn get_status(project_root: &Path, explicit_file: Option<&Path>) -> Result<I
         }
     };
 
-    match check_instructions(&path)? {
-        Some(_) => Ok(InstructionsStatus::Found {
-            path,
-            current: true, // TODO: version checking
-        }),
-        None => Ok(InstructionsStatus::NotFound { path }),
+    if check_instructions(&path)? {
+        Ok(InstructionsStatus::Found { path })
+    } else {
+        Ok(InstructionsStatus::NotFound { path })
     }
 }
 
-/// Add instructions to a file
-pub fn add_instructions(path: &Path, dry_run: bool) -> Result<String> {
+/// Add or update instructions in a file
+fn add_or_update_instructions(path: &Path) -> Result<String> {
     let content = if path.exists() {
         std::fs::read_to_string(path).context("Failed to read file")?
     } else {
         String::new()
     };
 
-    // Check if already present
-    if content.contains(MARKER_START) {
-        anyhow::bail!(
-            "BotBus instructions already exist in {}. Use --update to modify.",
-            path.display()
-        );
-    }
-
     let instructions = get_instructions_content();
 
-    if dry_run {
-        return Ok(format!(
-            "Would add BotBus instructions to: {}\n\n--- Preview ---\n{}",
-            path.display(),
-            instructions
-        ));
+    // Check if already present - if so, update
+    if content.contains(MARKER_START) && content.contains(MARKER_END) {
+        let start_pos = content.find(MARKER_START).unwrap();
+        let end_pos = content.find(MARKER_END).unwrap() + MARKER_END.len();
+
+        let before = &content[..start_pos];
+        let after = &content[end_pos..];
+        let new_content = format!("{before}{instructions}{after}");
+
+        std::fs::write(path, &new_content).context("Failed to write file")?;
+        return Ok(format!("Updated BotBus section in {}", path.display()));
     }
 
     // Add to end of file with a separator
@@ -212,11 +171,11 @@ pub fn add_instructions(path: &Path, dry_run: bool) -> Result<String> {
         std::fs::create_dir_all(parent).context("Failed to create parent directories")?;
     }
     std::fs::write(path, &new_content).context("Failed to write file")?;
-    Ok(format!("Added BotBus instructions to: {}", path.display()))
+    Ok(format!("Added BotBus section to {}", path.display()))
 }
 
 /// Remove instructions from a file
-pub fn remove_instructions(path: &Path, dry_run: bool) -> Result<String> {
+fn remove_instructions(path: &Path) -> Result<String> {
     let content = std::fs::read_to_string(path).context("Failed to read file")?;
 
     let start_pos = content.find(MARKER_START);
@@ -242,188 +201,54 @@ pub fn remove_instructions(path: &Path, dry_run: bool) -> Result<String> {
                 format!("{before}\n\n{after}")
             };
 
-            if dry_run {
-                Ok(format!(
-                    "Would remove BotBus instructions from: {}",
-                    path.display()
-                ))
-            } else {
-                std::fs::write(path, &new_content).context("Failed to write file")?;
-                Ok(format!(
-                    "Removed BotBus instructions from: {}",
-                    path.display()
-                ))
-            }
+            std::fs::write(path, &new_content).context("Failed to write file")?;
+            Ok(format!("Removed BotBus section from {}", path.display()))
         }
         _ => anyhow::bail!("No BotBus instructions found in {}", path.display()),
     }
 }
 
-/// Update instructions in a file
-pub fn update_instructions(path: &Path, dry_run: bool) -> Result<String> {
-    let content = std::fs::read_to_string(path).context("Failed to read file")?;
+/// Run the 'init' subcommand - add or update instructions
+pub fn run_init(file: Option<PathBuf>, remove: bool, project_root: &Path) -> Result<()> {
+    let status = get_status(project_root, file.as_deref())?;
 
-    let start_pos = content.find(MARKER_START);
-    let end_pos = content.find(MARKER_END);
-
-    match (start_pos, end_pos) {
-        (Some(start), Some(end)) if end > start => {
-            let end = end + MARKER_END.len();
-
-            let before = &content[..start];
-            let after = &content[end..];
-            let instructions = get_instructions_content();
-
-            let new_content = format!("{before}{instructions}{after}");
-
-            if dry_run {
-                Ok(format!(
-                    "Would update BotBus instructions in: {}\n\n--- Preview ---\n{}",
-                    path.display(),
-                    instructions
-                ))
-            } else {
-                std::fs::write(path, &new_content).context("Failed to write file")?;
-                Ok(format!(
-                    "Updated BotBus instructions in: {}",
-                    path.display()
-                ))
-            }
-        }
-        _ => anyhow::bail!(
-            "No BotBus instructions found in {}. Use --add to create.",
-            path.display()
-        ),
-    }
-}
-
-/// Run the agentsmd command
-pub fn run(options: AgentsMdOptions, project_root: &Path) -> Result<()> {
-    // Handle --show first (doesn't need a file)
-    if options.show {
-        println!("{}", get_instructions_content());
-        return Ok(());
-    }
-
-    // Determine which action to take (mutually exclusive, with defaults)
-    let action = if options.add {
-        "add"
-    } else if options.remove {
-        "remove"
-    } else if options.update {
-        "update"
-    } else {
-        "check"
-    };
-
-    // Find or use explicit file
-    let explicit_file = options.file.as_deref();
-    let status = get_status(project_root, explicit_file)?;
-
-    match action {
-        "check" => match &status {
-            InstructionsStatus::Found { path, current } => {
-                println!(
-                    "Found: {} at {}",
-                    if *current {
-                        "BotBus instructions (current)"
-                    } else {
-                        "BotBus instructions (outdated)"
-                    },
-                    path.display()
-                );
-                if !current {
-                    println!("\nTo update:\n  botbus agentsmd --update");
-                }
-            }
+    if remove {
+        // Handle remove
+        let path = match &status {
+            InstructionsStatus::Found { path } => path.clone(),
             InstructionsStatus::NotFound { path } => {
-                println!(
-                    "Found: {} at {}",
-                    path.file_name().unwrap().to_string_lossy(),
-                    path.display()
-                );
-                println!("\nStatus: No BotBus instructions found");
-                println!("\nTo add:\n  botbus agentsmd --add");
+                anyhow::bail!("No BotBus instructions found in {}", path.display());
             }
             InstructionsStatus::NoFile => {
-                println!("No agent instructions file found (AGENTS.md, CLAUDE.md, etc.)");
-                println!("\nTo create AGENTS.md with BotBus instructions:");
-                println!("  botbus agentsmd --add --file AGENTS.md");
+                anyhow::bail!("No agent instructions file found");
             }
-        },
-        "add" => {
-            let path = match &status {
-                InstructionsStatus::Found { path, .. } => {
-                    anyhow::bail!(
-                        "BotBus instructions already exist in {}. Use --update to modify.",
-                        path.display()
-                    );
+        };
+        let result = remove_instructions(&path)?;
+        println!("{result}");
+    } else {
+        // Handle add/update
+        let path = match &status {
+            InstructionsStatus::Found { path } => path.clone(),
+            InstructionsStatus::NotFound { path } => path.clone(),
+            InstructionsStatus::NoFile => {
+                if let Some(f) = file {
+                    f
+                } else {
+                    // Default to AGENTS.md
+                    project_root.join("AGENTS.md")
                 }
-                InstructionsStatus::NotFound { path } => path.clone(),
-                InstructionsStatus::NoFile => {
-                    if let Some(f) = explicit_file {
-                        f.to_path_buf()
-                    } else {
-                        // Default to AGENTS.md
-                        project_root.join("AGENTS.md")
-                    }
-                }
-            };
-
-            if !options.force && !options.dry_run {
-                eprintln!("Will add BotBus instructions to: {}", path.display());
-                eprintln!("Use --dry-run to preview or --force to skip confirmation.");
-                // In a real implementation, we'd prompt here
-                // For now, just proceed
             }
-
-            let result = add_instructions(&path, options.dry_run)?;
-            println!("{result}");
-        }
-        "remove" => {
-            let path = match &status {
-                InstructionsStatus::Found { path, .. } => path.clone(),
-                InstructionsStatus::NotFound { path } => {
-                    anyhow::bail!("No BotBus instructions found in {}", path.display());
-                }
-                InstructionsStatus::NoFile => {
-                    anyhow::bail!("No agent instructions file found");
-                }
-            };
-
-            if !options.force && !options.dry_run {
-                eprintln!("Will remove BotBus instructions from: {}", path.display());
-                eprintln!("Use --dry-run to preview or --force to skip confirmation.");
-            }
-
-            let result = remove_instructions(&path, options.dry_run)?;
-            println!("{result}");
-        }
-        "update" => {
-            let path = match &status {
-                InstructionsStatus::Found { path, .. } => path.clone(),
-                InstructionsStatus::NotFound { path } => {
-                    anyhow::bail!(
-                        "No BotBus instructions found in {}. Use --add to create.",
-                        path.display()
-                    );
-                }
-                InstructionsStatus::NoFile => {
-                    anyhow::bail!("No agent instructions file found. Use --add to create.");
-                }
-            };
-
-            if !options.force && !options.dry_run {
-                eprintln!("Will update BotBus instructions in: {}", path.display());
-                eprintln!("Use --dry-run to preview or --force to skip confirmation.");
-            }
-
-            let result = update_instructions(&path, options.dry_run)?;
-            println!("{result}");
-        }
-        _ => unreachable!(),
+        };
+        let result = add_or_update_instructions(&path)?;
+        println!("{result}");
     }
 
+    Ok(())
+}
+
+/// Run the 'show' subcommand - print the instructions content
+pub fn run_show() -> Result<()> {
+    println!("{}", get_instructions_content());
     Ok(())
 }
 
@@ -482,7 +307,7 @@ mod tests {
         std::fs::write(&path, content).unwrap();
 
         let result = check_instructions(&path).unwrap();
-        assert!(result.is_some());
+        assert!(result);
     }
 
     #[test]
@@ -492,7 +317,7 @@ mod tests {
         std::fs::write(&path, "# Agents\n\nNo botbus here").unwrap();
 
         let result = check_instructions(&path).unwrap();
-        assert!(result.is_none());
+        assert!(!result);
     }
 
     #[test]
@@ -501,47 +326,13 @@ mod tests {
         let path = tmp.path().join("AGENTS.md");
         std::fs::write(&path, "# Agents\n\nExisting content").unwrap();
 
-        let result = add_instructions(&path, false).unwrap();
+        let result = add_or_update_instructions(&path).unwrap();
         assert!(result.contains("Added"));
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains(MARKER_START));
         assert!(content.contains(MARKER_END));
         assert!(content.contains("Existing content"));
-    }
-
-    #[test]
-    fn test_add_instructions_dry_run() {
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("AGENTS.md");
-        std::fs::write(&path, "# Agents").unwrap();
-
-        let result = add_instructions(&path, true).unwrap();
-        assert!(result.contains("Would add"));
-
-        // File should be unchanged
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(!content.contains(MARKER_START));
-    }
-
-    #[test]
-    fn test_remove_instructions() {
-        let tmp = TempDir::new().unwrap();
-        let path = tmp.path().join("AGENTS.md");
-        let content = format!(
-            "# Agents\n\n---\n\n{}\nBotBus stuff\n{}\n\n---\n\nMore content",
-            MARKER_START, MARKER_END
-        );
-        std::fs::write(&path, content).unwrap();
-
-        let result = remove_instructions(&path, false).unwrap();
-        assert!(result.contains("Removed"));
-
-        let content = std::fs::read_to_string(&path).unwrap();
-        assert!(!content.contains(MARKER_START));
-        assert!(!content.contains(MARKER_END));
-        assert!(content.contains("# Agents"));
-        assert!(content.contains("More content"));
     }
 
     #[test]
@@ -554,7 +345,7 @@ mod tests {
         );
         std::fs::write(&path, content).unwrap();
 
-        let result = update_instructions(&path, false).unwrap();
+        let result = add_or_update_instructions(&path).unwrap();
         assert!(result.contains("Updated"));
 
         let content = std::fs::read_to_string(&path).unwrap();
@@ -563,5 +354,52 @@ mod tests {
         assert!(content.contains("BotBus Agent Coordination")); // New content
         assert!(!content.contains("Old content"));
         assert!(content.contains("Other stuff")); // Preserved
+    }
+
+    #[test]
+    fn test_remove_instructions() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("AGENTS.md");
+        let content = format!(
+            "# Agents\n\n---\n\n{}\nBotBus stuff\n{}\n\n---\n\nMore content",
+            MARKER_START, MARKER_END
+        );
+        std::fs::write(&path, content).unwrap();
+
+        let result = remove_instructions(&path).unwrap();
+        assert!(result.contains("Removed"));
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(!content.contains(MARKER_START));
+        assert!(!content.contains(MARKER_END));
+        assert!(content.contains("# Agents"));
+        assert!(content.contains("More content"));
+    }
+
+    #[test]
+    fn test_init_creates_new_file() {
+        let tmp = TempDir::new().unwrap();
+        std::fs::create_dir_all(tmp.path().join(".botbus")).unwrap();
+
+        run_init(None, false, tmp.path()).unwrap();
+
+        let path = tmp.path().join("AGENTS.md");
+        assert!(path.exists());
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains(MARKER_START));
+    }
+
+    #[test]
+    fn test_init_updates_existing() {
+        let tmp = TempDir::new().unwrap();
+        let path = tmp.path().join("AGENTS.md");
+        let content = format!("# Agents\n\n{}\nOld\n{}", MARKER_START, MARKER_END);
+        std::fs::write(&path, content).unwrap();
+
+        run_init(None, false, tmp.path()).unwrap();
+
+        let content = std::fs::read_to_string(&path).unwrap();
+        assert!(content.contains("BotBus Agent Coordination"));
+        assert!(!content.contains("Old"));
     }
 }

@@ -219,30 +219,15 @@ fn main() -> Result<()> {
             )
         }
 
-        Commands::AgentsMd {
-            add,
-            remove,
-            update,
-            check,
-            show,
-            dry_run,
-            force,
-            file,
-        } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::agentsmd::run(
-                cli::agentsmd::AgentsMdOptions {
-                    add,
-                    remove,
-                    update,
-                    check,
-                    show,
-                    dry_run,
-                    force,
-                    file,
-                },
-                &project_root,
-            )
+        Commands::AgentsMd { command } => {
+            use cli::AgentsMdCommands;
+            match command {
+                AgentsMdCommands::Init { file, remove } => {
+                    let project_root = resolve_project_root(cli.project)?;
+                    cli::agentsmd::run_init(file, remove, &project_root)
+                }
+                AgentsMdCommands::Show => cli::agentsmd::run_show(),
+            }
         }
     }
 }

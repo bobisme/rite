@@ -7,7 +7,7 @@ use ratatui::{
     Frame,
 };
 
-use super::app::{dm_other_agent, App, Focus};
+use super::app::{App, Focus};
 
 /// Colors matching lazygit style
 const ACTIVE_BORDER: Color = Color::Green;
@@ -50,7 +50,6 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
     let selected = app.selected_channel_index();
     let public_count = app.channels().len();
-    let current_agent = app.current_agent();
     let is_focused = app.focus() == Focus::Channels;
 
     let mut items: Vec<ListItem> = Vec::new();
@@ -72,21 +71,17 @@ fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
     // DM section separator (if there are DMs)
     if !app.dm_channels().is_empty() {
         items.push(ListItem::new(Line::from(vec![Span::styled(
-            "-- DMs --",
+            "── DMs ──",
             Style::default()
                 .fg(Color::DarkGray)
                 .add_modifier(Modifier::ITALIC),
         )])));
     }
 
-    // DM channels
+    // DM channels - show as Agent1↔Agent2
     for (i, dm) in app.dm_channels().iter().enumerate() {
         let global_idx = public_count + i;
-        let display_name = if let Some(agent) = current_agent {
-            dm_other_agent(dm, agent).unwrap_or_else(|| dm.clone())
-        } else {
-            dm.clone()
-        };
+        let display_name = format_dm_channel(dm);
 
         let style = if global_idx == selected && is_focused {
             Style::default()
@@ -99,7 +94,7 @@ fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
         } else {
             Style::default().fg(Color::Magenta)
         };
-        items.push(ListItem::new(format!("@{}", display_name)).style(style));
+        items.push(ListItem::new(display_name).style(style));
     }
 
     let (border_style, title_style) = if is_focused {
@@ -113,13 +108,24 @@ fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
 
     let list = List::new(items).block(
         Block::default()
-            .title(Span::styled(" Channels ", title_style))
+            .title(Span::styled(" Conversations ", title_style))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(border_style),
     );
 
     f.render_widget(list, area);
+}
+
+/// Format a DM channel name as "Agent1↔Agent2"
+fn format_dm_channel(channel: &str) -> String {
+    if let Some(agents) = channel.strip_prefix("_dm_") {
+        let parts: Vec<&str> = agents.splitn(2, '_').collect();
+        if parts.len() == 2 {
+            return format!("{}↔{}", parts[0], parts[1]);
+        }
+    }
+    channel.to_string()
 }
 
 fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
@@ -157,17 +163,9 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
         .current_channel()
         .unwrap_or_else(|| "general".to_string());
 
-    // Format DM channel names nicely
+    // Format channel names nicely
     let channel_name = if raw_channel_name.starts_with("_dm_") {
-        if let Some(agent) = app.current_agent() {
-            if let Some(other) = dm_other_agent(&raw_channel_name, agent) {
-                format!("@{}", other)
-            } else {
-                raw_channel_name
-            }
-        } else {
-            raw_channel_name
-        }
+        format_dm_channel(&raw_channel_name)
     } else {
         format!("#{}", raw_channel_name)
     };

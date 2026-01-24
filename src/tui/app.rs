@@ -48,7 +48,7 @@ impl App {
         // Get agent from env var (no explicit flag for TUI)
         let current_agent = resolve_agent(None, project_root);
 
-        let (channels, dm_channels) = list_channels(project_root, current_agent.as_deref())?;
+        let (channels, dm_channels) = list_channels(project_root)?;
         let agents: Vec<Agent> = read_records(&agents_path(project_root))?;
 
         // Find initial channel index (search in both channels and DMs)
@@ -400,13 +400,10 @@ impl App {
     }
 }
 
-fn list_channels(
-    project_root: &Path,
-    current_agent: Option<&str>,
-) -> Result<(Vec<String>, Vec<String>)> {
+fn list_channels(project_root: &Path) -> Result<(Vec<String>, Vec<String>)> {
     let channels = channels_dir(project_root);
-    let mut public_channels = Vec::new();
-    let mut dm_channels = Vec::new();
+    let mut public_channels: Vec<(String, std::time::SystemTime)> = Vec::new();
+    let mut dm_channels: Vec<(String, std::time::SystemTime)> = Vec::new();
 
     if channels.exists() {
         for entry in std::fs::read_dir(&channels)? {
@@ -414,61 +411,33 @@ fn list_channels(
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "jsonl") {
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+                    let modified = std::fs::metadata(&path)
+                        .and_then(|m| m.modified())
+                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+
                     if name.starts_with("_dm_") {
-                        // Only include DMs that involve the current agent
-                        if let Some(agent) = current_agent {
-                            if dm_involves_agent(name, agent) {
-                                dm_channels.push(name.to_string());
-                            }
-                        }
+                        // Show ALL DMs - omniscient observer view
+                        dm_channels.push((name.to_string(), modified));
                     } else {
-                        public_channels.push(name.to_string());
+                        public_channels.push((name.to_string(), modified));
                     }
                 }
             }
         }
     }
 
-    // Ensure general is first in public channels
-    public_channels.sort();
-    if let Some(pos) = public_channels.iter().position(|c| c == "general") {
-        public_channels.remove(pos);
-        public_channels.insert(0, "general".to_string());
+    // Sort by most recent activity first
+    public_channels.sort_by(|a, b| b.1.cmp(&a.1));
+    dm_channels.sort_by(|a, b| b.1.cmp(&a.1));
+
+    // But keep #general at the top of public channels
+    let mut public: Vec<String> = public_channels.into_iter().map(|(n, _)| n).collect();
+    if let Some(pos) = public.iter().position(|c| c == "general") {
+        let general = public.remove(pos);
+        public.insert(0, general);
     }
 
-    // Sort DM channels alphabetically
-    dm_channels.sort();
+    let dms: Vec<String> = dm_channels.into_iter().map(|(n, _)| n).collect();
 
-    Ok((public_channels, dm_channels))
-}
-
-/// Check if a DM channel name involves the given agent
-fn dm_involves_agent(channel_name: &str, agent: &str) -> bool {
-    // DM channel format: _dm_Agent1_Agent2 (alphabetically sorted)
-    let parts: Vec<&str> = channel_name
-        .strip_prefix("_dm_")
-        .unwrap_or("")
-        .splitn(2, '_')
-        .collect();
-    parts.len() == 2 && (parts[0] == agent || parts[1] == agent)
-}
-
-/// Extract the other agent's name from a DM channel name
-pub fn dm_other_agent(channel_name: &str, current_agent: &str) -> Option<String> {
-    let parts: Vec<&str> = channel_name
-        .strip_prefix("_dm_")
-        .unwrap_or("")
-        .splitn(2, '_')
-        .collect();
-    if parts.len() == 2 {
-        if parts[0] == current_agent {
-            Some(parts[1].to_string())
-        } else if parts[1] == current_agent {
-            Some(parts[0].to_string())
-        } else {
-            None
-        }
-    } else {
-        None
-    }
+    Ok((public, dms))
 }

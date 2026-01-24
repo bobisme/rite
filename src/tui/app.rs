@@ -87,18 +87,8 @@ impl App {
         loop {
             terminal.draw(|f| ui::draw(f, self))?;
 
-            // Check for file changes (non-blocking)
-            let changes = debounce_events(&rx, Duration::from_millis(50));
-            let channel_changes = filter_channel_events(changes);
-
-            if let Some(current) = self.current_channel() {
-                if channel_changes.contains(&current) {
-                    self.refresh_messages()?;
-                }
-            }
-
-            // Handle input
-            if event::poll(Duration::from_millis(50))? {
+            // Handle input first for responsiveness
+            if event::poll(Duration::from_millis(16))? {
                 if let Event::Key(key) = event::read()? {
                     if key.kind == KeyEventKind::Press {
                         self.handle_key(key.code)?;
@@ -108,6 +98,16 @@ impl App {
 
             if self.should_quit {
                 break;
+            }
+
+            // Check for file changes (non-blocking, short timeout)
+            let changes = debounce_events(&rx, Duration::from_millis(1));
+            let channel_changes = filter_channel_events(changes);
+
+            if let Some(current) = self.current_channel() {
+                if channel_changes.contains(&current) {
+                    self.refresh_messages()?;
+                }
             }
         }
 

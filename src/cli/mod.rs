@@ -5,7 +5,9 @@ pub mod agents;
 pub mod channels;
 pub mod claim;
 pub mod history;
+pub mod inbox;
 pub mod init;
+pub mod mark_read;
 pub mod register;
 pub mod search;
 pub mod send;
@@ -101,6 +103,18 @@ pub enum Commands {
         /// Filter by sender
         #[arg(long)]
         from: Option<String>,
+
+        /// Read messages after this byte offset (for incremental reading)
+        #[arg(long)]
+        after_offset: Option<u64>,
+
+        /// Read messages after this message ID (ULID)
+        #[arg(long)]
+        after_id: Option<String>,
+
+        /// Show offset info for next read
+        #[arg(long)]
+        show_offset: bool,
     },
 
     /// Stream new messages in real-time
@@ -186,5 +200,33 @@ pub enum Commands {
         /// Start in this channel
         #[arg(short, long)]
         channel: Option<String>,
+    },
+
+    /// Mark a channel as read (for incremental reading)
+    MarkRead {
+        /// Channel to mark as read
+        channel: String,
+
+        /// Explicit byte offset (default: current end of file)
+        #[arg(long)]
+        offset: Option<u64>,
+
+        /// Explicit last message ID
+        #[arg(long)]
+        last_id: Option<String>,
+    },
+
+    /// Show unread messages (uses stored read cursor)
+    Inbox {
+        /// Channel to check (default: general)
+        channel: Option<String>,
+
+        /// Maximum messages to show
+        #[arg(short = 'n', long, default_value = "50")]
+        count: usize,
+
+        /// Mark as read after displaying
+        #[arg(long)]
+        mark_read: bool,
     },
 }

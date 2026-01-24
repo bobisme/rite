@@ -5,8 +5,9 @@ use std::path::Path;
 
 use crate::core::message::Message;
 use crate::core::project::channel_path;
-use crate::storage::jsonl::{read_last_n, read_records};
+use crate::storage::jsonl::{read_last_n, read_records, read_records_from_offset};
 
+#[derive(Clone)]
 pub struct HistoryOptions {
     pub channel: Option<String>,
     pub count: usize,
@@ -14,36 +15,41 @@ pub struct HistoryOptions {
     pub since: Option<String>,
     pub before: Option<String>,
     pub from: Option<String>,
+    /// Read messages after this byte offset (for incremental reading)
+    pub after_offset: Option<u64>,
+    /// Read messages after this message ID (ULID)
+    pub after_id: Option<String>,
+    /// Show the offset info for next read
+    pub show_offset: bool,
+}
+
+/// Output from history command, useful for programmatic access.
+#[derive(Debug)]
+pub struct HistoryOutput {
+    pub messages: Vec<Message>,
+    /// Byte offset for next read (end of file after this read)
+    pub next_offset: u64,
+    /// ID of the last message returned (if any)
+    pub last_id: Option<String>,
 }
 
 /// View message history.
 pub fn run(options: HistoryOptions, project_root: &Path) -> Result<()> {
-    let channel = options
-        .channel
-        .clone()
-        .unwrap_or_else(|| "general".to_string());
-    let path = channel_path(project_root, &channel);
+    let output = run_with_output(options.clone(), project_root)?;
 
-    if !path.exists() {
-        println!("Channel #{} has no messages yet.", channel);
-        return Ok(());
-    }
+    let channel = options.channel.unwrap_or_else(|| "general".to_string());
 
-    // Read messages
-    let messages: Vec<Message> =
-        if options.since.is_some() || options.before.is_some() || options.from.is_some() {
-            // Need to filter, read all and filter
-            let all: Vec<Message> = read_records(&path)
-                .with_context(|| format!("Failed to read channel #{}", channel))?;
-            filter_messages(all, &options)
+    if output.messages.is_empty() {
+        if options.after_offset.is_some() || options.after_id.is_some() {
+            println!("No new messages.");
         } else {
-            // Just get last N
-            read_last_n(&path, options.count)
-                .with_context(|| format!("Failed to read channel #{}", channel))?
-        };
+            println!("No messages match your criteria.");
+        }
 
-    if messages.is_empty() {
-        println!("No messages match your criteria.");
+        // Still show offset info if requested
+        if options.show_offset {
+            println!("{}: {}", "next_offset".dimmed(), output.next_offset);
+        }
         return Ok(());
     }
 
@@ -51,16 +57,95 @@ pub fn run(options: HistoryOptions, project_root: &Path) -> Result<()> {
     println!("{}", format!("#{}", channel).cyan().bold());
 
     // Print messages
-    for msg in &messages {
+    for msg in &output.messages {
         print_message(msg);
+    }
+
+    // Show offset info for next read
+    if options.show_offset {
+        println!();
+        println!("{}: {}", "next_offset".dimmed(), output.next_offset);
+        if let Some(last_id) = &output.last_id {
+            println!("{}: {}", "last_id".dimmed(), last_id);
+        }
     }
 
     // Follow mode
     if options.follow {
+        let path = channel_path(project_root, &channel);
         follow_channel(&path, project_root)?;
     }
 
     Ok(())
+}
+
+/// Run history and return structured output (for programmatic use).
+pub fn run_with_output(options: HistoryOptions, project_root: &Path) -> Result<HistoryOutput> {
+    let channel = options
+        .channel
+        .clone()
+        .unwrap_or_else(|| "general".to_string());
+    let path = channel_path(project_root, &channel);
+
+    if !path.exists() {
+        return Ok(HistoryOutput {
+            messages: Vec::new(),
+            next_offset: 0,
+            last_id: None,
+        });
+    }
+
+    // Get file size for next_offset calculation
+    let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+
+    // Read messages based on options
+    let (messages, next_offset) = if let Some(offset) = options.after_offset {
+        // Read from specific offset
+        let (msgs, new_offset): (Vec<Message>, u64) = read_records_from_offset(&path, offset)
+            .with_context(|| format!("Failed to read channel #{} from offset", channel))?;
+        (msgs, new_offset)
+    } else if let Some(after_id) = &options.after_id {
+        // Read all and filter to messages after the given ID
+        let all: Vec<Message> =
+            read_records(&path).with_context(|| format!("Failed to read channel #{}", channel))?;
+
+        // Find the position of the after_id message
+        let start_idx = all
+            .iter()
+            .position(|m| m.id.to_string() == *after_id)
+            .map(|i| i + 1) // Start after the found message
+            .unwrap_or(0); // If not found, return all messages
+
+        let msgs: Vec<Message> = all.into_iter().skip(start_idx).collect();
+        (msgs, file_size)
+    } else if options.since.is_some() || options.before.is_some() || options.from.is_some() {
+        // Need to filter, read all and filter
+        let all: Vec<Message> =
+            read_records(&path).with_context(|| format!("Failed to read channel #{}", channel))?;
+        (filter_messages(all, &options), file_size)
+    } else {
+        // Just get last N
+        let msgs = read_last_n(&path, options.count)
+            .with_context(|| format!("Failed to read channel #{}", channel))?;
+        (msgs, file_size)
+    };
+
+    // Apply count limit if we used after_offset or after_id
+    let messages = if (options.after_offset.is_some() || options.after_id.is_some())
+        && messages.len() > options.count
+    {
+        messages.into_iter().take(options.count).collect()
+    } else {
+        messages
+    };
+
+    let last_id = messages.last().map(|m| m.id.to_string());
+
+    Ok(HistoryOutput {
+        messages,
+        next_offset,
+        last_id,
+    })
 }
 
 fn filter_messages(messages: Vec<Message>, options: &HistoryOptions) -> Vec<Message> {
@@ -219,6 +304,9 @@ mod tests {
             since: None,
             before: None,
             from: None,
+            after_offset: None,
+            after_id: None,
+            show_offset: false,
         };
 
         run(options, temp.path()).unwrap();
@@ -235,6 +323,9 @@ mod tests {
             since: None,
             before: None,
             from: None,
+            after_offset: None,
+            after_id: None,
+            show_offset: false,
         };
 
         run(options, temp.path()).unwrap();
@@ -259,6 +350,9 @@ mod tests {
             since: None,
             before: None,
             from: Some("Historian".to_string()),
+            after_offset: None,
+            after_id: None,
+            show_offset: false,
         };
 
         run(options, temp.path()).unwrap();

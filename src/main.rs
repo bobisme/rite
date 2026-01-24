@@ -43,6 +43,9 @@ fn main() -> Result<()> {
             since,
             before,
             from,
+            after_offset,
+            after_id,
+            show_offset,
         } => {
             let project_root = resolve_project_root(cli.project)?;
             cli::history::run(
@@ -53,6 +56,9 @@ fn main() -> Result<()> {
                     since,
                     before,
                     from,
+                    after_offset,
+                    after_id,
+                    show_offset,
                 },
                 &project_root,
             )
@@ -121,6 +127,40 @@ fn main() -> Result<()> {
         Commands::Ui { channel } => {
             let project_root = resolve_project_root(cli.project)?;
             cli::ui::run(channel, &project_root)
+        }
+
+        Commands::MarkRead {
+            channel,
+            offset,
+            last_id,
+        } => {
+            let project_root = resolve_project_root(cli.project)?;
+            cli::mark_read::run(
+                cli::mark_read::MarkReadOptions {
+                    channel,
+                    offset,
+                    last_id,
+                },
+                cli.agent.as_deref(),
+                &project_root,
+            )
+        }
+
+        Commands::Inbox {
+            channel,
+            count,
+            mark_read,
+        } => {
+            let project_root = resolve_project_root(cli.project)?;
+            cli::inbox::run(
+                cli::inbox::InboxOptions {
+                    channel,
+                    count,
+                    mark_read,
+                },
+                cli.agent.as_deref(),
+                &project_root,
+            )
         }
     }
 }

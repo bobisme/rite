@@ -243,6 +243,36 @@ impl Agent {
         self.run(&["search", query])
     }
 
+    /// Get inbox (unread messages).
+    pub fn inbox(&self, channel: &str) -> BotbusOutput {
+        self.run(&["inbox", channel])
+    }
+
+    /// Get inbox and mark as read.
+    pub fn inbox_mark_read(&self, channel: &str) -> BotbusOutput {
+        self.run(&["inbox", channel, "--mark-read"])
+    }
+
+    /// Mark a channel as read.
+    pub fn mark_read(&self, channel: &str) -> BotbusOutput {
+        self.run(&["mark-read", channel])
+    }
+
+    /// Mark a channel as read at a specific offset.
+    pub fn mark_read_at(&self, channel: &str, offset: u64) -> BotbusOutput {
+        self.run(&["mark-read", channel, "--offset", &offset.to_string()])
+    }
+
+    /// Get history with --show-offset.
+    pub fn history_with_offset(&self, channel: &str) -> BotbusOutput {
+        self.run(&["history", channel, "--show-offset"])
+    }
+
+    /// Get history after an offset.
+    pub fn history_after_offset(&self, channel: &str, offset: u64) -> BotbusOutput {
+        self.run(&["history", channel, "--after-offset", &offset.to_string()])
+    }
+
     /// Run an arbitrary botbus command as this agent.
     pub fn run(&self, args: &[&str]) -> BotbusOutput {
         let mut cmd = Command::new(botbus_bin());

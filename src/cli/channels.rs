@@ -148,10 +148,9 @@ mod tests {
     fn test_list_channels() {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
-        send::run(
+        send::run_simple(
             "backend".to_string(),
             "test".to_string(),
-            None,
             Some("Agent"),
             temp.path(),
         )
@@ -164,10 +163,9 @@ mod tests {
     fn test_list_channels_json() {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
-        send::run(
+        send::run_simple(
             "backend".to_string(),
             "test".to_string(),
-            None,
             Some("Agent"),
             temp.path(),
         )
@@ -180,10 +178,9 @@ mod tests {
     fn test_list_with_dms() {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
-        send::run(
+        send::run_simple(
             "@Other".to_string(),
             "dm".to_string(),
-            None,
             Some("Agent"),
             temp.path(),
         )

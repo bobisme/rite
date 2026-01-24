@@ -79,6 +79,14 @@ pub enum Commands {
         /// Attach metadata (JSON)
         #[arg(long)]
         meta: Option<String>,
+
+        /// Add label(s) to the message (can be used multiple times)
+        #[arg(short = 'L', long = "label", action = clap::ArgAction::Append)]
+        labels: Vec<String>,
+
+        /// Attach file(s) (can be used multiple times)
+        #[arg(long = "attach", action = clap::ArgAction::Append)]
+        attachments: Vec<String>,
     },
 
     /// View message history
@@ -105,6 +113,10 @@ pub enum Commands {
         /// Filter by sender
         #[arg(long)]
         from: Option<String>,
+
+        /// Filter by label (can be used multiple times - messages must have ANY of the labels)
+        #[arg(short = 'L', long = "label", action = clap::ArgAction::Append)]
+        labels: Vec<String>,
 
         /// Read messages after this byte offset (for incremental reading)
         #[arg(long)]
@@ -250,6 +262,10 @@ pub enum Commands {
         /// Wait for messages in specific channel
         #[arg(short, long)]
         channel: Option<String>,
+
+        /// Wait for messages with specific label(s) (can be used multiple times)
+        #[arg(short = 'L', long = "label", action = clap::ArgAction::Append)]
+        labels: Vec<String>,
 
         /// Timeout in seconds (0 = no timeout)
         #[arg(short, long, default_value = "0")]

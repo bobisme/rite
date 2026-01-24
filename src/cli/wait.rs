@@ -18,6 +18,8 @@ pub struct WaitOptions {
     pub mention: bool,
     /// Wait for messages in specific channel
     pub channel: Option<String>,
+    /// Wait for messages with specific labels (any of them)
+    pub labels: Vec<String>,
     /// Timeout in seconds (0 = no timeout)
     pub timeout: u64,
     /// Output as JSON
@@ -70,6 +72,8 @@ pub fn run(options: WaitOptions, explicit_agent: Option<&str>, project_root: &Pa
             eprint!("Waiting for messages in #{}...", ch.cyan());
         } else if options.mention {
             eprint!("Waiting for @{}...", agent.as_ref().unwrap().cyan());
+        } else if !options.labels.is_empty() {
+            eprint!("Waiting for messages with labels {:?}...", options.labels);
         } else {
             eprint!("Waiting for any message...");
         }
@@ -138,6 +142,9 @@ pub fn run(options: WaitOptions, explicit_agent: Option<&str>, project_root: &Pa
                     // Check for @mention in body
                     let mention = format!("@{}", agent.as_ref().unwrap());
                     msg.body.contains(&mention)
+                } else if !options.labels.is_empty() {
+                    // Check for matching labels
+                    msg.has_any_label(&options.labels)
                 } else {
                     // Any message matches
                     true
@@ -249,10 +256,9 @@ mod tests {
         let temp = setup();
 
         // Send a message to create a channel
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Hello".to_string(),
-            None,
             Some("Sender"),
             temp.path(),
         )
@@ -269,19 +275,17 @@ mod tests {
     fn test_collect_channel_offsets_filtered() {
         let temp = setup();
 
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Hello".to_string(),
-            None,
             Some("Sender"),
             temp.path(),
         )
         .unwrap();
 
-        send::run(
+        send::run_simple(
             "backend".to_string(),
             "Hello".to_string(),
-            None,
             Some("Sender"),
             temp.path(),
         )
@@ -304,6 +308,7 @@ mod tests {
         let options = WaitOptions {
             mention: false,
             channel: Some("nonexistent".to_string()),
+            labels: vec![],
             timeout: 1, // 1 second timeout
             json: true,
         };

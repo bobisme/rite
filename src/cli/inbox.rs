@@ -52,6 +52,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>, project_root: &P
         since: None,
         before: None,
         from: None,
+        labels: vec![],
         after_offset: Some(cursor.offset),
         after_id: None,
         show_offset: false,
@@ -174,10 +175,9 @@ mod tests {
     fn test_inbox_json() {
         let temp = setup();
 
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Hello!".to_string(),
-            None,
             Some("Sender"),
             temp.path(),
         )
@@ -196,10 +196,9 @@ mod tests {
     fn test_inbox_with_unread() {
         let temp = setup();
 
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Hello!".to_string(),
-            None,
             Some("Sender"),
             temp.path(),
         )
@@ -218,10 +217,9 @@ mod tests {
     fn test_inbox_mark_read() {
         let temp = setup();
 
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Hello!".to_string(),
-            None,
             Some("Sender"),
             temp.path(),
         )
@@ -248,10 +246,9 @@ mod tests {
     fn test_inbox_per_agent_isolation() {
         let temp = setup();
 
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Hello!".to_string(),
-            None,
             Some("Sender"),
             temp.path(),
         )

@@ -138,20 +138,10 @@ mod tests {
         let temp = setup();
 
         // Send some messages
-        send::run(
-            "general".to_string(),
-            "Hello".to_string(),
-            None,
-            Some("Indexer"),
-            temp.path(),
+        send::run_simple("general".to_string(), "Hello".to_string(), Some("Indexer"), temp.path(),
         )
         .unwrap();
-        send::run(
-            "general".to_string(),
-            "World".to_string(),
-            None,
-            Some("Indexer"),
-            temp.path(),
+        send::run_simple("general".to_string(), "World".to_string(), Some("Indexer"), temp.path(),
         )
         .unwrap();
 
@@ -171,12 +161,7 @@ mod tests {
     fn test_incremental_sync() {
         let temp = setup();
 
-        send::run(
-            "general".to_string(),
-            "First".to_string(),
-            None,
-            Some("Indexer"),
-            temp.path(),
+        send::run_simple("general".to_string(), "First".to_string(), Some("Indexer"), temp.path(),
         )
         .unwrap();
 
@@ -185,12 +170,7 @@ mod tests {
         let count1 = stats1.messages_indexed;
 
         // Send more messages
-        send::run(
-            "general".to_string(),
-            "Second".to_string(),
-            None,
-            Some("Indexer"),
-            temp.path(),
+        send::run_simple("general".to_string(), "Second".to_string(), Some("Indexer"), temp.path(),
         )
         .unwrap();
 

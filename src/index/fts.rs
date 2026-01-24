@@ -180,6 +180,8 @@ mod tests {
             channel: channel.to_string(),
             body: body.to_string(),
             mentions: vec![],
+            labels: vec![],
+            attachments: vec![],
             meta: None,
         }
     }

@@ -130,18 +130,16 @@ mod tests {
     fn test_search_basic() {
         let temp = setup();
 
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Hello world".to_string(),
-            None,
             Some("Searcher"),
             temp.path(),
         )
         .unwrap();
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Working on authentication".to_string(),
-            None,
             Some("Searcher"),
             temp.path(),
         )
@@ -162,10 +160,9 @@ mod tests {
     fn test_search_json() {
         let temp = setup();
 
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Hello world".to_string(),
-            None,
             Some("Searcher"),
             temp.path(),
         )
@@ -186,18 +183,16 @@ mod tests {
     fn test_search_in_channel() {
         let temp = setup();
 
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Hello general".to_string(),
-            None,
             Some("Searcher"),
             temp.path(),
         )
         .unwrap();
-        send::run(
+        send::run_simple(
             "backend".to_string(),
             "Hello backend".to_string(),
-            None,
             Some("Searcher"),
             temp.path(),
         )

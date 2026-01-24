@@ -392,10 +392,9 @@ mod tests {
     fn test_status_json() {
         let temp = setup();
         register::run(Some("TestAgent".to_string()), None, temp.path()).unwrap();
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Hello".to_string(),
-            None,
             Some("TestAgent"),
             temp.path(),
         )

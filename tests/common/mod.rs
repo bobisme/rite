@@ -186,6 +186,26 @@ impl Agent {
         self.run(&["send", target, message])
     }
 
+    /// Send a message with labels.
+    pub fn send_with_labels(&self, target: &str, message: &str, labels: &[&str]) -> BotbusOutput {
+        let mut args = vec!["send", target, message];
+        for label in labels {
+            args.push("-L");
+            args.push(label);
+        }
+        self.run(&args)
+    }
+
+    /// Get history filtered by label.
+    pub fn history_with_label(&self, channel: &str, labels: &[&str]) -> BotbusOutput {
+        let mut args = vec!["history", channel];
+        for label in labels {
+            args.push("-L");
+            args.push(label);
+        }
+        self.run(&args)
+    }
+
     /// Claim file patterns.
     pub fn claim(&self, patterns: &[&str]) -> BotbusOutput {
         let mut args = vec!["claim"];

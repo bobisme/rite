@@ -16,6 +16,8 @@ pub struct HistoryOptions {
     pub since: Option<String>,
     pub before: Option<String>,
     pub from: Option<String>,
+    /// Filter by labels (messages must have ANY of these labels)
+    pub labels: Vec<String>,
     /// Read messages after this byte offset (for incremental reading)
     pub after_offset: Option<u64>,
     /// Read messages after this message ID (ULID)
@@ -129,7 +131,11 @@ pub fn run_with_output(options: HistoryOptions, project_root: &Path) -> Result<H
 
         let msgs: Vec<Message> = all.into_iter().skip(start_idx).collect();
         (msgs, file_size)
-    } else if options.since.is_some() || options.before.is_some() || options.from.is_some() {
+    } else if options.since.is_some()
+        || options.before.is_some()
+        || options.from.is_some()
+        || !options.labels.is_empty()
+    {
         // Need to filter, read all and filter
         let all: Vec<Message> =
             read_records(&path).with_context(|| format!("Failed to read channel #{}", channel))?;
@@ -188,6 +194,11 @@ fn filter_messages(messages: Vec<Message>, options: &HistoryOptions) -> Vec<Mess
                 }
             }
 
+            // Filter by labels (message must have ANY of the specified labels)
+            if !options.labels.is_empty() && !msg.has_any_label(&options.labels) {
+                return false;
+            }
+
             true
         })
         .collect();
@@ -225,7 +236,35 @@ fn print_message(msg: &Message) {
     // Color the agent name consistently
     let agent_colored = colorize_agent(&msg.agent);
 
-    println!("[{}] {}: {}", time_str.dimmed(), agent_colored, msg.body);
+    // Format labels
+    let labels_str = if msg.labels.is_empty() {
+        String::new()
+    } else {
+        format!(
+            " {}",
+            msg.labels
+                .iter()
+                .map(|l| format!("[{}]", l).yellow().to_string())
+                .collect::<Vec<_>>()
+                .join("")
+        )
+    };
+
+    // Format attachment indicator
+    let attach_str = if msg.attachments.is_empty() {
+        String::new()
+    } else {
+        format!(" {}", format!("[{}]", msg.attachments.len()).magenta())
+    };
+
+    println!(
+        "[{}] {}:{}{} {}",
+        time_str.dimmed(),
+        agent_colored,
+        labels_str,
+        attach_str,
+        msg.body
+    );
 }
 
 fn colorize_agent(name: &str) -> colored::ColoredString {
@@ -291,18 +330,16 @@ mod tests {
     #[test]
     fn test_history_basic() {
         let temp = setup();
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Message 1".to_string(),
-            None,
             Some("Historian"),
             temp.path(),
         )
         .unwrap();
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Message 2".to_string(),
-            None,
             Some("Historian"),
             temp.path(),
         )
@@ -315,6 +352,7 @@ mod tests {
             since: None,
             before: None,
             from: None,
+            labels: vec![],
             after_offset: None,
             after_id: None,
             show_offset: false,
@@ -335,6 +373,7 @@ mod tests {
             since: None,
             before: None,
             from: None,
+            labels: vec![],
             after_offset: None,
             after_id: None,
             show_offset: false,
@@ -347,10 +386,9 @@ mod tests {
     #[test]
     fn test_history_filter_from() {
         let temp = setup();
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "From Historian".to_string(),
-            None,
             Some("Historian"),
             temp.path(),
         )
@@ -363,6 +401,7 @@ mod tests {
             since: None,
             before: None,
             from: Some("Historian".to_string()),
+            labels: vec![],
             after_offset: None,
             after_id: None,
             show_offset: false,

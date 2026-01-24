@@ -31,9 +31,19 @@ fn main() -> Result<()> {
             target,
             message,
             meta,
+            labels,
+            attachments,
         } => {
             let project_root = resolve_project_root(cli.project)?;
-            cli::send::run(target, message, meta, cli.agent.as_deref(), &project_root)
+            cli::send::run(
+                target,
+                message,
+                meta,
+                labels,
+                attachments,
+                cli.agent.as_deref(),
+                &project_root,
+            )
         }
 
         Commands::History {
@@ -43,6 +53,7 @@ fn main() -> Result<()> {
             since,
             before,
             from,
+            labels,
             after_offset,
             after_id,
             show_offset,
@@ -56,6 +67,7 @@ fn main() -> Result<()> {
                     since,
                     before,
                     from,
+                    labels,
                     after_offset,
                     after_id,
                     show_offset,
@@ -184,6 +196,7 @@ fn main() -> Result<()> {
         Commands::Wait {
             mention,
             channel,
+            labels,
             timeout,
         } => {
             let project_root = resolve_project_root(cli.project)?;
@@ -191,6 +204,7 @@ fn main() -> Result<()> {
                 cli::wait::WaitOptions {
                     mention,
                     channel,
+                    labels,
                     timeout,
                     json: cli.json,
                 },

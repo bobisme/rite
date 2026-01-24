@@ -24,6 +24,14 @@ pub struct Message {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub mentions: Vec<String>,
 
+    /// Optional labels for categorization/filtering
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub labels: Vec<String>,
+
+    /// Optional file attachments
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<Attachment>,
+
     /// Optional structured metadata
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub meta: Option<MessageMeta>,
@@ -46,6 +54,8 @@ impl Message {
             channel: channel.into(),
             body,
             mentions,
+            labels: Vec::new(),
+            attachments: Vec::new(),
             meta: None,
         }
     }
@@ -54,6 +64,91 @@ impl Message {
     pub fn with_meta(mut self, meta: MessageMeta) -> Self {
         self.meta = Some(meta);
         self
+    }
+
+    /// Add labels to the message.
+    pub fn with_labels(mut self, labels: Vec<String>) -> Self {
+        self.labels = labels;
+        self
+    }
+
+    /// Add attachments to the message.
+    pub fn with_attachments(mut self, attachments: Vec<Attachment>) -> Self {
+        self.attachments = attachments;
+        self
+    }
+
+    /// Check if message has a specific label.
+    pub fn has_label(&self, label: &str) -> bool {
+        self.labels.iter().any(|l| l == label)
+    }
+
+    /// Check if message has any of the specified labels.
+    pub fn has_any_label(&self, labels: &[String]) -> bool {
+        labels.iter().any(|l| self.has_label(l))
+    }
+}
+
+/// File attachment on a message.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Attachment {
+    /// Display name for the attachment
+    pub name: String,
+
+    /// Type of attachment
+    #[serde(flatten)]
+    pub content: AttachmentContent,
+}
+
+/// Content of an attachment - either a file reference or inline content.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum AttachmentContent {
+    /// Reference to a file path (relative to project root)
+    File { path: String },
+
+    /// Inline text content (for small snippets)
+    Inline {
+        content: String,
+        /// Optional language hint for syntax highlighting
+        #[serde(skip_serializing_if = "Option::is_none")]
+        language: Option<String>,
+    },
+
+    /// URL reference
+    Url { url: String },
+}
+
+impl Attachment {
+    /// Create a file attachment.
+    pub fn file(name: impl Into<String>, path: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            content: AttachmentContent::File { path: path.into() },
+        }
+    }
+
+    /// Create an inline content attachment.
+    pub fn inline(
+        name: impl Into<String>,
+        content: impl Into<String>,
+        language: Option<String>,
+    ) -> Self {
+        Self {
+            name: name.into(),
+            content: AttachmentContent::Inline {
+                content: content.into(),
+                language,
+            },
+        }
+    }
+
+    /// Create a URL attachment.
+    pub fn url(name: impl Into<String>, url: impl Into<String>) -> Self {
+        Self {
+            name: name.into(),
+            content: AttachmentContent::Url { url: url.into() },
+        }
     }
 }
 
@@ -145,5 +240,63 @@ mod tests {
         let json = serde_json::to_string(&msg).unwrap();
         assert!(json.contains("claim"));
         assert!(json.contains("src/**/*.rs"));
+    }
+
+    #[test]
+    fn test_message_with_labels() {
+        let msg = Message::new("Agent", "general", "Bug fix ready")
+            .with_labels(vec!["bug".to_string(), "ready-for-review".to_string()]);
+
+        assert!(msg.has_label("bug"));
+        assert!(msg.has_label("ready-for-review"));
+        assert!(!msg.has_label("feature"));
+
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("labels"));
+        assert!(json.contains("bug"));
+
+        // Round-trip
+        let parsed: Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.labels, vec!["bug", "ready-for-review"]);
+    }
+
+    #[test]
+    fn test_message_with_attachments() {
+        let msg = Message::new("Agent", "general", "See attached").with_attachments(vec![
+            Attachment::file("config", "src/config.rs"),
+            Attachment::inline("snippet", "fn main() {}", Some("rust".to_string())),
+            Attachment::url("docs", "https://example.com/docs"),
+        ]);
+
+        assert_eq!(msg.attachments.len(), 3);
+
+        let json = serde_json::to_string(&msg).unwrap();
+        assert!(json.contains("attachments"));
+        assert!(json.contains("src/config.rs"));
+        assert!(json.contains("fn main()"));
+
+        // Round-trip
+        let parsed: Message = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.attachments.len(), 3);
+    }
+
+    #[test]
+    fn test_has_any_label() {
+        let msg = Message::new("Agent", "general", "Test")
+            .with_labels(vec!["bug".to_string(), "urgent".to_string()]);
+
+        assert!(msg.has_any_label(&["bug".to_string(), "feature".to_string()]));
+        assert!(msg.has_any_label(&["urgent".to_string()]));
+        assert!(!msg.has_any_label(&["feature".to_string(), "docs".to_string()]));
+        assert!(!msg.has_any_label(&[]));
+    }
+
+    #[test]
+    fn test_labels_not_serialized_when_empty() {
+        let msg = Message::new("Agent", "general", "No labels");
+        let json = serde_json::to_string(&msg).unwrap();
+        // Empty vecs should not appear in JSON output
+        assert!(!json.contains("\"labels\""));
+        assert!(!json.contains("\"attachments\""));
     }
 }

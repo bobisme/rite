@@ -92,10 +92,9 @@ mod tests {
         let temp = setup();
 
         // Send a message first
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Test message".to_string(),
-            None,
             Some("TestAgent"),
             temp.path(),
         )
@@ -121,10 +120,9 @@ mod tests {
         let temp = setup();
 
         // Send a message first
-        send::run(
+        send::run_simple(
             "general".to_string(),
             "Test message".to_string(),
-            None,
             Some("TestAgent"),
             temp.path(),
         )

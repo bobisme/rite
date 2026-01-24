@@ -7,7 +7,7 @@ When multiple AI agents work on the same codebase, they need a way to communicat
 ## Install
 
 ```bash
-cargo install --path .
+cargo install --git https://github.com/bobisme/botbus
 ```
 
 ## Quick Start

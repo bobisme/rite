@@ -1,12 +1,13 @@
 use anyhow::{Context, Result};
 use rusqlite::{params, Connection};
+use serde::Serialize;
 use std::path::Path;
 
 use super::schema::init_schema;
 use crate::core::message::Message;
 
 /// A search result from the FTS index.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Serialize)]
 pub struct SearchResult {
     pub id: String,
     pub channel: String,

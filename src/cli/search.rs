@@ -1,8 +1,10 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local, Utc};
 use colored::Colorize;
+use serde::Serialize;
 use std::path::Path;
 
+use crate::index::fts::SearchResult;
 use crate::index::IndexSyncer;
 
 pub struct SearchOptions {
@@ -10,6 +12,14 @@ pub struct SearchOptions {
     pub channel: Option<String>,
     pub count: usize,
     pub from: Option<String>,
+    pub json: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct SearchOutput {
+    pub query: String,
+    pub count: usize,
+    pub results: Vec<SearchResult>,
 }
 
 /// Full-text search messages.
@@ -20,7 +30,7 @@ pub fn run(options: SearchOptions, project_root: &Path) -> Result<()> {
 
     let stats = syncer.sync_all().with_context(|| "Failed to sync index")?;
 
-    if stats.messages_indexed > 0 {
+    if stats.messages_indexed > 0 && !options.json {
         eprintln!(
             "{} Indexed {} new message(s)",
             "Info:".blue(),
@@ -44,6 +54,16 @@ pub fn run(options: SearchOptions, project_root: &Path) -> Result<()> {
         syncer.index().search(&fts_query, options.count)?
     };
 
+    if options.json {
+        let output = SearchOutput {
+            query: options.query,
+            count: results.len(),
+            results,
+        };
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
+
     if results.is_empty() {
         println!("No messages found matching '{}'", options.query);
         return Ok(());
@@ -64,7 +84,7 @@ pub fn run(options: SearchOptions, project_root: &Path) -> Result<()> {
     Ok(())
 }
 
-fn print_result(result: &crate::index::fts::SearchResult) {
+fn print_result(result: &SearchResult) {
     // Parse timestamp
     let ts: DateTime<Utc> = result.ts.parse().unwrap_or_else(|_| Utc::now());
     let local_time: DateTime<Local> = ts.with_timezone(&Local);
@@ -132,6 +152,31 @@ mod tests {
             channel: None,
             count: 20,
             from: None,
+            json: false,
+        };
+
+        run(options, temp.path()).unwrap();
+    }
+
+    #[test]
+    fn test_search_json() {
+        let temp = setup();
+
+        send::run(
+            "general".to_string(),
+            "Hello world".to_string(),
+            None,
+            Some("Searcher"),
+            temp.path(),
+        )
+        .unwrap();
+
+        let options = SearchOptions {
+            query: "Hello".to_string(),
+            channel: None,
+            count: 20,
+            from: None,
+            json: true,
         };
 
         run(options, temp.path()).unwrap();
@@ -163,6 +208,7 @@ mod tests {
             channel: Some("backend".to_string()),
             count: 20,
             from: None,
+            json: false,
         };
 
         run(options, temp.path()).unwrap();
@@ -177,6 +223,7 @@ mod tests {
             channel: None,
             count: 20,
             from: None,
+            json: false,
         };
 
         run(options, temp.path()).unwrap();

@@ -93,6 +93,7 @@ fn main() -> Result<()> {
                     channel,
                     count,
                     from,
+                    json: cli.json,
                 },
                 &project_root,
             )

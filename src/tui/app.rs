@@ -136,16 +136,19 @@ impl App {
             Focus::Messages => match key {
                 KeyCode::Up | KeyCode::Char('k') => {
                     // Scroll up = see older messages = increase scroll offset
-                    // Note: actual clamping happens in ui.rs based on viewport height
-                    self.message_scroll = self.message_scroll.saturating_add(1);
+                    // Clamp to message count to prevent "buffering" scrolls past the top
+                    let max_scroll = self.messages.len().saturating_sub(1);
+                    if self.message_scroll < max_scroll {
+                        self.message_scroll = self.message_scroll.saturating_add(1);
+                    }
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     // Scroll down = see newer messages = decrease scroll offset
                     self.message_scroll = self.message_scroll.saturating_sub(1);
                 }
                 KeyCode::Home | KeyCode::Char('g') => {
-                    // Scroll to oldest messages - use a large value that will be clamped
-                    self.message_scroll = usize::MAX;
+                    // Scroll to oldest messages
+                    self.message_scroll = self.messages.len().saturating_sub(1);
                 }
                 KeyCode::End | KeyCode::Char('G') => {
                     self.message_scroll = 0;

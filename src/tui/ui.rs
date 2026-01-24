@@ -10,11 +10,17 @@ use ratatui::{
 use super::app::{dm_other_agent, App, Focus};
 
 pub fn draw(f: &mut Frame, app: &App) {
-    // Main layout: sidebar | content
+    // Main layout: main content | help bar at bottom
+    let outer_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([Constraint::Min(10), Constraint::Length(1)])
+        .split(f.area());
+
+    // Main content: sidebar | messages
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([Constraint::Length(20), Constraint::Min(40)])
-        .split(f.area());
+        .split(outer_chunks[0]);
 
     // Sidebar: channels | agents
     let sidebar_chunks = Layout::default()
@@ -22,16 +28,10 @@ pub fn draw(f: &mut Frame, app: &App) {
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(main_chunks[0]);
 
-    // Content: messages | status
-    let content_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Min(10), Constraint::Length(1)])
-        .split(main_chunks[1]);
-
     draw_channels(f, app, sidebar_chunks[0]);
     draw_agents(f, app, sidebar_chunks[1]);
-    draw_messages(f, app, content_chunks[0]);
-    draw_status(f, app, content_chunks[1]);
+    draw_messages(f, app, main_chunks[1]);
+    draw_status(f, app, outer_chunks[1]);
 }
 
 fn draw_channels(f: &mut Frame, app: &App, area: Rect) {

@@ -182,20 +182,37 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
         (Style::default(), Style::default().fg(INACTIVE_TITLE))
     };
 
-    // Calculate visible messages
+    // Convert all messages to lines
+    let messages = app.messages();
+    let lines: Vec<Line> = messages.iter().map(|msg| format_message(msg)).collect();
+
+    // Calculate the total rendered height accounting for wrapping
+    let inner_width = area.width.saturating_sub(2) as usize; // Account for borders
     let inner_height = area.height.saturating_sub(2) as usize;
 
-    // Clamp scroll to valid range (this updates app state so future k presses are no-ops at top)
-    app.clamp_scroll(inner_height);
+    // Estimate wrapped line count - ceiling division for each line
+    let total_lines: usize = lines
+        .iter()
+        .map(|line| {
+            let line_len: usize = line.spans.iter().map(|s| s.content.len()).sum();
+            if inner_width > 0 && line_len > 0 {
+                // Ceiling division: how many lines does this wrap to?
+                (line_len + inner_width - 1) / inner_width
+            } else {
+                1 // Empty line still takes 1 row
+            }
+        })
+        .sum();
 
-    let messages = app.messages();
+    // Clamp scroll to valid range
+    let max_scroll = total_lines.saturating_sub(inner_height);
+    app.clamp_scroll_lines(max_scroll, inner_height);
+
     let scroll = app.message_scroll();
 
-    let start = messages.len().saturating_sub(inner_height + scroll);
-    let end = messages.len().saturating_sub(scroll);
-    let visible: Vec<_> = messages.get(start..end).unwrap_or(&[]).to_vec();
-
-    let lines: Vec<Line> = visible.iter().map(|msg| format_message(msg)).collect();
+    // Use Paragraph's scroll feature - scroll from bottom
+    // scroll=0 means show bottom, scroll=max means show top
+    let scroll_from_top = max_scroll.saturating_sub(scroll);
 
     let paragraph = Paragraph::new(lines)
         .block(
@@ -205,7 +222,8 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
                 .border_type(BorderType::Rounded)
                 .border_style(border_style),
         )
-        .wrap(Wrap { trim: false });
+        .wrap(Wrap { trim: false })
+        .scroll((scroll_from_top as u16, 0));
 
     f.render_widget(paragraph, area);
 }

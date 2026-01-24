@@ -382,11 +382,10 @@ impl App {
         self.message_scroll
     }
 
-    /// Clamp scroll offset to valid range based on viewport height.
-    /// Called by UI after layout is known.
-    pub fn clamp_scroll(&mut self, viewport_height: usize) {
+    /// Clamp scroll offset to valid range based on rendered line count.
+    /// Called by UI after layout and line wrapping is calculated.
+    pub fn clamp_scroll_lines(&mut self, max_scroll: usize, viewport_height: usize) {
         self.viewport_height = viewport_height;
-        let max_scroll = self.messages.len().saturating_sub(viewport_height);
         self.message_scroll = self.message_scroll.min(max_scroll);
     }
 

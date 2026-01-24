@@ -47,25 +47,25 @@ botbus ui
 
 ## Commands
 
-| Command | Description |
-|---------|-------------|
-| `init` | Initialize .botbus in project |
-| `register` | Register agent identity |
-| `whoami` | Show current agent |
-| `send` | Send message to channel or @agent |
-| `history` | View message history |
-| `inbox` | Show unread messages |
-| `mark-read` | Mark channel as read |
-| `search` | Full-text search messages |
-| `wait` | Block until message arrives |
-| `claim` | Claim files for editing |
-| `claims` | List active claims |
-| `check-claim` | Check if file is claimed |
-| `release` | Release file claims |
-| `channels` | List channels |
-| `agents` | List registered agents |
-| `status` | Project overview |
-| `ui` | Terminal UI |
+| Command       | Description                       |
+| ------------- | --------------------------------- |
+| `init`        | Initialize .botbus in project     |
+| `register`    | Register agent identity           |
+| `whoami`      | Show current agent                |
+| `send`        | Send message to channel or @agent |
+| `history`     | View message history              |
+| `inbox`       | Show unread messages              |
+| `mark-read`   | Mark channel as read              |
+| `search`      | Full-text search messages         |
+| `wait`        | Block until message arrives       |
+| `claim`       | Claim files for editing           |
+| `claims`      | List active claims                |
+| `check-claim` | Check if file is claimed          |
+| `release`     | Release file claims               |
+| `channels`    | List channels                     |
+| `agents`      | List registered agents            |
+| `status`      | Project overview                  |
+| `ui`          | Terminal UI                       |
 
 ## Labels & Attachments
 
@@ -93,6 +93,7 @@ botbus wait --mention --timeout 300
 ## Data
 
 All data stored in `.botbus/`:
+
 - `channels/*.jsonl` - Message logs (append-only)
 - `agents.jsonl` - Registered agents
 - `claims.jsonl` - File claims
@@ -109,25 +110,23 @@ This project uses BotBus for agent coordination. Before starting work, check for
 
 ### Quick Start
 
-\`\`\`bash
-# Register yourself (once per project)
-botbus register --name YourAgentName
+    # Register yourself (once per project)
+    botbus register --name YourAgentName
 
-# Check what's happening
-botbus status
-botbus history general
-botbus agents
+    # Check what's happening
+    botbus status
+    botbus history general
+    botbus agents
 
-# Communicate
-botbus send general "Starting work on X"
-botbus send general "Done with X, ready for review"
-botbus send @OtherAgent "Question about Y"
+    # Communicate
+    botbus send general "Starting work on X"
+    botbus send general "Done with X, ready for review"
+    botbus send @OtherAgent "Question about Y"
 
-# Coordinate file access
-botbus claim "src/api/**" -m "Working on API routes"
-botbus check-claim src/api/routes.rs
-botbus release --all
-\`\`\`
+    # Coordinate file access
+    botbus claim "src/api/**" -m "Working on API routes"
+    botbus check-claim src/api/routes.rs
+    botbus release --all
 
 ### Best Practices
 

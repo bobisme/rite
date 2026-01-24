@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 
 pub mod agents;
+pub mod agentsmd;
 pub mod channels;
 pub mod claim;
 pub mod history;
@@ -282,5 +283,41 @@ pub enum Commands {
         /// Timeout in seconds (0 = no timeout)
         #[arg(short, long, default_value = "0")]
         timeout: u64,
+    },
+
+    /// Manage AGENTS.md workflow instructions
+    #[command(name = "agentsmd")]
+    AgentsMd {
+        /// Add BotBus instructions to the file
+        #[arg(long)]
+        add: bool,
+
+        /// Remove BotBus instructions from the file
+        #[arg(long)]
+        remove: bool,
+
+        /// Update BotBus instructions to latest version
+        #[arg(long)]
+        update: bool,
+
+        /// Check status only (default behavior)
+        #[arg(long)]
+        check: bool,
+
+        /// Show the instructions content that would be added
+        #[arg(long)]
+        show: bool,
+
+        /// Preview changes without modifying files
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip confirmation prompts
+        #[arg(short, long)]
+        force: bool,
+
+        /// Explicit file path (default: auto-detect AGENTS.md, CLAUDE.md, etc.)
+        #[arg(long)]
+        file: Option<PathBuf>,
     },
 }

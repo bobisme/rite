@@ -218,6 +218,32 @@ fn main() -> Result<()> {
                 &project_root,
             )
         }
+
+        Commands::AgentsMd {
+            add,
+            remove,
+            update,
+            check,
+            show,
+            dry_run,
+            force,
+            file,
+        } => {
+            let project_root = resolve_project_root(cli.project)?;
+            cli::agentsmd::run(
+                cli::agentsmd::AgentsMdOptions {
+                    add,
+                    remove,
+                    update,
+                    check,
+                    show,
+                    dry_run,
+                    force,
+                    file,
+                },
+                &project_root,
+            )
+        }
     }
 }
 

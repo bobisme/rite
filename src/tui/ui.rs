@@ -110,8 +110,12 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
     let messages = app.messages();
     let scroll = app.message_scroll();
 
-    let start = messages.len().saturating_sub(inner_height + scroll);
-    let end = messages.len().saturating_sub(scroll);
+    // Clamp scroll so viewport doesn't shrink when scrolled past the beginning
+    let max_scroll = messages.len().saturating_sub(inner_height);
+    let clamped_scroll = scroll.min(max_scroll);
+
+    let start = messages.len().saturating_sub(inner_height + clamped_scroll);
+    let end = messages.len().saturating_sub(clamped_scroll);
     let visible: Vec<_> = messages.get(start..end).unwrap_or(&[]).to_vec();
 
     let lines: Vec<Line> = visible.iter().map(|msg| format_message(msg)).collect();
@@ -135,7 +139,7 @@ fn format_message(msg: &crate::core::message::Message) -> Line<'static> {
 
     let agent_color = agent_color(&msg.agent);
 
-    Line::from(vec![
+    let mut spans = vec![
         Span::styled(
             format!("[{}] ", time_str),
             Style::default().fg(Color::DarkGray),
@@ -146,8 +150,29 @@ fn format_message(msg: &crate::core::message::Message) -> Line<'static> {
                 .fg(agent_color)
                 .add_modifier(Modifier::BOLD),
         ),
-        Span::raw(msg.body.clone()),
-    ])
+    ];
+
+    // Add labels if present
+    if !msg.labels.is_empty() {
+        for label in &msg.labels {
+            spans.push(Span::styled(
+                format!("[{}] ", label),
+                Style::default().fg(Color::Yellow),
+            ));
+        }
+    }
+
+    spans.push(Span::raw(msg.body.clone()));
+
+    // Add attachment indicator if present
+    if !msg.attachments.is_empty() {
+        spans.push(Span::styled(
+            format!(" [{}]", msg.attachments.len()),
+            Style::default().fg(Color::Magenta),
+        ));
+    }
+
+    Line::from(spans)
 }
 
 fn agent_color(name: &str) -> Color {

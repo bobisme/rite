@@ -1,144 +1,142 @@
-# DM Viewing Design for TUI
+# TUI Design: Omniscient Observer View
+
+## Design Philosophy
+
+The TUI is a **read-only monitoring dashboard** for observing agent coordination - not a chat client for participating in conversations.
+
+Key principles:
+- **Omniscient**: See ALL conversations, including DMs between other agents
+- **Read-only**: No compose, send, or reply - agents use the CLI
+- **Observer-first**: Designed for humans monitoring agent activity
 
 ## Current State
 
-DMs are already partially supported:
 - **Storage**: DMs use `_dm_Agent1_Agent2` channel naming (alphabetically sorted)
-- **CLI**: `botbus send @AgentName "message"` creates/appends to DM channels
-- **TUI**: DMs appear in channel list under "-- DMs --" separator, shown as `@OtherAgent`
+- **TUI**: Shows channels and DMs in sidebar, messages in main pane
 
 ### Current Limitations
 
-1. **Discovery**: DMs only show if they involve the current agent (by design)
-2. **No unread indicators**: Can't see which DMs have new messages
-3. **Mixed with channels**: DMs are in the same list as public channels
-4. **No quick compose**: Must use CLI to start a new DM
+1. **DM filtering**: Only shows DMs involving "current agent" - wrong for observer view
+2. **No activity overview**: Can't see recent activity across all conversations
+3. **No new message indicators**: Hard to spot where activity is happening
 
 ## Design Options
 
-### Option A: Enhanced Channel List (Recommended)
+### Option A: Unified Conversation List (Recommended)
 
-Keep the current integrated approach but add:
-
-1. **Unread counts** next to each channel/DM:
-   ```
-   Channels ─────────
-   #general        (3)
-   #backend
-   -- DMs --
-   @Alice          (1)
-   @Bob
-   ```
-
-2. **Visual distinction**: DMs in magenta (already done), unread in bold
-
-3. **Quick DM compose**: Press `@` in TUI to start typing an agent name, autocomplete from registered agents, creates/opens DM
-
-**Pros**: Minimal UI change, familiar pattern (Slack/Discord sidebar)
-**Cons**: Can get crowded with many DMs
-
-### Option B: Tabbed Interface
-
-Add tabs at the top: `[Channels] [DMs] [Agents]`
-
-- Tab key or number keys (1/2/3) to switch
-- Each tab has its own list
-- DMs tab shows all DM conversations
-
-**Pros**: Clean separation, scales better
-**Cons**: More navigation, loses at-a-glance view
-
-### Option C: Split Pane
-
-Horizontal split: Channels on top, DMs on bottom (within sidebar)
+Treat all conversations equally - channels and DMs are just "conversations":
 
 ```
-┌─ Channels ─┐
-│ #general   │
-│ #backend   │
-├─── DMs ────┤
-│ @Alice     │
-│ @Bob       │
-└────────────┘
+┌─ Conversations ─┐
+│ #general    (3) │  <- 3 new messages
+│ #backend        │
+│ Alice↔Bob   (1) │  <- DM between Alice and Bob
+│ CLI↔Storage     │  <- DM between CLIAgent and StorageFixer
+│ #frontend       │
+└─────────────────┘
 ```
 
-**Pros**: Always visible, clear separation
-**Cons**: Reduces space for each, may need scrolling
+- Sort by recent activity (most recent at top) or alphabetically
+- Show ALL DMs regardless of current agent identity
+- Format DMs as `Agent1↔Agent2` to distinguish from channels
+- Unread counts show new messages since TUI opened
 
-## Recommendation: Option A (Enhanced Channel List)
+### Option B: Activity Feed
 
-The current implementation is close - we just need to add:
+Single chronological view of ALL messages across ALL conversations:
 
-### Phase 1: Unread Indicators
-1. Track read position per channel (already have `AgentState.read_offsets`)
-2. Compare current file size to read offset
-3. Show unread count in channel list
+```
+┌─ Activity Feed ──────────────────────────────┐
+│ [21:23] #general     Alice: Starting work... │
+│ [21:24] Alice↔Bob    Alice: Quick question   │
+│ [21:24] Alice↔Bob    Bob: Sure, what's up?   │
+│ [21:25] #general     Carol: Done with PR     │
+│ [21:25] #backend     Alice: API ready        │
+└──────────────────────────────────────────────┘
+```
 
-### Phase 2: Quick DM Compose
-1. Press `@` to enter "DM mode"
-2. Type agent name with fuzzy autocomplete
-3. Enter opens/creates DM channel
+- All messages interleaved by timestamp
+- Channel/DM name shown inline
+- Click/select to filter to that conversation
+- Good for "what just happened?" view
 
-### Phase 3: Notifications (Future)
-1. Desktop notifications for mentions
-2. Badge count in terminal title
+### Option C: Hybrid (Conversation List + Activity Feed)
+
+Toggle between views with a keybinding:
+- `v` to toggle between "Conversations" and "Activity Feed"
+- Or split: sidebar shows conversations, main pane can show either single conversation or activity feed
+
+## Recommendation: Option A with Activity Feed as Future Enhancement
+
+### Phase 1: Fix DM Visibility
+1. Remove current-agent filtering - show ALL DM channels
+2. Format as `Agent1↔Agent2` instead of `@OtherAgent`
+3. Sort conversations by most recent activity
+
+### Phase 2: New Message Indicators
+1. Track file sizes when TUI opens
+2. Show count of new messages per conversation
+3. Bold/highlight conversations with new activity
+
+### Phase 3: Activity Feed (Future)
+1. Add toggle (`a` key?) for unified activity view
+2. Interleave all messages chronologically
+3. Color-code by conversation
 
 ## Implementation Notes
 
-### Unread Count Calculation
+### Remove Agent Filtering
+
+Current code in `app.rs`:
+```rust
+// REMOVE this filter:
+if let Some(agent) = current_agent {
+    if dm_involves_agent(name, agent) {
+        dm_channels.push(name.to_string());
+    }
+}
+
+// REPLACE with:
+dm_channels.push(name.to_string());
+```
+
+### DM Display Format
 
 ```rust
-// In app.rs, add to App struct:
-unread_counts: HashMap<String, usize>,
-
-// Calculate on load/refresh:
-fn calculate_unread(&mut self, channel: &str) -> usize {
-    let path = channel_path(&self.project_root, channel);
-    let file_size = fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-    let read_offset = self.agent_state.get_read_offset(channel).unwrap_or(0);
-    
-    if file_size > read_offset {
-        // Count newlines between read_offset and file_size
-        // (each message is one line in JSONL)
-        count_lines_in_range(&path, read_offset, file_size)
+// In ui.rs, format DM channels as "Agent1↔Agent2"
+fn format_dm_name(channel: &str) -> String {
+    if let Some((a, b)) = dm_agents(channel) {
+        format!("{}↔{}", a, b)
     } else {
-        0
+        channel.to_string()
     }
 }
 ```
 
-### Quick DM Mode
+### Sort by Activity
 
 ```rust
-// Add to Focus enum:
-enum Focus {
-    Channels,
-    Messages,
-    DmCompose,  // New
-}
-
-// In DmCompose mode:
-// - Show input overlay
-// - Filter agent list as user types
-// - Enter selects top match and opens DM
-// - Escape cancels
+// Sort channels by last modified time
+channels.sort_by_key(|ch| {
+    let path = channel_path(project_root, ch);
+    std::fs::metadata(&path)
+        .and_then(|m| m.modified())
+        .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+});
+channels.reverse(); // Most recent first
 ```
 
 ## Data Model
 
-No changes needed - current DM channel naming (`_dm_Agent1_Agent2`) works well:
-- Deterministic (sorted names)
-- Self-documenting
-- Easy to parse
-- Works with existing JSONL storage
+No changes needed to storage - just presentation layer changes.
 
 ## Open Questions
 
-1. **Mark as read**: Automatic when viewing, or explicit command?
-   - Recommend: Auto-mark when scrolled to bottom
+1. **Conversation grouping**: Keep channels and DMs separate, or fully unified?
+   - Recommend: Unified, sorted by activity
 
-2. **DM with unregistered agent**: Allow or require registration?
-   - Recommend: Allow (agent might register later)
+2. **Agent pane**: Keep showing registered agents, or repurpose?
+   - Recommend: Keep as-is, useful context for who's participating
 
-3. **Group DMs**: Support `_dm_Agent1_Agent2_Agent3`?
-   - Recommend: Defer, current 1:1 DMs sufficient for MVP
+3. **Current agent identity**: Still needed for anything?
+   - Only for the Agents pane (highlight "you") - optional

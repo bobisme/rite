@@ -50,9 +50,33 @@ Keep messages concise and actionable:
 
 ## Development Notes
 
-- Run `cargo test` before committing; currently 128 tests
+- Run `cargo test` before committing
 - Registration auto-sends a "joined" message to #general - tests must account for this
 - Agent identity flows via `BOTBUS_AGENT` env var or `--agent` flag (not global state)
+
+### Commit Conventions
+
+Use [semantic commits](https://www.conventionalcommits.org/):
+
+```
+<type>(<scope>): <description>
+
+[optional body]
+
+Co-Authored-By: Claude <noreply@anthropic.com>
+```
+
+**Types**: `feat`, `fix`, `docs`, `style`, `refactor`, `test`, `chore`
+
+**Scopes**: `cli`, `tui`, `storage`, `core`, `test`, etc.
+
+**Always include** the `Co-Authored-By` trailer when AI assists with commits.
+
+Examples:
+- `feat(tui): add mouse support and help overlay`
+- `fix(storage): hold lock across read-modify-write in state update`
+- `docs: update README with new screenshot`
+- `refactor(cli): extract claim validation logic`
 
 ---
 

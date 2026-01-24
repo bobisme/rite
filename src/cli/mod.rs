@@ -11,6 +11,7 @@ pub mod mark_read;
 pub mod register;
 pub mod search;
 pub mod send;
+pub mod status;
 pub mod ui;
 pub mod watch;
 pub mod whoami;
@@ -229,4 +230,7 @@ pub enum Commands {
         #[arg(long)]
         mark_read: bool,
     },
+
+    /// Show project status overview
+    Status,
 }

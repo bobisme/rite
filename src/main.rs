@@ -162,6 +162,11 @@ fn main() -> Result<()> {
                 &project_root,
             )
         }
+
+        Commands::Status => {
+            let project_root = resolve_project_root(cli.project)?;
+            cli::status::run(cli.json, cli.agent.as_deref(), &project_root)
+        }
     }
 }
 

@@ -8,8 +8,8 @@ use crate::core::project::agents_path;
 use crate::storage::jsonl::read_records;
 
 /// Display current agent identity.
-pub fn run(project_root: &Path) -> Result<()> {
-    let agent_name = match resolve_agent(None, project_root) {
+pub fn run(agent: Option<&str>, project_root: &Path) -> Result<()> {
+    let agent_name = match resolve_agent(agent, project_root) {
         Some(name) => name,
         None => {
             bail!(
@@ -78,7 +78,7 @@ mod tests {
         }
 
         // Should not error (though agent won't be in agents.jsonl)
-        run(temp.path()).unwrap();
+        run(None, temp.path()).unwrap();
 
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
@@ -96,7 +96,7 @@ mod tests {
             env::remove_var(AGENT_ENV_VAR);
         }
 
-        let result = run(temp.path());
+        let result = run(None, temp.path());
         assert!(result.is_err());
     }
 }

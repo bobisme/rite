@@ -24,7 +24,7 @@ fn main() -> Result<()> {
 
         Commands::Whoami => {
             let project_root = resolve_project_root(cli.project)?;
-            cli::whoami::run(&project_root)
+            cli::whoami::run(cli.agent.as_deref(), &project_root)
         }
 
         Commands::Send {

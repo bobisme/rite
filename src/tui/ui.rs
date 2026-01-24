@@ -1,13 +1,18 @@
 use chrono::{DateTime, Local};
 use ratatui::{
-    layout::{Constraint, Direction, Layout, Rect},
+    layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Wrap},
     Frame,
 };
 
 use super::app::{dm_other_agent, App, Focus};
+
+/// Colors matching lazygit style
+const ACTIVE_BORDER: Color = Color::Green;
+const INACTIVE_TITLE: Color = Color::DarkGray;
+const HELP_KEY: Color = Color::Blue;
 
 pub fn draw(f: &mut Frame, app: &mut App) {
     // Main layout: main content | help bar at bottom
@@ -28,25 +33,36 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
         .split(main_chunks[0]);
 
+    // Update cached layout areas for mouse detection
+    app.set_layout_areas(sidebar_chunks[0], main_chunks[1]);
+
     draw_channels(f, app, sidebar_chunks[0]);
     draw_agents(f, app, sidebar_chunks[1]);
     draw_messages(f, app, main_chunks[1]);
     draw_status(f, app, outer_chunks[1]);
+
+    // Draw help overlay if active
+    if app.show_help() {
+        draw_help_overlay(f);
+    }
 }
 
 fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
     let selected = app.selected_channel_index();
     let public_count = app.channels().len();
     let current_agent = app.current_agent();
+    let is_focused = app.focus() == Focus::Channels;
 
     let mut items: Vec<ListItem> = Vec::new();
 
     // Public channels
     for (i, ch) in app.channels().iter().enumerate() {
-        let style = if i == selected {
+        let style = if i == selected && is_focused {
             Style::default()
-                .fg(Color::Cyan)
+                .fg(ACTIVE_BORDER)
                 .add_modifier(Modifier::BOLD)
+        } else if i == selected {
+            Style::default().add_modifier(Modifier::BOLD)
         } else {
             Style::default()
         };
@@ -66,16 +82,19 @@ fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
     // DM channels
     for (i, dm) in app.dm_channels().iter().enumerate() {
         let global_idx = public_count + i;
-        // Account for the separator line
         let display_name = if let Some(agent) = current_agent {
             dm_other_agent(dm, agent).unwrap_or_else(|| dm.clone())
         } else {
             dm.clone()
         };
 
-        let style = if global_idx == selected {
+        let style = if global_idx == selected && is_focused {
             Style::default()
-                .fg(Color::Cyan)
+                .fg(ACTIVE_BORDER)
+                .add_modifier(Modifier::BOLD)
+        } else if global_idx == selected {
+            Style::default()
+                .fg(Color::Magenta)
                 .add_modifier(Modifier::BOLD)
         } else {
             Style::default().fg(Color::Magenta)
@@ -83,15 +102,18 @@ fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
         items.push(ListItem::new(format!("@{}", display_name)).style(style));
     }
 
-    let border_style = if app.focus() == Focus::Channels {
-        Style::default().fg(Color::Cyan)
+    let (border_style, title_style) = if is_focused {
+        (
+            Style::default().fg(ACTIVE_BORDER),
+            Style::default().fg(ACTIVE_BORDER),
+        )
     } else {
-        Style::default()
+        (Style::default(), Style::default().fg(INACTIVE_TITLE))
     };
 
     let list = List::new(items).block(
         Block::default()
-            .title(" Channels ")
+            .title(Span::styled(" Channels ", title_style))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded)
             .border_style(border_style),
@@ -116,9 +138,13 @@ fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
         })
         .collect();
 
+    // Agents pane is never focused, always show inactive style
     let list = List::new(items).block(
         Block::default()
-            .title(" Agents ")
+            .title(Span::styled(
+                " Agents ",
+                Style::default().fg(INACTIVE_TITLE),
+            ))
             .borders(Borders::ALL)
             .border_type(BorderType::Rounded),
     );
@@ -146,10 +172,14 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
         format!("#{}", raw_channel_name)
     };
 
-    let border_style = if app.focus() == Focus::Messages {
-        Style::default().fg(Color::Cyan)
+    let is_focused = app.focus() == Focus::Messages;
+    let (border_style, title_style) = if is_focused {
+        (
+            Style::default().fg(ACTIVE_BORDER),
+            Style::default().fg(ACTIVE_BORDER),
+        )
     } else {
-        Style::default()
+        (Style::default(), Style::default().fg(INACTIVE_TITLE))
     };
 
     // Calculate visible messages
@@ -170,7 +200,7 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
     let paragraph = Paragraph::new(lines)
         .block(
             Block::default()
-                .title(format!(" {} ", channel_name))
+                .title(Span::styled(format!(" {} ", channel_name), title_style))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style),
@@ -236,16 +266,104 @@ fn agent_color(name: &str) -> Color {
 
 fn draw_status(f: &mut Frame, _app: &App, area: Rect) {
     let status = Line::from(vec![
-        Span::styled(" [Tab] ", Style::default().fg(Color::Cyan)),
+        Span::styled(" [Tab] ", Style::default().fg(HELP_KEY)),
         Span::raw("pane  "),
-        Span::styled("[j/k] ", Style::default().fg(Color::Cyan)),
+        Span::styled("[j/k] ", Style::default().fg(HELP_KEY)),
         Span::raw("scroll  "),
-        Span::styled("[g/G] ", Style::default().fg(Color::Cyan)),
-        Span::raw("top/bottom  "),
-        Span::styled("[q] ", Style::default().fg(Color::Cyan)),
+        Span::styled("[u/d] ", Style::default().fg(HELP_KEY)),
+        Span::raw("½page  "),
+        Span::styled("[?] ", Style::default().fg(HELP_KEY)),
+        Span::raw("help  "),
+        Span::styled("[q] ", Style::default().fg(HELP_KEY)),
         Span::raw("quit"),
     ]);
 
     let paragraph = Paragraph::new(status);
     f.render_widget(paragraph, area);
+}
+
+fn draw_help_overlay(f: &mut Frame) {
+    let area = f.area();
+
+    // Center a box in the middle of the screen
+    let width = 50.min(area.width.saturating_sub(4));
+    let height = 18.min(area.height.saturating_sub(4));
+    let x = (area.width.saturating_sub(width)) / 2;
+    let y = (area.height.saturating_sub(height)) / 2;
+    let popup_area = Rect::new(x, y, width, height);
+
+    // Clear the area behind the popup
+    f.render_widget(Clear, popup_area);
+
+    let help_text = vec![
+        Line::from(vec![Span::styled(
+            "Navigation",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Tab       ", Style::default().fg(HELP_KEY)),
+            Span::raw("Switch between panes"),
+        ]),
+        Line::from(vec![
+            Span::styled("  j/k       ", Style::default().fg(HELP_KEY)),
+            Span::raw("Scroll down/up (1 line)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl-j/k  ", Style::default().fg(HELP_KEY)),
+            Span::raw("Scroll down/up (10 lines)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  u/d       ", Style::default().fg(HELP_KEY)),
+            Span::raw("Scroll up/down (half page)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  b/f       ", Style::default().fg(HELP_KEY)),
+            Span::raw("Scroll up/down (full page)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  g/G       ", Style::default().fg(HELP_KEY)),
+            Span::raw("Jump to top/bottom"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter     ", Style::default().fg(HELP_KEY)),
+            Span::raw("Select channel"),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Mouse",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Click     ", Style::default().fg(HELP_KEY)),
+            Span::raw("Focus pane / select channel"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Wheel     ", Style::default().fg(HELP_KEY)),
+            Span::raw("Scroll messages"),
+        ]),
+        Line::from(""),
+        Line::from(Span::styled(
+            "Press any key to close",
+            Style::default().fg(Color::DarkGray),
+        )),
+    ];
+
+    let help = Paragraph::new(help_text)
+        .block(
+            Block::default()
+                .title(Span::styled(
+                    " Keybindings ",
+                    Style::default()
+                        .fg(ACTIVE_BORDER)
+                        .add_modifier(Modifier::BOLD),
+                ))
+                .borders(Borders::ALL)
+                .border_type(BorderType::Rounded)
+                .border_style(Style::default().fg(ACTIVE_BORDER)),
+        )
+        .alignment(Alignment::Left);
+
+    f.render_widget(help, popup_area);
 }

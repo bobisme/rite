@@ -1,6 +1,10 @@
 use anyhow::Result;
-use crossterm::event::{self, Event, KeyCode, KeyEventKind};
+use crossterm::event::{
+    self, DisableMouseCapture, EnableMouseCapture, Event, KeyCode, KeyEventKind, KeyModifiers,
+    MouseButton, MouseEventKind,
+};
 use ratatui::prelude::*;
+
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -25,6 +29,12 @@ pub struct App {
     should_quit: bool,
     focus: Focus,
     channel_offset: u64,
+    show_help: bool,
+    /// Cached viewport height for page scroll calculations
+    viewport_height: usize,
+    /// Cached layout areas for mouse click detection
+    channels_area: Rect,
+    messages_area: Rect,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -69,6 +79,10 @@ impl App {
             should_quit: false,
             focus: Focus::Messages,
             channel_offset: 0,
+            show_help: false,
+            viewport_height: 20,
+            channels_area: Rect::default(),
+            messages_area: Rect::default(),
         };
 
         app.load_messages()?;
@@ -80,19 +94,42 @@ impl App {
     where
         B::Error: Send + Sync + 'static,
     {
+        // Enable mouse capture
+        crossterm::execute!(std::io::stdout(), EnableMouseCapture)?;
+
         // Set up file watcher
         let channels_path = channels_dir(&self.project_root);
         let (_watcher, rx) = watch_directory(&channels_path)?;
 
+        let result = self.run_loop(terminal, &rx);
+
+        // Disable mouse capture on exit
+        let _ = crossterm::execute!(std::io::stdout(), DisableMouseCapture);
+
+        result
+    }
+
+    fn run_loop<B: Backend>(
+        &mut self,
+        terminal: &mut Terminal<B>,
+        rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
+    ) -> Result<()>
+    where
+        B::Error: Send + Sync + 'static,
+    {
         loop {
             terminal.draw(|f| ui::draw(f, self))?;
 
             // Handle input first for responsiveness
             if event::poll(Duration::from_millis(16))? {
-                if let Event::Key(key) = event::read()? {
-                    if key.kind == KeyEventKind::Press {
-                        self.handle_key(key.code)?;
+                match event::read()? {
+                    Event::Key(key) if key.kind == KeyEventKind::Press => {
+                        self.handle_key(key.code, key.modifiers)?;
                     }
+                    Event::Mouse(mouse) => {
+                        self.handle_mouse(mouse)?;
+                    }
+                    _ => {}
                 }
             }
 
@@ -101,7 +138,7 @@ impl App {
             }
 
             // Check for file changes (non-blocking, short timeout)
-            let changes = debounce_events(&rx, Duration::from_millis(1));
+            let changes = debounce_events(rx, Duration::from_millis(1));
             let channel_changes = filter_channel_events(changes);
 
             if let Some(current) = self.current_channel() {
@@ -114,7 +151,13 @@ impl App {
         Ok(())
     }
 
-    fn handle_key(&mut self, key: KeyCode) -> Result<()> {
+    fn handle_key(&mut self, key: KeyCode, modifiers: KeyModifiers) -> Result<()> {
+        // Dismiss help overlay on any key
+        if self.show_help {
+            self.show_help = false;
+            return Ok(());
+        }
+
         // Global keys
         match key {
             KeyCode::Char('q') | KeyCode::Esc => {
@@ -128,23 +171,50 @@ impl App {
                 };
                 return Ok(());
             }
+            KeyCode::Char('?') => {
+                self.show_help = true;
+                return Ok(());
+            }
             _ => {}
         }
+
+        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
+        let half_page = self.viewport_height / 2;
+        let full_page = self.viewport_height;
 
         // Focus-specific keys
         match self.focus {
             Focus::Messages => match key {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    // Scroll up = see older messages = increase scroll offset
-                    // Actual clamping happens in UI after viewport height is known
+                // Single line scroll
+                KeyCode::Up | KeyCode::Char('k') if !ctrl => {
                     self.message_scroll = self.message_scroll.saturating_add(1);
                 }
-                KeyCode::Down | KeyCode::Char('j') => {
-                    // Scroll down = see newer messages = decrease scroll offset
+                KeyCode::Down | KeyCode::Char('j') if !ctrl => {
                     self.message_scroll = self.message_scroll.saturating_sub(1);
                 }
+                // 10 line scroll with Ctrl
+                KeyCode::Char('k') if ctrl => {
+                    self.message_scroll = self.message_scroll.saturating_add(10);
+                }
+                KeyCode::Char('j') if ctrl => {
+                    self.message_scroll = self.message_scroll.saturating_sub(10);
+                }
+                // Half page scroll (vim u/d)
+                KeyCode::Char('u') => {
+                    self.message_scroll = self.message_scroll.saturating_add(half_page);
+                }
+                KeyCode::Char('d') => {
+                    self.message_scroll = self.message_scroll.saturating_sub(half_page);
+                }
+                // Full page scroll (less b/f)
+                KeyCode::Char('b') | KeyCode::PageUp => {
+                    self.message_scroll = self.message_scroll.saturating_add(full_page);
+                }
+                KeyCode::Char('f') | KeyCode::PageDown => {
+                    self.message_scroll = self.message_scroll.saturating_sub(full_page);
+                }
+                // Jump to top/bottom
                 KeyCode::Home | KeyCode::Char('g') => {
-                    // Scroll to oldest - use large value, UI will clamp
                     self.message_scroll = usize::MAX / 2;
                 }
                 KeyCode::End | KeyCode::Char('G') => {
@@ -171,6 +241,67 @@ impl App {
                 }
                 _ => {}
             },
+        }
+        Ok(())
+    }
+
+    fn handle_mouse(&mut self, mouse: crossterm::event::MouseEvent) -> Result<()> {
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let x = mouse.column;
+                let y = mouse.row;
+
+                // Check if click is in channels area
+                if x >= self.channels_area.x
+                    && x < self.channels_area.x + self.channels_area.width
+                    && y >= self.channels_area.y
+                    && y < self.channels_area.y + self.channels_area.height
+                {
+                    self.focus = Focus::Channels;
+
+                    // Calculate which channel was clicked (accounting for border)
+                    let clicked_row = (y - self.channels_area.y).saturating_sub(1) as usize;
+                    let total = self.total_channel_count();
+
+                    // Account for DM separator if present
+                    let dm_separator_offset =
+                        if !self.dm_channels.is_empty() && clicked_row >= self.channels.len() {
+                            1 // Skip the "-- DMs --" separator
+                        } else {
+                            0
+                        };
+
+                    let adjusted_row = if clicked_row > self.channels.len() {
+                        clicked_row.saturating_sub(dm_separator_offset)
+                    } else {
+                        clicked_row
+                    };
+
+                    if adjusted_row < total {
+                        self.selected_channel = adjusted_row;
+                        self.load_messages()?;
+                    }
+                }
+                // Check if click is in messages area
+                else if x >= self.messages_area.x
+                    && x < self.messages_area.x + self.messages_area.width
+                    && y >= self.messages_area.y
+                    && y < self.messages_area.y + self.messages_area.height
+                {
+                    self.focus = Focus::Messages;
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                if self.focus == Focus::Messages {
+                    self.message_scroll = self.message_scroll.saturating_add(3);
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if self.focus == Focus::Messages {
+                    self.message_scroll = self.message_scroll.saturating_sub(3);
+                }
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -254,8 +385,19 @@ impl App {
     /// Clamp scroll offset to valid range based on viewport height.
     /// Called by UI after layout is known.
     pub fn clamp_scroll(&mut self, viewport_height: usize) {
+        self.viewport_height = viewport_height;
         let max_scroll = self.messages.len().saturating_sub(viewport_height);
         self.message_scroll = self.message_scroll.min(max_scroll);
+    }
+
+    pub fn show_help(&self) -> bool {
+        self.show_help
+    }
+
+    /// Update cached layout areas for mouse click detection
+    pub fn set_layout_areas(&mut self, channels: Rect, messages: Rect) {
+        self.channels_area = channels;
+        self.messages_area = messages;
     }
 }
 

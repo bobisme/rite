@@ -124,6 +124,16 @@ fn main() -> Result<()> {
             cli::claim::release(patterns, all, cli.agent.as_deref(), &project_root)
         }
 
+        Commands::CheckClaim { path } => {
+            let project_root = resolve_project_root(cli.project)?;
+            let safe =
+                cli::claim::check_claim(path, cli.json, cli.agent.as_deref(), &project_root)?;
+            if !safe {
+                std::process::exit(1);
+            }
+            Ok(())
+        }
+
         Commands::Ui { channel } => {
             let project_root = resolve_project_root(cli.project)?;
             cli::ui::run(channel, &project_root)

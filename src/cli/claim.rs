@@ -1,7 +1,8 @@
 use anyhow::{Context, Result};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use colored::Colorize;
 use globset::{Glob, GlobSetBuilder};
+use serde::Serialize;
 use std::path::Path;
 
 use crate::core::claim::FileClaim;
@@ -229,6 +230,130 @@ pub fn release(
     Ok(())
 }
 
+/// Output from check-claim command.
+#[derive(Debug, Serialize)]
+pub struct CheckClaimOutput {
+    /// The file/pattern that was checked
+    pub path: String,
+    /// Whether the path is safe to edit (no conflicts)
+    pub safe: bool,
+    /// Conflicting claims (if any)
+    pub conflicts: Vec<ClaimConflict>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ClaimConflict {
+    /// Agent who holds the claim
+    pub agent: String,
+    /// The pattern that matches
+    pub pattern: String,
+    /// When the claim expires
+    pub expires_at: DateTime<Utc>,
+    /// Seconds until expiration
+    pub expires_in_secs: i64,
+}
+
+/// Check if a file/pattern conflicts with existing claims.
+/// Returns Ok(true) if safe, Ok(false) if conflict exists.
+/// Exits with code 1 on conflict for easy shell scripting.
+pub fn check_claim(
+    path: String,
+    json: bool,
+    agent: Option<&str>,
+    project_root: &Path,
+) -> Result<bool> {
+    let current_agent = resolve_agent(agent, project_root).unwrap_or_default();
+    let now = Utc::now();
+
+    let all_claims: Vec<FileClaim> = read_records(&claims_path(project_root)).unwrap_or_default();
+
+    // Build active claims map
+    let mut active: std::collections::HashMap<ulid::Ulid, FileClaim> =
+        std::collections::HashMap::new();
+    for claim in all_claims {
+        active.insert(claim.id, claim);
+    }
+
+    // Find conflicts
+    let mut conflicts = Vec::new();
+    for claim in active.values() {
+        // Skip our own claims
+        if claim.agent == current_agent {
+            continue;
+        }
+
+        // Skip inactive or expired
+        if !claim.active || claim.expires_at < now {
+            continue;
+        }
+
+        // Check if our path matches any of their patterns
+        for pattern in &claim.patterns {
+            if path_matches_pattern(&path, pattern) {
+                conflicts.push(ClaimConflict {
+                    agent: claim.agent.clone(),
+                    pattern: pattern.clone(),
+                    expires_at: claim.expires_at,
+                    expires_in_secs: (claim.expires_at - now).num_seconds(),
+                });
+            }
+        }
+    }
+
+    let safe = conflicts.is_empty();
+
+    let output = CheckClaimOutput {
+        path: path.clone(),
+        safe,
+        conflicts,
+    };
+
+    if json {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+    } else if safe {
+        println!("{} {} is safe to edit", "✓".green(), path.cyan());
+    } else {
+        println!("{} {} has conflicts:", "✗".red(), path.cyan());
+        for conflict in &output.conflicts {
+            let expires = format_duration(conflict.expires_in_secs as u64);
+            println!(
+                "  {} claimed {} (expires in {})",
+                conflict.agent.yellow(),
+                conflict.pattern.dimmed(),
+                expires
+            );
+        }
+    }
+
+    Ok(safe)
+}
+
+/// Check if a specific path matches a glob pattern.
+fn path_matches_pattern(path: &str, pattern: &str) -> bool {
+    // Try glob matching
+    if let Ok(glob) = Glob::new(pattern) {
+        let mut builder = GlobSetBuilder::new();
+        builder.add(glob);
+        if let Ok(set) = builder.build() {
+            if set.is_match(path) {
+                return true;
+            }
+        }
+    }
+
+    // Also check prefix matching for directory patterns
+    let pattern_base = pattern
+        .split("**")
+        .next()
+        .unwrap_or(pattern)
+        .trim_end_matches('/');
+    if !pattern_base.is_empty() && path.starts_with(pattern_base) {
+        return true;
+    }
+
+    false
+}
+
 fn check_conflicts(
     new_patterns: &[String],
     claims: &[FileClaim],
@@ -376,5 +501,108 @@ mod tests {
         assert!(patterns_overlap("src/**/*.rs", "src/main.rs"));
         assert!(patterns_overlap("src/auth/**", "src/auth/login.rs"));
         assert!(!patterns_overlap("src/api/**", "tests/**"));
+    }
+
+    #[test]
+    fn test_check_claim_no_conflicts() {
+        let temp = setup();
+
+        // No claims exist, should be safe
+        let safe = check_claim(
+            "src/main.rs".to_string(),
+            false,
+            Some("Checker"),
+            temp.path(),
+        )
+        .unwrap();
+        assert!(safe);
+    }
+
+    #[test]
+    fn test_check_claim_with_conflict() {
+        let temp = setup();
+
+        // Another agent claims src/**
+        claim(
+            ClaimOptions {
+                patterns: vec!["src/**".to_string()],
+                ttl: 3600,
+                message: None,
+                agent: Some("OtherAgent".to_string()),
+            },
+            temp.path(),
+        )
+        .unwrap();
+
+        // Checker tries to edit src/main.rs - should conflict
+        let safe = check_claim(
+            "src/main.rs".to_string(),
+            false,
+            Some("Checker"),
+            temp.path(),
+        )
+        .unwrap();
+        assert!(!safe);
+    }
+
+    #[test]
+    fn test_check_claim_own_claim_ok() {
+        let temp = setup();
+
+        // Agent claims src/**
+        claim(
+            ClaimOptions {
+                patterns: vec!["src/**".to_string()],
+                ttl: 3600,
+                message: None,
+                agent: Some("MyAgent".to_string()),
+            },
+            temp.path(),
+        )
+        .unwrap();
+
+        // Same agent checks - should be safe (own claim)
+        let safe = check_claim(
+            "src/main.rs".to_string(),
+            false,
+            Some("MyAgent"),
+            temp.path(),
+        )
+        .unwrap();
+        assert!(safe);
+    }
+
+    #[test]
+    fn test_check_claim_json_output() {
+        let temp = setup();
+
+        claim(
+            ClaimOptions {
+                patterns: vec!["src/**".to_string()],
+                ttl: 3600,
+                message: None,
+                agent: Some("OtherAgent".to_string()),
+            },
+            temp.path(),
+        )
+        .unwrap();
+
+        // JSON output should work
+        let safe = check_claim(
+            "src/main.rs".to_string(),
+            true, // json = true
+            Some("Checker"),
+            temp.path(),
+        )
+        .unwrap();
+        assert!(!safe);
+    }
+
+    #[test]
+    fn test_path_matches_pattern() {
+        assert!(path_matches_pattern("src/main.rs", "src/**"));
+        assert!(path_matches_pattern("src/auth/login.rs", "src/auth/**"));
+        assert!(path_matches_pattern("Cargo.toml", "*.toml"));
+        assert!(!path_matches_pattern("tests/foo.rs", "src/**"));
     }
 }

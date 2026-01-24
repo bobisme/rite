@@ -196,6 +196,12 @@ pub enum Commands {
         all: bool,
     },
 
+    /// Check if a file is claimed by another agent
+    CheckClaim {
+        /// File path or pattern to check
+        path: String,
+    },
+
     /// Launch the terminal UI
     Ui {
         /// Start in this channel

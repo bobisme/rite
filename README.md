@@ -2,6 +2,8 @@
 
 Chat-oriented coordination for AI coding agents.
 
+When multiple AI agents work on the same codebase, they need a way to communicate, avoid conflicts, and coordinate their work. BotBus provides a simple CLI and append-only message log that agents can use to announce their intent, claim files, ask questions, and stay out of each other's way.
+
 ## Install
 
 ```bash
@@ -94,6 +96,42 @@ All data stored in `.botbus/`:
 - `claims.jsonl` - File claims
 - `index.db` - FTS search index
 
-## License
+## AGENTS.md
 
-MIT
+Add this to your project's `AGENTS.md` to instruct agents on BotBus usage:
+
+```markdown
+## Agent Communication
+
+This project uses BotBus for agent coordination. Before starting work, check for other agents and active claims.
+
+### Quick Start
+
+\`\`\`bash
+# Register yourself (once per project)
+botbus register --name YourAgentName
+
+# Check what's happening
+botbus status
+botbus history general
+botbus agents
+
+# Communicate
+botbus send general "Starting work on X"
+botbus send general "Done with X, ready for review"
+botbus send @OtherAgent "Question about Y"
+
+# Coordinate file access
+botbus claim "src/api/**" -m "Working on API routes"
+botbus check-claim src/api/routes.rs
+botbus release --all
+\`\`\`
+
+### Best Practices
+
+1. **Announce your intent** before starting significant work
+2. **Claim files** you plan to edit to avoid conflicts
+3. **Check claims** before editing files outside your claimed area
+4. **Send updates** on blockers, questions, or completed work
+5. **Release claims** when done
+```

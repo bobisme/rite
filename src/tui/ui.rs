@@ -56,16 +56,11 @@ fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
 
     // Public channels
     for (i, ch) in app.channels().iter().enumerate() {
-        let style = if i == selected && is_focused {
-            Style::default()
-                .fg(ACTIVE_BORDER)
-                .add_modifier(Modifier::BOLD)
-        } else if i == selected {
-            Style::default().add_modifier(Modifier::BOLD)
-        } else {
-            Style::default()
-        };
-        items.push(ListItem::new(format!("#{}", ch)).style(style));
+        let new_count = app.new_message_count(ch);
+        let is_selected = i == selected;
+
+        let line = format_channel_line(&format!("#{}", ch), new_count, is_selected, is_focused);
+        items.push(ListItem::new(line));
     }
 
     // DM section separator (if there are DMs)
@@ -82,19 +77,11 @@ fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
     for (i, dm) in app.dm_channels().iter().enumerate() {
         let global_idx = public_count + i;
         let display_name = format_dm_channel(dm);
+        let new_count = app.new_message_count(dm);
+        let is_selected = global_idx == selected;
 
-        let style = if global_idx == selected && is_focused {
-            Style::default()
-                .fg(ACTIVE_BORDER)
-                .add_modifier(Modifier::BOLD)
-        } else if global_idx == selected {
-            Style::default()
-                .fg(Color::Magenta)
-                .add_modifier(Modifier::BOLD)
-        } else {
-            Style::default().fg(Color::Magenta)
-        };
-        items.push(ListItem::new(display_name).style(style));
+        let line = format_channel_line_dm(&display_name, new_count, is_selected, is_focused);
+        items.push(ListItem::new(line));
     }
 
     let (border_style, title_style) = if is_focused {
@@ -126,6 +113,72 @@ fn format_dm_channel(channel: &str) -> String {
         }
     }
     channel.to_string()
+}
+
+/// Format a channel line with optional new message count
+fn format_channel_line(
+    name: &str,
+    new_count: usize,
+    is_selected: bool,
+    is_focused: bool,
+) -> Line<'static> {
+    let name_style = if is_selected && is_focused {
+        Style::default()
+            .fg(ACTIVE_BORDER)
+            .add_modifier(Modifier::BOLD)
+    } else if is_selected {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else if new_count > 0 {
+        Style::default().add_modifier(Modifier::BOLD)
+    } else {
+        Style::default()
+    };
+
+    let mut spans = vec![Span::styled(name.to_string(), name_style)];
+
+    if new_count > 0 {
+        spans.push(Span::styled(
+            format!(" ({})", new_count),
+            Style::default().fg(Color::Yellow),
+        ));
+    }
+
+    Line::from(spans)
+}
+
+/// Format a DM channel line with optional new message count
+fn format_channel_line_dm(
+    name: &str,
+    new_count: usize,
+    is_selected: bool,
+    is_focused: bool,
+) -> Line<'static> {
+    let name_style = if is_selected && is_focused {
+        Style::default()
+            .fg(ACTIVE_BORDER)
+            .add_modifier(Modifier::BOLD)
+    } else if is_selected {
+        Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::BOLD)
+    } else if new_count > 0 {
+        Style::default()
+            .fg(Color::Magenta)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(Color::Magenta)
+    };
+
+    let mut spans = vec![Span::styled(name.to_string(), name_style)];
+
+    if new_count > 0 {
+        spans.push(Span::styled(
+            format!(" ({})", new_count),
+            Style::default().fg(Color::Yellow),
+        ));
+    }
+
+    Line::from(spans)
 }
 
 fn draw_agents(f: &mut Frame, app: &App, area: Rect) {

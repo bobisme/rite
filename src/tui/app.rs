@@ -35,6 +35,10 @@ pub struct App {
     /// Cached layout areas for mouse click detection
     channels_area: Rect,
     messages_area: Rect,
+    /// File sizes when TUI started (for new message indicators)
+    initial_sizes: std::collections::HashMap<String, u64>,
+    /// Current new message counts per channel
+    new_message_counts: std::collections::HashMap<String, usize>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -67,6 +71,9 @@ impl App {
             channels.iter().position(|c| c == "general").unwrap_or(0)
         };
 
+        // Capture initial file sizes for new message indicators
+        let initial_sizes = capture_channel_sizes(project_root, &channels, &dm_channels);
+
         let mut app = Self {
             project_root: project_root.to_path_buf(),
             current_agent,
@@ -83,9 +90,12 @@ impl App {
             viewport_height: 20,
             channels_area: Rect::default(),
             messages_area: Rect::default(),
+            initial_sizes,
+            new_message_counts: std::collections::HashMap::new(),
         };
 
         app.load_messages()?;
+        app.update_new_message_counts();
 
         Ok(app)
     }
@@ -331,7 +341,40 @@ impl App {
                 self.messages.drain(0..drain_count);
             }
         }
+
+        // Update new message counts for all channels
+        self.update_new_message_counts();
+
         Ok(())
+    }
+
+    fn update_new_message_counts(&mut self) {
+        let all_channels: Vec<String> = self
+            .channels
+            .iter()
+            .chain(self.dm_channels.iter())
+            .cloned()
+            .collect();
+
+        for channel in all_channels {
+            let path = channel_path(&self.project_root, &channel);
+            let current_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+            let initial_size = self.initial_sizes.get(&channel).copied().unwrap_or(0);
+
+            if current_size > initial_size {
+                // Count newlines (messages) in the new portion
+                let count = count_new_messages(&path, initial_size, current_size);
+                if count > 0 {
+                    self.new_message_counts.insert(channel, count);
+                }
+            } else {
+                self.new_message_counts.remove(&channel);
+            }
+        }
+    }
+
+    pub fn new_message_count(&self, channel: &str) -> usize {
+        self.new_message_counts.get(channel).copied().unwrap_or(0)
     }
 
     pub fn current_channel(&self) -> Option<String> {
@@ -440,4 +483,45 @@ fn list_channels(project_root: &Path) -> Result<(Vec<String>, Vec<String>)> {
     let dms: Vec<String> = dm_channels.into_iter().map(|(n, _)| n).collect();
 
     Ok((public, dms))
+}
+
+/// Capture initial file sizes for all channels
+fn capture_channel_sizes(
+    project_root: &Path,
+    channels: &[String],
+    dm_channels: &[String],
+) -> std::collections::HashMap<String, u64> {
+    let mut sizes = std::collections::HashMap::new();
+
+    for channel in channels.iter().chain(dm_channels.iter()) {
+        let path = channel_path(project_root, channel);
+        if let Ok(meta) = std::fs::metadata(&path) {
+            sizes.insert(channel.clone(), meta.len());
+        }
+    }
+
+    sizes
+}
+
+/// Count new messages (lines) between two file offsets
+fn count_new_messages(path: &Path, start: u64, end: u64) -> usize {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let Ok(mut file) = std::fs::File::open(path) else {
+        return 0;
+    };
+
+    if file.seek(SeekFrom::Start(start)).is_err() {
+        return 0;
+    }
+
+    let bytes_to_read = (end - start) as usize;
+    let mut buffer = vec![0u8; bytes_to_read.min(1024 * 1024)]; // Cap at 1MB
+
+    let Ok(bytes_read) = file.read(&mut buffer) else {
+        return 0;
+    };
+
+    // Count newlines
+    buffer[..bytes_read].iter().filter(|&&b| b == b'\n').count()
 }

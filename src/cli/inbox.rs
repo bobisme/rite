@@ -42,6 +42,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>, project_root: &P
         after_offset: Some(cursor.offset),
         after_id: None,
         show_offset: false,
+        json: false, // inbox handles its own output
     };
 
     let output: HistoryOutput = history::run_with_output(history_options, project_root)?;

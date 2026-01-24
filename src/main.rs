@@ -59,6 +59,7 @@ fn main() -> Result<()> {
                     after_offset,
                     after_id,
                     show_offset,
+                    json: cli.json,
                 },
                 &project_root,
             )

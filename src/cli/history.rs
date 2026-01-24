@@ -1,6 +1,7 @@
 use anyhow::{Context, Result};
 use chrono::{DateTime, Local, Utc};
 use colored::Colorize;
+use serde::Serialize;
 use std::path::Path;
 
 use crate::core::message::Message;
@@ -21,10 +22,12 @@ pub struct HistoryOptions {
     pub after_id: Option<String>,
     /// Show the offset info for next read
     pub show_offset: bool,
+    /// Output as JSON
+    pub json: bool,
 }
 
 /// Output from history command, useful for programmatic access.
-#[derive(Debug)]
+#[derive(Debug, Serialize)]
 pub struct HistoryOutput {
     pub messages: Vec<Message>,
     /// Byte offset for next read (end of file after this read)
@@ -37,7 +40,15 @@ pub struct HistoryOutput {
 pub fn run(options: HistoryOptions, project_root: &Path) -> Result<()> {
     let output = run_with_output(options.clone(), project_root)?;
 
-    let channel = options.channel.unwrap_or_else(|| "general".to_string());
+    let channel = options
+        .channel
+        .clone()
+        .unwrap_or_else(|| "general".to_string());
+
+    if options.json {
+        println!("{}", serde_json::to_string_pretty(&output)?);
+        return Ok(());
+    }
 
     if output.messages.is_empty() {
         if options.after_offset.is_some() || options.after_id.is_some() {
@@ -307,6 +318,7 @@ mod tests {
             after_offset: None,
             after_id: None,
             show_offset: false,
+            json: false,
         };
 
         run(options, temp.path()).unwrap();
@@ -326,6 +338,7 @@ mod tests {
             after_offset: None,
             after_id: None,
             show_offset: false,
+            json: false,
         };
 
         run(options, temp.path()).unwrap();
@@ -353,6 +366,7 @@ mod tests {
             after_offset: None,
             after_id: None,
             show_offset: false,
+            json: false,
         };
 
         run(options, temp.path()).unwrap();

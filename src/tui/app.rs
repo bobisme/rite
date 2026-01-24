@@ -17,6 +17,7 @@ pub struct App {
     project_root: PathBuf,
     current_agent: Option<String>,
     channels: Vec<String>,
+    dm_channels: Vec<String>,
     selected_channel: usize,
     agents: Vec<Agent>,
     messages: Vec<Message>,
@@ -37,12 +38,21 @@ impl App {
         // Get agent from env var (no explicit flag for TUI)
         let current_agent = resolve_agent(None, project_root);
 
-        let channels = list_channels(project_root)?;
+        let (channels, dm_channels) = list_channels(project_root, current_agent.as_deref())?;
         let agents: Vec<Agent> = read_records(&agents_path(project_root))?;
 
-        // Find initial channel index
+        // Find initial channel index (search in both channels and DMs)
         let selected_channel = if let Some(ch) = &initial_channel {
-            channels.iter().position(|c| c == ch).unwrap_or(0)
+            channels
+                .iter()
+                .position(|c| c == ch)
+                .or_else(|| {
+                    dm_channels
+                        .iter()
+                        .position(|c| c == ch)
+                        .map(|i| i + channels.len())
+                })
+                .unwrap_or(0)
         } else {
             channels.iter().position(|c| c == "general").unwrap_or(0)
         };
@@ -51,6 +61,7 @@ impl App {
             project_root: project_root.to_path_buf(),
             current_agent,
             channels,
+            dm_channels,
             selected_channel,
             agents,
             messages: Vec::new(),
@@ -149,7 +160,8 @@ impl App {
                     }
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
-                    if self.selected_channel < self.channels.len().saturating_sub(1) {
+                    let total = self.total_channel_count();
+                    if self.selected_channel < total.saturating_sub(1) {
                         self.selected_channel += 1;
                         self.load_messages()?;
                     }
@@ -192,15 +204,31 @@ impl App {
     }
 
     pub fn current_channel(&self) -> Option<String> {
-        self.channels.get(self.selected_channel).cloned()
+        let total_public = self.channels.len();
+        if self.selected_channel < total_public {
+            self.channels.get(self.selected_channel).cloned()
+        } else {
+            self.dm_channels
+                .get(self.selected_channel - total_public)
+                .cloned()
+        }
     }
 
     pub fn channels(&self) -> &[String] {
         &self.channels
     }
 
+    pub fn dm_channels(&self) -> &[String] {
+        &self.dm_channels
+    }
+
     pub fn selected_channel_index(&self) -> usize {
         self.selected_channel
+    }
+
+    /// Total number of channels (public + DMs)
+    pub fn total_channel_count(&self) -> usize {
+        self.channels.len() + self.dm_channels.len()
     }
 
     pub fn agents(&self) -> &[Agent] {
@@ -224,9 +252,13 @@ impl App {
     }
 }
 
-fn list_channels(project_root: &Path) -> Result<Vec<String>> {
+fn list_channels(
+    project_root: &Path,
+    current_agent: Option<&str>,
+) -> Result<(Vec<String>, Vec<String>)> {
     let channels = channels_dir(project_root);
-    let mut result = Vec::new();
+    let mut public_channels = Vec::new();
+    let mut dm_channels = Vec::new();
 
     if channels.exists() {
         for entry in std::fs::read_dir(&channels)? {
@@ -234,21 +266,61 @@ fn list_channels(project_root: &Path) -> Result<Vec<String>> {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "jsonl") {
                 if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    // Skip DM channels for now
-                    if !name.starts_with("_dm_") {
-                        result.push(name.to_string());
+                    if name.starts_with("_dm_") {
+                        // Only include DMs that involve the current agent
+                        if let Some(agent) = current_agent {
+                            if dm_involves_agent(name, agent) {
+                                dm_channels.push(name.to_string());
+                            }
+                        }
+                    } else {
+                        public_channels.push(name.to_string());
                     }
                 }
             }
         }
     }
 
-    // Ensure general is first
-    result.sort();
-    if let Some(pos) = result.iter().position(|c| c == "general") {
-        result.remove(pos);
-        result.insert(0, "general".to_string());
+    // Ensure general is first in public channels
+    public_channels.sort();
+    if let Some(pos) = public_channels.iter().position(|c| c == "general") {
+        public_channels.remove(pos);
+        public_channels.insert(0, "general".to_string());
     }
 
-    Ok(result)
+    // Sort DM channels alphabetically
+    dm_channels.sort();
+
+    Ok((public_channels, dm_channels))
+}
+
+/// Check if a DM channel name involves the given agent
+fn dm_involves_agent(channel_name: &str, agent: &str) -> bool {
+    // DM channel format: _dm_Agent1_Agent2 (alphabetically sorted)
+    let parts: Vec<&str> = channel_name
+        .strip_prefix("_dm_")
+        .unwrap_or("")
+        .splitn(2, '_')
+        .collect();
+    parts.len() == 2 && (parts[0] == agent || parts[1] == agent)
+}
+
+/// Extract the other agent's name from a DM channel name
+pub fn dm_other_agent(channel_name: &str, current_agent: &str) -> Option<String> {
+    let parts: Vec<&str> = channel_name
+        .strip_prefix("_dm_")
+        .unwrap_or("")
+        .splitn(2, '_')
+        .collect();
+    if parts.len() == 2 {
+        if parts[0] == current_agent {
+            Some(parts[1].to_string())
+        } else if parts[1] == current_agent {
+            Some(parts[0].to_string())
+        } else {
+            None
+        }
+    } else {
+        None
+    }
 }

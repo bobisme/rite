@@ -13,6 +13,10 @@ pub struct HistoryOptions {
     pub channel: Option<String>,
     pub count: usize,
     pub follow: bool,
+    /// Exit follow mode after N seconds
+    pub timeout: Option<u64>,
+    /// Exit follow mode after receiving N new messages
+    pub follow_count: Option<usize>,
     pub since: Option<String>,
     pub before: Option<String>,
     pub from: Option<String>,
@@ -86,7 +90,7 @@ pub fn run(options: HistoryOptions, project_root: &Path) -> Result<()> {
     // Follow mode
     if options.follow {
         let path = channel_path(project_root, &channel);
-        follow_channel(&path, project_root)?;
+        follow_channel(&path, project_root, options.timeout, options.follow_count)?;
     }
 
     Ok(())
@@ -281,11 +285,16 @@ fn colorize_agent(name: &str) -> colored::ColoredString {
     name.color(color).bold()
 }
 
-fn follow_channel(path: &Path, project_root: &Path) -> Result<()> {
+fn follow_channel(
+    path: &Path,
+    project_root: &Path,
+    timeout_secs: Option<u64>,
+    follow_count: Option<usize>,
+) -> Result<()> {
     use crate::core::project::channels_dir;
     use crate::storage::jsonl::read_records_from_offset;
     use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
-    use std::time::Duration;
+    use std::time::{Duration, Instant};
 
     println!("{}", "--- Following (Ctrl+C to exit) ---".dimmed());
 
@@ -295,7 +304,30 @@ fn follow_channel(path: &Path, project_root: &Path) -> Result<()> {
     // Track our position in the file
     let mut offset = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
 
+    // Track timeout and message count
+    let start = Instant::now();
+    let mut messages_received: usize = 0;
+
     loop {
+        // Check timeout
+        if let Some(timeout) = timeout_secs {
+            if start.elapsed() >= Duration::from_secs(timeout) {
+                println!("{}", format!("--- Timeout after {}s ---", timeout).dimmed());
+                break;
+            }
+        }
+
+        // Check message count limit
+        if let Some(max_count) = follow_count {
+            if messages_received >= max_count {
+                println!(
+                    "{}",
+                    format!("--- Received {} messages ---", max_count).dimmed()
+                );
+                break;
+            }
+        }
+
         let changed = debounce_events(&rx, Duration::from_millis(100));
         let channel_changes = filter_channel_events(changed);
 
@@ -308,11 +340,25 @@ fn follow_channel(path: &Path, project_root: &Path) -> Result<()> {
 
             for msg in &new_messages {
                 print_message(msg);
+                messages_received += 1;
+
+                // Check if we've hit the message limit after each message
+                if let Some(max_count) = follow_count {
+                    if messages_received >= max_count {
+                        println!(
+                            "{}",
+                            format!("--- Received {} messages ---", max_count).dimmed()
+                        );
+                        return Ok(());
+                    }
+                }
             }
 
             offset = new_offset;
         }
     }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -349,6 +395,8 @@ mod tests {
             channel: Some("general".to_string()),
             count: 50,
             follow: false,
+            timeout: None,
+            follow_count: None,
             since: None,
             before: None,
             from: None,
@@ -370,6 +418,8 @@ mod tests {
             channel: Some("empty".to_string()),
             count: 50,
             follow: false,
+            timeout: None,
+            follow_count: None,
             since: None,
             before: None,
             from: None,
@@ -398,6 +448,8 @@ mod tests {
             channel: Some("general".to_string()),
             count: 50,
             follow: false,
+            timeout: None,
+            follow_count: None,
             since: None,
             before: None,
             from: Some("Historian".to_string()),

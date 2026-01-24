@@ -50,6 +50,8 @@ fn main() -> Result<()> {
             channel,
             count,
             follow,
+            timeout,
+            follow_count,
             since,
             before,
             from,
@@ -64,6 +66,8 @@ fn main() -> Result<()> {
                     channel,
                     count,
                     follow,
+                    timeout,
+                    follow_count,
                     since,
                     before,
                     from,
@@ -115,6 +119,7 @@ fn main() -> Result<()> {
             patterns,
             ttl,
             message,
+            extend,
         } => {
             let project_root = resolve_project_root(cli.project)?;
             cli::claim::claim(
@@ -122,6 +127,7 @@ fn main() -> Result<()> {
                     patterns,
                     ttl,
                     message,
+                    extend,
                     agent: cli.agent,
                 },
                 &project_root,

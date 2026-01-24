@@ -125,13 +125,72 @@ impl ProjectState {
     }
 
     /// Update the state atomically using a closure.
+    ///
+    /// Holds an exclusive lock across the entire read-modify-write operation
+    /// to prevent race conditions between concurrent updates.
     pub fn update<F>(&self, f: F) -> Result<State>
     where
         F: FnOnce(&mut State),
     {
-        let mut state = self.load()?;
+        // Ensure parent directory exists
+        if let Some(parent) = self.path.parent() {
+            std::fs::create_dir_all(parent)
+                .with_context(|| format!("Failed to create directory: {}", parent.display()))?;
+        }
+
+        // Open file with read+write, creating if needed
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .open(&self.path)
+            .with_context(|| {
+                format!(
+                    "Failed to open state file for update: {}",
+                    self.path.display()
+                )
+            })?;
+
+        // Acquire exclusive lock - held for entire read-modify-write
+        file.lock_exclusive()
+            .with_context(|| "Failed to acquire exclusive lock on state file")?;
+
+        // Read current contents
+        let mut contents = String::new();
+        let mut reader = std::io::BufReader::new(&file);
+        reader
+            .read_to_string(&mut contents)
+            .with_context(|| "Failed to read state file")?;
+
+        // Parse state (default if empty/missing)
+        let mut state: State = if contents.trim().is_empty() {
+            State::default()
+        } else {
+            serde_json::from_str(&contents).with_context(|| "Failed to parse state file")?
+        };
+
+        // Apply the update
         f(&mut state);
-        self.save(&state)?;
+
+        // Serialize
+        let json =
+            serde_json::to_string_pretty(&state).with_context(|| "Failed to serialize state")?;
+
+        // Truncate file and write back (file position is at end after read)
+        use std::io::Seek;
+        let mut file_ref = &file;
+        file_ref.seek(std::io::SeekFrom::Start(0))?;
+        file.set_len(0)?;
+
+        let mut writer = std::io::BufWriter::new(&file);
+        writer
+            .write_all(json.as_bytes())
+            .with_context(|| "Failed to write state file")?;
+
+        writer.flush()?;
+        file.sync_all()?;
+
+        // Lock released on drop
         Ok(state)
     }
 
@@ -170,6 +229,7 @@ impl ProjectState {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::Arc;
     use tempfile::TempDir;
 
     #[test]
@@ -228,5 +288,56 @@ mod tests {
 
         ps.set_current_agent("MyAgent").unwrap();
         assert_eq!(ps.current_agent().unwrap(), Some("MyAgent".to_string()));
+    }
+
+    /// Stress test for concurrent state updates (bd-k7r).
+    ///
+    /// Spawns multiple threads that concurrently increment a counter stored
+    /// in channel_offsets. Verifies that no updates are lost due to race conditions.
+    #[test]
+    fn test_concurrent_state_updates() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("state.json");
+        let ps = Arc::new(ProjectState::new(&path));
+
+        // Initialize the counter
+        ps.update(|s| {
+            s.channel_offsets.insert("counter".to_string(), 0);
+        })
+        .unwrap();
+
+        const NUM_THREADS: usize = 10;
+        const INCREMENTS_PER_THREAD: usize = 50;
+
+        let mut handles = Vec::new();
+        for _ in 0..NUM_THREADS {
+            let ps = Arc::clone(&ps);
+            let handle = std::thread::spawn(move || {
+                for _ in 0..INCREMENTS_PER_THREAD {
+                    ps.update(|s| {
+                        let current = s.channel_offsets.get("counter").copied().unwrap_or(0);
+                        s.channel_offsets.insert("counter".to_string(), current + 1);
+                    })
+                    .unwrap();
+                }
+            });
+            handles.push(handle);
+        }
+
+        // Wait for all threads to complete
+        for handle in handles {
+            handle.join().expect("Thread panicked");
+        }
+
+        // Verify no updates were lost
+        let state = ps.load().unwrap();
+        let final_count = state.channel_offsets.get("counter").copied().unwrap_or(0);
+        let expected = (NUM_THREADS * INCREMENTS_PER_THREAD) as u64;
+
+        assert_eq!(
+            final_count, expected,
+            "Expected {} increments but got {} - updates were lost!",
+            expected, final_count
+        );
     }
 }

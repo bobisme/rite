@@ -15,6 +15,8 @@ pub struct ClaimOptions {
     pub patterns: Vec<String>,
     pub ttl: u64,
     pub message: Option<String>,
+    /// Extend TTL on existing claims matching this pattern
+    pub extend: Option<String>,
     pub agent: Option<String>,
 }
 
@@ -28,6 +30,11 @@ pub fn claim(options: ClaimOptions, project_root: &Path) -> Result<()> {
             format_export("YourAgentName")
         )
     })?;
+
+    // Handle --extend option: extend TTL on existing claims
+    if let Some(extend_pattern) = &options.extend {
+        return extend_claims(extend_pattern, options.ttl, &agent_name, project_root);
+    }
 
     // Load existing claims
     let claims: Vec<FileClaim> = read_records(&claims_path(project_root))?;
@@ -77,6 +84,73 @@ pub fn claim(options: ClaimOptions, project_root: &Path) -> Result<()> {
     );
     for pattern in &options.patterns {
         println!("  {}", pattern.cyan());
+    }
+
+    Ok(())
+}
+
+/// Extend TTL on existing claims matching the given pattern.
+fn extend_claims(pattern: &str, ttl: u64, agent_name: &str, project_root: &Path) -> Result<()> {
+    let all_claims: Vec<FileClaim> = read_records(&claims_path(project_root))?;
+    let now = Utc::now();
+
+    // Build active claims map
+    let mut active: std::collections::HashMap<ulid::Ulid, FileClaim> =
+        std::collections::HashMap::new();
+    for claim in all_claims {
+        active.insert(claim.id, claim);
+    }
+
+    let mut extended_count = 0;
+
+    for claim in active.values() {
+        // Only extend our own claims
+        if claim.agent != agent_name {
+            continue;
+        }
+
+        // Skip inactive or expired
+        if !claim.active || claim.expires_at < now {
+            continue;
+        }
+
+        // Check if any pattern matches
+        let matches = claim.patterns.iter().any(|p| {
+            p == pattern
+                || p.contains(pattern)
+                || pattern.contains(p)
+                || patterns_overlap(p, pattern)
+        });
+
+        if matches {
+            // Create extended claim (new record with same ID but new expiry)
+            let extended = claim.extend(ttl);
+            append_record(&claims_path(project_root), &extended)?;
+            extended_count += 1;
+
+            // Post message
+            let msg = Message::new(
+                agent_name,
+                "general",
+                format!(
+                    "Extended claim {} for {}",
+                    claim.patterns.join(", "),
+                    format_duration(ttl)
+                ),
+            );
+            append_record(&channel_path(project_root, "general"), &msg)?;
+        }
+    }
+
+    if extended_count == 0 {
+        println!("No matching claims to extend.");
+    } else {
+        println!(
+            "{} Extended {} claim(s) for {}",
+            "Success:".green(),
+            extended_count,
+            format_duration(ttl)
+        );
     }
 
     Ok(())
@@ -502,6 +576,7 @@ mod tests {
                 patterns: vec!["src/**/*.rs".to_string()],
                 ttl: 3600,
                 message: None,
+                extend: None,
                 agent: Some("Claimer".to_string()),
             },
             temp.path(),
@@ -520,6 +595,7 @@ mod tests {
                 patterns: vec!["*.toml".to_string()],
                 ttl: 3600,
                 message: Some("Updating deps".to_string()),
+                extend: None,
                 agent: Some("Claimer".to_string()),
             },
             temp.path(),
@@ -561,6 +637,7 @@ mod tests {
                 patterns: vec!["src/**".to_string()],
                 ttl: 3600,
                 message: None,
+                extend: None,
                 agent: Some("OtherAgent".to_string()),
             },
             temp.path(),
@@ -588,6 +665,7 @@ mod tests {
                 patterns: vec!["src/**".to_string()],
                 ttl: 3600,
                 message: None,
+                extend: None,
                 agent: Some("MyAgent".to_string()),
             },
             temp.path(),
@@ -614,6 +692,7 @@ mod tests {
                 patterns: vec!["src/**".to_string()],
                 ttl: 3600,
                 message: None,
+                extend: None,
                 agent: Some("OtherAgent".to_string()),
             },
             temp.path(),
@@ -637,5 +716,57 @@ mod tests {
         assert!(path_matches_pattern("src/auth/login.rs", "src/auth/**"));
         assert!(path_matches_pattern("Cargo.toml", "*.toml"));
         assert!(!path_matches_pattern("tests/foo.rs", "src/**"));
+    }
+
+    #[test]
+    fn test_extend_claim() {
+        let temp = setup();
+
+        // First, create a claim
+        claim(
+            ClaimOptions {
+                patterns: vec!["src/**/*.rs".to_string()],
+                ttl: 1800, // 30 minutes
+                message: None,
+                extend: None,
+                agent: Some("Extender".to_string()),
+            },
+            temp.path(),
+        )
+        .unwrap();
+
+        // Now extend it
+        claim(
+            ClaimOptions {
+                patterns: vec![],
+                ttl: 7200, // 2 hours
+                message: None,
+                extend: Some("src/**".to_string()),
+                agent: Some("Extender".to_string()),
+            },
+            temp.path(),
+        )
+        .unwrap();
+
+        // Verify the claim is still active with extended TTL
+        claims(false, false, true, Some("Extender"), temp.path()).unwrap();
+    }
+
+    #[test]
+    fn test_extend_no_matching_claims() {
+        let temp = setup();
+
+        // Try to extend when no claims exist
+        claim(
+            ClaimOptions {
+                patterns: vec![],
+                ttl: 3600,
+                message: None,
+                extend: Some("nonexistent/**".to_string()),
+                agent: Some("Extender".to_string()),
+            },
+            temp.path(),
+        )
+        .unwrap(); // Should not error, just print "No matching claims to extend"
     }
 }

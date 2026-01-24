@@ -7,7 +7,7 @@ use ratatui::{
     Frame,
 };
 
-use super::app::{App, Focus};
+use super::app::{dm_other_agent, App, Focus};
 
 pub fn draw(f: &mut Frame, app: &App) {
     // Main layout: sidebar | content
@@ -35,21 +35,53 @@ pub fn draw(f: &mut Frame, app: &App) {
 }
 
 fn draw_channels(f: &mut Frame, app: &App, area: Rect) {
-    let items: Vec<ListItem> = app
-        .channels()
-        .iter()
-        .enumerate()
-        .map(|(i, ch)| {
-            let style = if i == app.selected_channel_index() {
-                Style::default()
-                    .fg(Color::Cyan)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(format!("#{}", ch)).style(style)
-        })
-        .collect();
+    let selected = app.selected_channel_index();
+    let public_count = app.channels().len();
+    let current_agent = app.current_agent();
+
+    let mut items: Vec<ListItem> = Vec::new();
+
+    // Public channels
+    for (i, ch) in app.channels().iter().enumerate() {
+        let style = if i == selected {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default()
+        };
+        items.push(ListItem::new(format!("#{}", ch)).style(style));
+    }
+
+    // DM section separator (if there are DMs)
+    if !app.dm_channels().is_empty() {
+        items.push(ListItem::new(Line::from(vec![Span::styled(
+            "-- DMs --",
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::ITALIC),
+        )])));
+    }
+
+    // DM channels
+    for (i, dm) in app.dm_channels().iter().enumerate() {
+        let global_idx = public_count + i;
+        // Account for the separator line
+        let display_name = if let Some(agent) = current_agent {
+            dm_other_agent(dm, agent).unwrap_or_else(|| dm.clone())
+        } else {
+            dm.clone()
+        };
+
+        let style = if global_idx == selected {
+            Style::default()
+                .fg(Color::Cyan)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(Color::Magenta)
+        };
+        items.push(ListItem::new(format!("@{}", display_name)).style(style));
+    }
 
     let border_style = if app.focus() == Focus::Channels {
         Style::default().fg(Color::Cyan)
@@ -95,9 +127,24 @@ fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
 }
 
 fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
-    let channel_name = app
+    let raw_channel_name = app
         .current_channel()
         .unwrap_or_else(|| "general".to_string());
+
+    // Format DM channel names nicely
+    let channel_name = if raw_channel_name.starts_with("_dm_") {
+        if let Some(agent) = app.current_agent() {
+            if let Some(other) = dm_other_agent(&raw_channel_name, agent) {
+                format!("@{}", other)
+            } else {
+                raw_channel_name
+            }
+        } else {
+            raw_channel_name
+        }
+    } else {
+        format!("#{}", raw_channel_name)
+    };
 
     let border_style = if app.focus() == Focus::Messages {
         Style::default().fg(Color::Cyan)
@@ -123,7 +170,7 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
     let paragraph = Paragraph::new(lines)
         .block(
             Block::default()
-                .title(format!(" #{} ", channel_name))
+                .title(format!(" {} ", channel_name))
                 .borders(Borders::ALL)
                 .border_type(BorderType::Rounded)
                 .border_style(border_style),

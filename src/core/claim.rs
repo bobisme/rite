@@ -77,6 +77,20 @@ impl FileClaim {
             event: ClaimEvent::Expired,
         }
     }
+
+    /// Extend this claim's TTL by the given number of seconds from now.
+    pub fn extend(&self, ttl_secs: u64) -> Self {
+        let now = Utc::now();
+        Self {
+            ts: now,
+            id: self.id,
+            agent: self.agent.clone(),
+            patterns: self.patterns.clone(),
+            expires_at: now + Duration::seconds(ttl_secs as i64),
+            active: true,
+            event: ClaimEvent::Extended,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -85,6 +99,7 @@ pub enum ClaimEvent {
     Created,
     Released,
     Expired,
+    Extended,
 }
 
 /// Represents a conflict between claims.

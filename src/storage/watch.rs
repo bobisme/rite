@@ -111,7 +111,12 @@ mod tests {
         let events = debounce_events(&rx, Duration::from_millis(50));
         // Note: The exact number of events can vary by platform
 
-        drop(watcher); // Keep watcher alive until we're done
-        assert!(!events.is_empty() || true); // Platform-dependent
+        // Keep watcher alive until we're done collecting events
+        drop(watcher);
+
+        // Event delivery is platform-dependent (e.g., some platforms batch events,
+        // some may not deliver events for files created immediately after watch starts).
+        // We verify the watcher setup succeeds and doesn't panic; event count varies.
+        let _ = events; // Acknowledge we received events (may be empty on some platforms)
     }
 }

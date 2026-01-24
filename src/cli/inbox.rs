@@ -49,6 +49,8 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>, project_root: &P
         channel: Some(channel.clone()),
         count: options.count,
         follow: false,
+        timeout: None,
+        follow_count: None,
         since: None,
         before: None,
         from: None,

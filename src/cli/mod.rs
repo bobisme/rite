@@ -102,6 +102,14 @@ pub enum Commands {
         #[arg(short, long)]
         follow: bool,
 
+        /// Exit follow mode after N seconds
+        #[arg(long)]
+        timeout: Option<u64>,
+
+        /// Exit follow mode after receiving N new messages
+        #[arg(long)]
+        follow_count: Option<usize>,
+
         /// Messages after this time
         #[arg(long)]
         since: Option<String>,
@@ -176,7 +184,7 @@ pub enum Commands {
     /// Claim files for editing (advisory lock)
     Claim {
         /// Glob patterns to claim
-        #[arg(required = true)]
+        #[arg(required_unless_present = "extend")]
         patterns: Vec<String>,
 
         /// Time-to-live in seconds (default: 3600)
@@ -186,6 +194,10 @@ pub enum Commands {
         /// Optional message about the claim
         #[arg(short, long)]
         message: Option<String>,
+
+        /// Extend TTL on existing claims matching these patterns
+        #[arg(long, conflicts_with = "patterns")]
+        extend: Option<String>,
     },
 
     /// List active file claims

@@ -136,19 +136,16 @@ impl App {
             Focus::Messages => match key {
                 KeyCode::Up | KeyCode::Char('k') => {
                     // Scroll up = see older messages = increase scroll offset
-                    // Clamp to message count to prevent "buffering" scrolls past the top
-                    let max_scroll = self.messages.len().saturating_sub(1);
-                    if self.message_scroll < max_scroll {
-                        self.message_scroll = self.message_scroll.saturating_add(1);
-                    }
+                    // Actual clamping happens in UI after viewport height is known
+                    self.message_scroll = self.message_scroll.saturating_add(1);
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     // Scroll down = see newer messages = decrease scroll offset
                     self.message_scroll = self.message_scroll.saturating_sub(1);
                 }
                 KeyCode::Home | KeyCode::Char('g') => {
-                    // Scroll to oldest messages
-                    self.message_scroll = self.messages.len().saturating_sub(1);
+                    // Scroll to oldest - use large value, UI will clamp
+                    self.message_scroll = usize::MAX / 2;
                 }
                 KeyCode::End | KeyCode::Char('G') => {
                     self.message_scroll = 0;
@@ -252,6 +249,13 @@ impl App {
 
     pub fn message_scroll(&self) -> usize {
         self.message_scroll
+    }
+
+    /// Clamp scroll offset to valid range based on viewport height.
+    /// Called by UI after layout is known.
+    pub fn clamp_scroll(&mut self, viewport_height: usize) {
+        let max_scroll = self.messages.len().saturating_sub(viewport_height);
+        self.message_scroll = self.message_scroll.min(max_scroll);
     }
 }
 

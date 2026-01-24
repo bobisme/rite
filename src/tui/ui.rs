@@ -9,7 +9,7 @@ use ratatui::{
 
 use super::app::{dm_other_agent, App, Focus};
 
-pub fn draw(f: &mut Frame, app: &App) {
+pub fn draw(f: &mut Frame, app: &mut App) {
     // Main layout: main content | help bar at bottom
     let outer_chunks = Layout::default()
         .direction(Direction::Vertical)
@@ -126,7 +126,7 @@ fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
     f.render_widget(list, area);
 }
 
-fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
+fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
     let raw_channel_name = app
         .current_channel()
         .unwrap_or_else(|| "general".to_string());
@@ -154,15 +154,15 @@ fn draw_messages(f: &mut Frame, app: &App, area: Rect) {
 
     // Calculate visible messages
     let inner_height = area.height.saturating_sub(2) as usize;
+
+    // Clamp scroll to valid range (this updates app state so future k presses are no-ops at top)
+    app.clamp_scroll(inner_height);
+
     let messages = app.messages();
     let scroll = app.message_scroll();
 
-    // Clamp scroll so viewport doesn't shrink when scrolled past the beginning
-    let max_scroll = messages.len().saturating_sub(inner_height);
-    let clamped_scroll = scroll.min(max_scroll);
-
-    let start = messages.len().saturating_sub(inner_height + clamped_scroll);
-    let end = messages.len().saturating_sub(clamped_scroll);
+    let start = messages.len().saturating_sub(inner_height + scroll);
+    let end = messages.len().saturating_sub(scroll);
     let visible: Vec<_> = messages.get(start..end).unwrap_or(&[]).to_vec();
 
     let lines: Vec<Line> = visible.iter().map(|msg| format_message(msg)).collect();

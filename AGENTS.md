@@ -48,6 +48,14 @@ Keep messages concise and actionable:
 
 ---
 
+## Development Notes
+
+- Run `cargo test` before committing; currently 128 tests
+- Registration auto-sends a "joined" message to #general - tests must account for this
+- Agent identity flows via `BOTBUS_AGENT` env var or `--agent` flag (not global state)
+
+---
+
 ## Tools
 
 ### Beads Workflow Integration

@@ -3,29 +3,28 @@ use colored::Colorize;
 use std::path::Path;
 
 use crate::core::channel::{dm_channel_name, is_valid_channel_name};
+use crate::core::identity::{format_export, resolve_agent};
 use crate::core::message::Message;
-use crate::core::project::{channel_path, state_path};
+use crate::core::project::channel_path;
 use crate::storage::jsonl::append_record;
-use crate::storage::state::ProjectState;
 
 /// Send a message to a channel or agent.
 pub fn run(
     target: String,
     message: String,
     _meta: Option<String>,
+    agent: Option<&str>,
     project_root: &Path,
 ) -> Result<()> {
-    // Get current agent
-    let state = ProjectState::new(state_path(project_root));
-    let agent_name = state
-        .current_agent()
-        .with_context(|| "Failed to read state")?
-        .ok_or_else(|| {
-            anyhow::anyhow!(
-                "No agent registered.\n\n\
-             Run 'botbus register' to register an agent identity."
-            )
-        })?;
+    // Get current agent from env var or explicit flag
+    let agent_name = resolve_agent(agent, project_root).ok_or_else(|| {
+        anyhow::anyhow!(
+            "No agent identity configured.\n\n\
+             Set your identity with: {}\n\
+             Or use --agent flag.",
+            format_export("YourAgentName")
+        )
+    })?;
 
     // Determine channel name
     let channel = if target.starts_with('@') {
@@ -67,14 +66,13 @@ pub fn run(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{init, register};
+    use crate::cli::init;
     use crate::storage::jsonl::read_records;
     use tempfile::TempDir;
 
     fn setup() -> TempDir {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
-        register::run(Some("Sender".to_string()), None, temp.path()).unwrap();
         temp
     }
 
@@ -82,19 +80,20 @@ mod tests {
     fn test_send_to_channel() {
         let temp = setup();
 
+        // Use explicit agent name
         run(
             "general".to_string(),
             "Hello, world!".to_string(),
             None,
+            Some("Sender"),
             temp.path(),
         )
         .unwrap();
 
         let messages: Vec<Message> = read_records(&channel_path(temp.path(), "general")).unwrap();
-        // One from register join + one we just sent
-        assert_eq!(messages.len(), 2);
-        assert_eq!(messages[1].body, "Hello, world!");
-        assert_eq!(messages[1].agent, "Sender");
+        assert_eq!(messages.len(), 1);
+        assert_eq!(messages[0].body, "Hello, world!");
+        assert_eq!(messages[0].agent, "Sender");
     }
 
     #[test]
@@ -105,6 +104,7 @@ mod tests {
             "backend".to_string(),
             "New channel!".to_string(),
             None,
+            Some("Sender"),
             temp.path(),
         )
         .unwrap();
@@ -122,6 +122,7 @@ mod tests {
             "@OtherAgent".to_string(),
             "Private message".to_string(),
             None,
+            Some("Sender"),
             temp.path(),
         )
         .unwrap();
@@ -137,7 +138,13 @@ mod tests {
     fn test_send_invalid_channel() {
         let temp = setup();
 
-        let result = run("INVALID".to_string(), "test".to_string(), None, temp.path());
+        let result = run(
+            "INVALID".to_string(),
+            "test".to_string(),
+            None,
+            Some("Sender"),
+            temp.path(),
+        );
         assert!(result.is_err());
     }
 
@@ -145,9 +152,15 @@ mod tests {
     fn test_send_without_registration() {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
-        // Don't register
+        // No agent specified, no env var
 
-        let result = run("general".to_string(), "test".to_string(), None, temp.path());
+        let result = run(
+            "general".to_string(),
+            "test".to_string(),
+            None,
+            None,
+            temp.path(),
+        );
         assert!(result.is_err());
     }
 }

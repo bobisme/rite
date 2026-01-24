@@ -89,15 +89,21 @@ fn format_time_ago(ts: chrono::DateTime<chrono::Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{init, register, send};
+    use crate::cli::{init, send};
     use tempfile::TempDir;
 
     #[test]
     fn test_list_channels() {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
-        register::run(Some("Agent".to_string()), None, temp.path()).unwrap();
-        send::run("backend".to_string(), "test".to_string(), None, temp.path()).unwrap();
+        send::run(
+            "backend".to_string(),
+            "test".to_string(),
+            None,
+            Some("Agent"),
+            temp.path(),
+        )
+        .unwrap();
 
         // Should not error
         run(false, temp.path()).unwrap();
@@ -107,8 +113,14 @@ mod tests {
     fn test_list_with_dms() {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
-        register::run(Some("Agent".to_string()), None, temp.path()).unwrap();
-        send::run("@Other".to_string(), "dm".to_string(), None, temp.path()).unwrap();
+        send::run(
+            "@Other".to_string(),
+            "dm".to_string(),
+            None,
+            Some("Agent"),
+            temp.path(),
+        )
+        .unwrap();
 
         // Should not error
         run(true, temp.path()).unwrap();

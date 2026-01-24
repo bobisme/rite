@@ -3,26 +3,28 @@ use colored::Colorize;
 use std::path::Path;
 
 use crate::core::agent::Agent;
-use crate::core::project::{agents_path, state_path};
+use crate::core::identity::{format_export, resolve_agent, AGENT_ENV_VAR};
+use crate::core::project::agents_path;
 use crate::storage::jsonl::read_records;
-use crate::storage::state::ProjectState;
 
 /// Display current agent identity.
 pub fn run(project_root: &Path) -> Result<()> {
-    let state = ProjectState::new(state_path(project_root));
-    let current_agent = state
-        .current_agent()
-        .with_context(|| "Failed to read state")?;
-
-    let agent_name = match current_agent {
+    let agent_name = match resolve_agent(None, project_root) {
         Some(name) => name,
         None => {
             bail!(
-                "No agent registered.\n\n\
-                 Run 'botbus register' to register an agent identity."
+                "No agent identity configured.\n\n\
+                 To set your identity:\n\
+                 1. Run 'botbus register' to create a new identity\n\
+                 2. Set the environment variable: {}\n\n\
+                 Or use --agent flag with commands.",
+                format_export("YourAgentName")
             );
         }
     };
+
+    // Check where identity came from
+    let from_env = std::env::var(AGENT_ENV_VAR).ok().as_deref() == Some(&agent_name);
 
     // Find the agent record for additional info
     let agents: Vec<Agent> =
@@ -33,6 +35,10 @@ pub fn run(project_root: &Path) -> Result<()> {
     println!("{}: {}", "Agent".bold(), agent_name.cyan());
     println!("{}: {}", "Project".bold(), project_root.display());
 
+    if from_env {
+        println!("{}: {}", "Source".bold(), format!("${}", AGENT_ENV_VAR));
+    }
+
     if let Some(a) = agent {
         println!(
             "{}: {}",
@@ -42,6 +48,12 @@ pub fn run(project_root: &Path) -> Result<()> {
         if let Some(desc) = &a.description {
             println!("{}: {}", "Description".bold(), desc);
         }
+    } else {
+        println!(
+            "{}: {} (not found in agents.jsonl)",
+            "Warning".yellow(),
+            "Agent not registered in this project"
+        );
     }
 
     Ok(())
@@ -50,28 +62,39 @@ pub fn run(project_root: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{init, register};
+    use crate::cli::init;
+    use std::env;
     use tempfile::TempDir;
 
     #[test]
     fn test_whoami_shows_agent() {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
-        register::run(
-            Some("TestAgent".to_string()),
-            Some("Test Desc".to_string()),
-            temp.path(),
-        )
-        .unwrap();
 
-        // Should not error
+        // Set env var to simulate registered agent
+        // SAFETY: Test runs in isolation
+        unsafe {
+            env::set_var(AGENT_ENV_VAR, "TestAgent");
+        }
+
+        // Should not error (though agent won't be in agents.jsonl)
         run(temp.path()).unwrap();
+
+        unsafe {
+            env::remove_var(AGENT_ENV_VAR);
+        }
     }
 
     #[test]
     fn test_whoami_no_agent() {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
+
+        // Ensure no env var
+        // SAFETY: Test runs in isolation
+        unsafe {
+            env::remove_var(AGENT_ENV_VAR);
+        }
 
         let result = run(temp.path());
         assert!(result.is_err());

@@ -3,11 +3,11 @@ use colored::Colorize;
 use std::path::Path;
 
 use crate::core::agent::Agent;
+use crate::core::identity::format_export;
 use crate::core::message::{Message, MessageMeta, SystemEvent};
 use crate::core::names::{generate_unique_name, is_valid_agent_name};
-use crate::core::project::{agents_path, channel_path, state_path};
+use crate::core::project::{agents_path, channel_path};
 use crate::storage::jsonl::{append_record, read_records};
-use crate::storage::state::ProjectState;
 
 /// Register an agent identity in the current project.
 pub fn run(name: Option<String>, description: Option<String>, project_root: &Path) -> Result<()> {
@@ -55,12 +55,6 @@ pub fn run(name: Option<String>, description: Option<String>, project_root: &Pat
     append_record(&agents_path(project_root), &agent)
         .with_context(|| "Failed to register agent")?;
 
-    // Save current agent to state
-    let state = ProjectState::new(state_path(project_root));
-    state
-        .set_current_agent(&agent_name)
-        .with_context(|| "Failed to save agent identity")?;
-
     // Post join message to #general
     let join_msg = Message::new(
         &agent_name,
@@ -81,7 +75,11 @@ pub fn run(name: Option<String>, description: Option<String>, project_root: &Pat
         println!("  Description: {}", desc);
     }
 
-    println!("\nYou can now:");
+    // Output export command for shell integration
+    println!("\n{}", "Set your identity:".yellow());
+    println!("  {}", format_export(&agent_name).cyan());
+
+    println!("\n{}", "Then you can:".yellow());
     println!(
         "  {} Send a message",
         "botbus send general \"Hello!\"".cyan()
@@ -113,13 +111,6 @@ mod tests {
         let agents: Vec<Agent> = read_records(&agents_path(temp.path())).unwrap();
         assert_eq!(agents.len(), 1);
         assert_eq!(agents[0].name, "TestAgent");
-
-        // Check state was updated
-        let state = ProjectState::new(state_path(temp.path()));
-        assert_eq!(
-            state.current_agent().unwrap(),
-            Some("TestAgent".to_string())
-        );
 
         // Check join message was posted
         let messages: Vec<Message> = read_records(&channel_path(temp.path(), "general")).unwrap();

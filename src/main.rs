@@ -33,7 +33,7 @@ fn main() -> Result<()> {
             meta,
         } => {
             let project_root = resolve_project_root(cli.project)?;
-            cli::send::run(target, message, meta, &project_root)
+            cli::send::run(target, message, meta, cli.agent.as_deref(), &project_root)
         }
 
         Commands::History {
@@ -102,6 +102,7 @@ fn main() -> Result<()> {
                     patterns,
                     ttl,
                     message,
+                    agent: cli.agent,
                 },
                 &project_root,
             )
@@ -109,12 +110,12 @@ fn main() -> Result<()> {
 
         Commands::Claims { all, mine } => {
             let project_root = resolve_project_root(cli.project)?;
-            cli::claim::claims(all, mine, &project_root)
+            cli::claim::claims(all, mine, cli.agent.as_deref(), &project_root)
         }
 
         Commands::Release { patterns, all } => {
             let project_root = resolve_project_root(cli.project)?;
-            cli::claim::release(patterns, all, &project_root)
+            cli::claim::release(patterns, all, cli.agent.as_deref(), &project_root)
         }
 
         Commands::Ui { channel } => {

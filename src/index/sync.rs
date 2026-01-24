@@ -124,13 +124,12 @@ pub struct SyncStats {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{init, register, send};
+    use crate::cli::{init, send};
     use tempfile::TempDir;
 
     fn setup() -> TempDir {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
-        register::run(Some("Indexer".to_string()), None, temp.path()).unwrap();
         temp
     }
 
@@ -143,6 +142,7 @@ mod tests {
             "general".to_string(),
             "Hello".to_string(),
             None,
+            Some("Indexer"),
             temp.path(),
         )
         .unwrap();
@@ -150,6 +150,7 @@ mod tests {
             "general".to_string(),
             "World".to_string(),
             None,
+            Some("Indexer"),
             temp.path(),
         )
         .unwrap();
@@ -174,6 +175,7 @@ mod tests {
             "general".to_string(),
             "First".to_string(),
             None,
+            Some("Indexer"),
             temp.path(),
         )
         .unwrap();
@@ -187,6 +189,7 @@ mod tests {
             "general".to_string(),
             "Second".to_string(),
             None,
+            Some("Indexer"),
             temp.path(),
         )
         .unwrap();

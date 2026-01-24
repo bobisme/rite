@@ -1,2 +1,27 @@
 {"ts":"2026-01-23T23:54:44.181853938Z","id":"01KFPMG6JN9H4KBFHE8MHEG9QR","agent":"Claude","channel":"general","body":"Claude has joined the project","meta":{"type":"system","event":"agent_registered"}}
 {"ts":"2026-01-23T23:54:48.048750518Z","id":"01KFPMGABGT9ST7GT24DRSR00K","agent":"Claude","channel":"general","body":"Starting work on agent UX improvements. Planning to implement --json output first, then status, check-claim, and wait commands."}
+{"ts":"2026-01-24T00:02:25.373346971Z","id":"01KFPMY8YXGW596MZ14FTD0TYN","agent":"Claude","channel":"general","body":"Test message number 1 for scrolling"}
+{"ts":"2026-01-24T00:02:25.378913228Z","id":"01KFPMY8Z2ZEPA521D21SMXKHT","agent":"Claude","channel":"general","body":"Test message number 2 for scrolling"}
+{"ts":"2026-01-24T00:02:25.384201955Z","id":"01KFPMY8Z8JD14B0DYNXJCPXES","agent":"Claude","channel":"general","body":"Test message number 3 for scrolling"}
+{"ts":"2026-01-24T00:02:25.389439737Z","id":"01KFPMY8ZD19Y27Z3BKRYC4MM6","agent":"Claude","channel":"general","body":"Test message number 4 for scrolling"}
+{"ts":"2026-01-24T00:02:25.395005223Z","id":"01KFPMY8ZKDX369ZDF98E3Z64R","agent":"Claude","channel":"general","body":"Test message number 5 for scrolling"}
+{"ts":"2026-01-24T00:02:25.400011852Z","id":"01KFPMY8ZRKFTHRNY226JP4EGX","agent":"Claude","channel":"general","body":"Test message number 6 for scrolling"}
+{"ts":"2026-01-24T00:02:25.405416376Z","id":"01KFPMY8ZXED1D8ZPQTZGWMM9M","agent":"Claude","channel":"general","body":"Test message number 7 for scrolling"}
+{"ts":"2026-01-24T00:02:25.410402366Z","id":"01KFPMY902H3JYXEES5QZPQYFS","agent":"Claude","channel":"general","body":"Test message number 8 for scrolling"}
+{"ts":"2026-01-24T00:02:25.416079030Z","id":"01KFPMY9082THGZP7SM9T0155E","agent":"Claude","channel":"general","body":"Test message number 9 for scrolling"}
+{"ts":"2026-01-24T00:02:25.421283249Z","id":"01KFPMY90D86049RJ3NQTP5KAX","agent":"Claude","channel":"general","body":"Test message number 10 for scrolling"}
+{"ts":"2026-01-24T00:02:25.426520600Z","id":"01KFPMY90J7X4QEGFX6JDZ19B9","agent":"Claude","channel":"general","body":"Test message number 11 for scrolling"}
+{"ts":"2026-01-24T00:02:25.431605004Z","id":"01KFPMY90QH0M6EBQE80W3W36G","agent":"Claude","channel":"general","body":"Test message number 12 for scrolling"}
+{"ts":"2026-01-24T00:02:25.436507879Z","id":"01KFPMY90WKDSR5T3NW198RMQY","agent":"Claude","channel":"general","body":"Test message number 13 for scrolling"}
+{"ts":"2026-01-24T00:02:25.441293083Z","id":"01KFPMY911YSTC5D14EJ1Q9GP2","agent":"Claude","channel":"general","body":"Test message number 14 for scrolling"}
+{"ts":"2026-01-24T00:02:25.446455333Z","id":"01KFPMY916F5M7WBKAX5Z30RJP","agent":"Claude","channel":"general","body":"Test message number 15 for scrolling"}
+{"ts":"2026-01-24T00:02:25.451540830Z","id":"01KFPMY91B0TREJ8J585X0DXRY","agent":"Claude","channel":"general","body":"Test message number 16 for scrolling"}
+{"ts":"2026-01-24T00:02:25.456568748Z","id":"01KFPMY91GJ5NKXZCRM0F5W2G3","agent":"Claude","channel":"general","body":"Test message number 17 for scrolling"}
+{"ts":"2026-01-24T00:02:25.461932306Z","id":"01KFPMY91NSJ1T4QJ793NE26W4","agent":"Claude","channel":"general","body":"Test message number 18 for scrolling"}
+{"ts":"2026-01-24T00:02:25.466879593Z","id":"01KFPMY91TBQQACFCF9SEA6R0S","agent":"Claude","channel":"general","body":"Test message number 19 for scrolling"}
+{"ts":"2026-01-24T00:02:25.471563818Z","id":"01KFPMY91ZZQ90ATABS8861MTQ","agent":"Claude","channel":"general","body":"Test message number 20 for scrolling"}
+{"ts":"2026-01-24T00:02:25.476688448Z","id":"01KFPMY9244FGJAQEFFXKPBAZR","agent":"Claude","channel":"general","body":"Test message number 21 for scrolling"}
+{"ts":"2026-01-24T00:02:25.482391161Z","id":"01KFPMY92A11MKVM3QDMFD4RSG","agent":"Claude","channel":"general","body":"Test message number 22 for scrolling"}
+{"ts":"2026-01-24T00:02:25.487455328Z","id":"01KFPMY92FS0YMXD0XNQJSQP0R","agent":"Claude","channel":"general","body":"Test message number 23 for scrolling"}
+{"ts":"2026-01-24T00:02:25.492275998Z","id":"01KFPMY92MQ97Z7PQ17Z2HN478","agent":"Claude","channel":"general","body":"Test message number 24 for scrolling"}
+{"ts":"2026-01-24T00:02:25.497214880Z","id":"01KFPMY92SNHJBK2J620XGX4NC","agent":"Claude","channel":"general","body":"Test message number 25 for scrolling"}

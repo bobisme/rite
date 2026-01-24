@@ -5,10 +5,10 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use crate::core::agent::Agent;
+use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
-use crate::core::project::{agents_path, channel_path, channels_dir, state_path};
+use crate::core::project::{agents_path, channel_path, channels_dir};
 use crate::storage::jsonl::{read_last_n, read_records, read_records_from_offset};
-use crate::storage::state::ProjectState;
 use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
 
 use super::ui;
@@ -34,8 +34,8 @@ pub enum Focus {
 
 impl App {
     pub fn new(project_root: &Path, initial_channel: Option<String>) -> Result<Self> {
-        let state = ProjectState::new(state_path(project_root));
-        let current_agent = state.current_agent()?;
+        // Get agent from env var (no explicit flag for TUI)
+        let current_agent = resolve_agent(None, project_root);
 
         let channels = list_channels(project_root)?;
         let agents: Vec<Agent> = read_records(&agents_path(project_root))?;
@@ -124,9 +124,11 @@ impl App {
         match self.focus {
             Focus::Messages => match key {
                 KeyCode::Up | KeyCode::Char('k') => {
+                    // Scroll up = see older messages = increase scroll offset
                     self.message_scroll = self.message_scroll.saturating_add(1);
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
+                    // Scroll down = see newer messages = decrease scroll offset
                     self.message_scroll = self.message_scroll.saturating_sub(1);
                 }
                 KeyCode::Home | KeyCode::Char('g') => {

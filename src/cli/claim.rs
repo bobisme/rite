@@ -5,23 +5,28 @@ use globset::{Glob, GlobSetBuilder};
 use std::path::Path;
 
 use crate::core::claim::FileClaim;
+use crate::core::identity::{format_export, resolve_agent};
 use crate::core::message::{Message, MessageMeta};
-use crate::core::project::{channel_path, claims_path, state_path};
+use crate::core::project::{channel_path, claims_path};
 use crate::storage::jsonl::{append_record, read_records};
-use crate::storage::state::ProjectState;
 
 pub struct ClaimOptions {
     pub patterns: Vec<String>,
     pub ttl: u64,
     pub message: Option<String>,
+    pub agent: Option<String>,
 }
 
 /// Claim files for editing.
 pub fn claim(options: ClaimOptions, project_root: &Path) -> Result<()> {
-    let state = ProjectState::new(state_path(project_root));
-    let agent_name = state
-        .current_agent()?
-        .ok_or_else(|| anyhow::anyhow!("No agent registered. Run 'botbus register' first."))?;
+    let agent_name = resolve_agent(options.agent.as_deref(), project_root).ok_or_else(|| {
+        anyhow::anyhow!(
+            "No agent identity configured.\n\n\
+             Set your identity with: {}\n\
+             Or use --agent flag.",
+            format_export("YourAgentName")
+        )
+    })?;
 
     // Load existing claims
     let claims: Vec<FileClaim> = read_records(&claims_path(project_root))?;
@@ -77,9 +82,13 @@ pub fn claim(options: ClaimOptions, project_root: &Path) -> Result<()> {
 }
 
 /// List active file claims.
-pub fn claims(show_all: bool, mine_only: bool, project_root: &Path) -> Result<()> {
-    let state = ProjectState::new(state_path(project_root));
-    let current_agent = state.current_agent()?.unwrap_or_default();
+pub fn claims(
+    show_all: bool,
+    mine_only: bool,
+    agent: Option<&str>,
+    project_root: &Path,
+) -> Result<()> {
+    let current_agent = resolve_agent(agent, project_root).unwrap_or_default();
 
     let all_claims: Vec<FileClaim> = read_records(&claims_path(project_root))?;
 
@@ -141,11 +150,20 @@ pub fn claims(show_all: bool, mine_only: bool, project_root: &Path) -> Result<()
 }
 
 /// Release file claims.
-pub fn release(patterns: Vec<String>, release_all: bool, project_root: &Path) -> Result<()> {
-    let state = ProjectState::new(state_path(project_root));
-    let agent_name = state
-        .current_agent()?
-        .ok_or_else(|| anyhow::anyhow!("No agent registered. Run 'botbus register' first."))?;
+pub fn release(
+    patterns: Vec<String>,
+    release_all: bool,
+    agent: Option<&str>,
+    project_root: &Path,
+) -> Result<()> {
+    let agent_name = resolve_agent(agent, project_root).ok_or_else(|| {
+        anyhow::anyhow!(
+            "No agent identity configured.\n\n\
+             Set your identity with: {}\n\
+             Or use --agent flag.",
+            format_export("YourAgentName")
+        )
+    })?;
 
     let all_claims: Vec<FileClaim> = read_records(&claims_path(project_root))?;
 
@@ -308,13 +326,12 @@ fn format_duration(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{init, register};
+    use crate::cli::init;
     use tempfile::TempDir;
 
     fn setup() -> TempDir {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
-        register::run(Some("Claimer".to_string()), None, temp.path()).unwrap();
         temp
     }
 
@@ -327,12 +344,13 @@ mod tests {
                 patterns: vec!["src/**/*.rs".to_string()],
                 ttl: 3600,
                 message: None,
+                agent: Some("Claimer".to_string()),
             },
             temp.path(),
         )
         .unwrap();
 
-        claims(false, false, temp.path()).unwrap();
+        claims(false, false, Some("Claimer"), temp.path()).unwrap();
     }
 
     #[test]
@@ -344,12 +362,13 @@ mod tests {
                 patterns: vec!["*.toml".to_string()],
                 ttl: 3600,
                 message: Some("Updating deps".to_string()),
+                agent: Some("Claimer".to_string()),
             },
             temp.path(),
         )
         .unwrap();
 
-        release(vec![], true, temp.path()).unwrap();
+        release(vec![], true, Some("Claimer"), temp.path()).unwrap();
     }
 
     #[test]

@@ -21,6 +21,10 @@ pub struct Cli {
     #[arg(short, long, global = true, env = "BOTBUS_PROJECT")]
     pub project: Option<PathBuf>,
 
+    /// Agent identity (default: from BOTBUS_AGENT env var)
+    #[arg(short, long, global = true, env = "BOTBUS_AGENT")]
+    pub agent: Option<String>,
+
     /// Suppress non-essential output
     #[arg(short, long, global = true)]
     pub quiet: bool,

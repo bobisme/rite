@@ -183,13 +183,12 @@ fn follow_channel(path: &Path, project_root: &Path) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{init, register, send};
+    use crate::cli::{init, send};
     use tempfile::TempDir;
 
     fn setup() -> TempDir {
         let temp = TempDir::new().unwrap();
         init::run(false, temp.path()).unwrap();
-        register::run(Some("Historian".to_string()), None, temp.path()).unwrap();
         temp
     }
 
@@ -200,6 +199,7 @@ mod tests {
             "general".to_string(),
             "Message 1".to_string(),
             None,
+            Some("Historian"),
             temp.path(),
         )
         .unwrap();
@@ -207,6 +207,7 @@ mod tests {
             "general".to_string(),
             "Message 2".to_string(),
             None,
+            Some("Historian"),
             temp.path(),
         )
         .unwrap();
@@ -246,6 +247,7 @@ mod tests {
             "general".to_string(),
             "From Historian".to_string(),
             None,
+            Some("Historian"),
             temp.path(),
         )
         .unwrap();

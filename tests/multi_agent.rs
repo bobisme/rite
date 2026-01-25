@@ -2,10 +2,15 @@
 //!
 //! These tests simulate realistic scenarios where multiple AI coding agents
 //! coordinate their work using BotBus.
+//!
+//! In the stateless model:
+//! - Agents don't need to register - they just need BOTBUS_AGENT set
+//! - No "join" messages are auto-sent
+//! - Agent presence is derived from message history
 
 mod common;
 
-use common::{Agent, TestProject};
+use common::TestProject;
 use std::thread;
 use std::time::Duration;
 
@@ -17,13 +22,9 @@ use std::time::Duration;
 fn test_two_agent_feature_coordination() {
     let mut project = TestProject::with_name("feature-coord");
 
-    // === Setup: Register both agents ===
+    // Create agent handles (no registration needed in stateless model)
     let frontend = project.agent("FrontendDev");
     let backend = project.agent("BackendDev");
-
-    // Verify both are registered
-    let agents = project.registered_agents();
-    assert_eq!(agents.len(), 2);
 
     // === Phase 1: Agents announce their work ===
     frontend
@@ -32,6 +33,10 @@ fn test_two_agent_feature_coordination() {
     backend
         .send("general", "I'll handle the authentication API")
         .assert_success();
+
+    // Verify both agents appear in message history
+    let agents = project.registered_agents();
+    assert_eq!(agents.len(), 2, "Expected 2 agents in history");
 
     // === Phase 2: Agents claim their files ===
     frontend
@@ -108,18 +113,16 @@ fn test_two_agent_feature_coordination() {
     // === Verify message history ===
     let messages = project.channel_messages("general");
     assert!(
-        messages.len() >= 6,
-        "Expected at least 6 messages in general"
+        messages.len() >= 4,
+        "Expected at least 4 messages in general"
     );
 
-    // Check the join messages and work announcements are there
+    // Check work announcements are there
     let bodies: Vec<&str> = messages
         .iter()
         .filter_map(|m| m.get("body").and_then(|v| v.as_str()))
         .collect();
 
-    assert!(bodies.iter().any(|b| b.contains("FrontendDev has joined")));
-    assert!(bodies.iter().any(|b| b.contains("BackendDev has joined")));
     assert!(bodies.iter().any(|b| b.contains("login page UI")));
     assert!(bodies.iter().any(|b| b.contains("authentication API")));
 }
@@ -184,7 +187,7 @@ fn test_three_agent_parallel_work() {
 
     // Verify message flow
     let messages = project.channel_messages("general");
-    assert!(messages.len() >= 9); // 3 joins + 6 work messages
+    assert!(messages.len() >= 6); // 6 work messages
 }
 
 /// Test agent handoff scenario.
@@ -279,11 +282,11 @@ fn test_concurrent_message_sending() {
     // All messages should be recorded (no data loss)
     let messages = project.channel_messages("general");
 
-    // 2 join messages + 10 work messages
+    // 10 work messages (no auto-join in stateless model)
     assert_eq!(
         messages.len(),
-        12,
-        "Expected 12 messages, got {}",
+        10,
+        "Expected 10 messages, got {}",
         messages.len()
     );
 

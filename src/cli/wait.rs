@@ -39,15 +39,15 @@ pub struct WaitOutput {
 }
 
 /// Wait for a relevant message to arrive.
-pub fn run(options: WaitOptions, explicit_agent: Option<&str>, project_root: &Path) -> Result<()> {
-    let agent = resolve_agent(explicit_agent, project_root);
+pub fn run(options: WaitOptions, explicit_agent: Option<&str>) -> Result<()> {
+    let agent = resolve_agent(explicit_agent);
 
     // For --mention, we need an agent identity
     if options.mention && agent.is_none() {
         anyhow::bail!("--mention requires agent identity. Set BOTBUS_AGENT or use --agent flag.");
     }
 
-    let channels_path = channels_dir(project_root);
+    let channels_path = channels_dir();
     if !channels_path.exists() {
         std::fs::create_dir_all(&channels_path)?;
     }
@@ -241,58 +241,18 @@ fn colorize_agent(name: &str) -> colored::ColoredString {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{init, send};
-    use std::thread;
+
     use tempfile::TempDir;
-
-    fn setup() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        temp
-    }
-
-    #[test]
-    fn test_collect_channel_offsets() {
-        let temp = setup();
-
-        // Send a message to create a channel
-        send::run_simple(
-            "general".to_string(),
-            "Hello".to_string(),
-            Some("Sender"),
-            temp.path(),
-        )
-        .unwrap();
-
-        let channels_path = channels_dir(temp.path());
-        let offsets = collect_channel_offsets(&channels_path, None).unwrap();
-
-        assert!(offsets.contains_key("general"));
-        assert!(offsets["general"] > 0);
-    }
 
     #[test]
     fn test_collect_channel_offsets_filtered() {
-        let temp = setup();
+        // This test only tests the offset collection logic, not the full wait
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path()).unwrap();
+        std::fs::write(temp.path().join("general.jsonl"), "{}\n").unwrap();
+        std::fs::write(temp.path().join("backend.jsonl"), "{}\n").unwrap();
 
-        send::run_simple(
-            "general".to_string(),
-            "Hello".to_string(),
-            Some("Sender"),
-            temp.path(),
-        )
-        .unwrap();
-
-        send::run_simple(
-            "backend".to_string(),
-            "Hello".to_string(),
-            Some("Sender"),
-            temp.path(),
-        )
-        .unwrap();
-
-        let channels_path = channels_dir(temp.path());
-        let offsets = collect_channel_offsets(&channels_path, Some("backend")).unwrap();
+        let offsets = collect_channel_offsets(temp.path(), Some("backend")).unwrap();
 
         // Should only have backend
         assert_eq!(offsets.len(), 1);
@@ -300,23 +260,16 @@ mod tests {
     }
 
     #[test]
-    fn test_wait_timeout() {
-        let temp = setup();
+    fn test_collect_channel_offsets_all() {
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path()).unwrap();
+        std::fs::write(temp.path().join("general.jsonl"), "{}\n").unwrap();
+        std::fs::write(temp.path().join("backend.jsonl"), "{}\n").unwrap();
 
-        // This test verifies the timeout logic works
-        // We can't easily test the full wait loop without threading
-        let options = WaitOptions {
-            mention: false,
-            channel: Some("nonexistent".to_string()),
-            labels: vec![],
-            timeout: 1, // 1 second timeout
-            json: true,
-        };
+        let offsets = collect_channel_offsets(temp.path(), None).unwrap();
 
-        // The wait command will exit(1) on timeout, which we can't catch in a unit test
-        // So we just verify the setup works
-        let channels_path = channels_dir(temp.path());
-        let offsets = collect_channel_offsets(&channels_path, options.channel.as_deref()).unwrap();
-        assert!(offsets.contains_key("nonexistent"));
+        assert_eq!(offsets.len(), 2);
+        assert!(offsets.contains_key("general"));
+        assert!(offsets.contains_key("backend"));
     }
 }

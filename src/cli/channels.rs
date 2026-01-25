@@ -1,13 +1,15 @@
+//! List all channels.
+
 use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use colored::Colorize;
 use serde::Serialize;
-use std::path::Path;
 
-use crate::core::channel::is_dm_channel;
+use crate::core::channel::{dm_agents, is_dm_channel};
+use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
 use crate::core::project::channels_dir;
-use crate::storage::jsonl::{count_records, read_last_n};
+use crate::storage::jsonl::{count_records, read_last_n, read_records};
 
 #[derive(Debug, Serialize)]
 pub struct ChannelInfo {
@@ -23,8 +25,10 @@ pub struct ChannelsOutput {
 }
 
 /// List all channels.
-pub fn run(json: bool, include_dms: bool, project_root: &Path) -> Result<()> {
-    let channels_path = channels_dir(project_root);
+/// If `mine_only` is true, only show channels where the agent has participated.
+pub fn run(json: bool, mine_only: bool, agent: Option<&str>) -> Result<()> {
+    let current_agent = resolve_agent(agent);
+    let channels_path = channels_dir();
 
     if !channels_path.exists() {
         if json {
@@ -75,9 +79,13 @@ pub fn run(json: bool, include_dms: bool, project_root: &Path) -> Result<()> {
 
         let is_dm = is_dm_channel(&channel_name);
 
-        // Skip DMs unless --all
-        if is_dm && !include_dms {
-            continue;
+        // If --mine, filter to channels where agent participated
+        if mine_only {
+            if let Some(ref agent) = current_agent {
+                if !has_participated(&path, agent, &channel_name) {
+                    continue;
+                }
+            }
         }
 
         let message_count = count_records(&path).unwrap_or(0);
@@ -123,6 +131,34 @@ pub fn run(json: bool, include_dms: bool, project_root: &Path) -> Result<()> {
     Ok(())
 }
 
+/// Check if an agent has participated in a channel.
+/// Participation means: sent a message OR was @mentioned OR is part of a DM.
+fn has_participated(path: &std::path::Path, agent: &str, channel_name: &str) -> bool {
+    // For DM channels, check if the agent is one of the participants
+    if is_dm_channel(channel_name) {
+        if let Some((a, b)) = dm_agents(channel_name) {
+            if a == agent || b == agent {
+                return true;
+            }
+        }
+    }
+
+    // Check if agent sent any messages or was @mentioned
+    let messages: Vec<Message> = read_records(path).unwrap_or_default();
+    for msg in messages {
+        // Agent sent a message
+        if msg.agent == agent {
+            return true;
+        }
+        // Agent was @mentioned
+        if msg.body.contains(&format!("@{}", agent)) {
+            return true;
+        }
+    }
+
+    false
+}
+
 fn format_time_ago(ts: DateTime<Utc>) -> String {
     let now = Utc::now();
     let duration = now.signed_duration_since(ts);
@@ -141,51 +177,45 @@ fn format_time_ago(ts: DateTime<Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{init, send};
-    use tempfile::TempDir;
+    use crate::cli::send;
+    use crate::core::project::ensure_data_dir;
+
+    fn setup() {
+        ensure_data_dir().unwrap();
+    }
 
     #[test]
     fn test_list_channels() {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
+        setup();
         send::run_simple(
-            "backend".to_string(),
+            "test-backend".to_string(),
             "test".to_string(),
-            Some("Agent"),
-            temp.path(),
+            Some("test-agent"),
         )
         .unwrap();
 
-        run(false, false, temp.path()).unwrap();
+        // Show all channels (default)
+        run(false, false, None).unwrap();
     }
 
     #[test]
     fn test_list_channels_json() {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        send::run_simple(
-            "backend".to_string(),
-            "test".to_string(),
-            Some("Agent"),
-            temp.path(),
-        )
-        .unwrap();
+        setup();
 
-        run(true, false, temp.path()).unwrap();
+        run(true, false, None).unwrap();
     }
 
     #[test]
-    fn test_list_with_dms() {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
+    fn test_list_with_mine_filter() {
+        setup();
         send::run_simple(
-            "@Other".to_string(),
+            "@test-other".to_string(),
             "dm".to_string(),
-            Some("Agent"),
-            temp.path(),
+            Some("test-agent"),
         )
         .unwrap();
 
-        run(false, true, temp.path()).unwrap();
+        // With --mine filter, should only show channels where agent participated
+        run(false, true, Some("test-agent")).unwrap();
     }
 }

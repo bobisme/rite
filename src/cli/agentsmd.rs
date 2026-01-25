@@ -209,8 +209,9 @@ fn remove_instructions(path: &Path) -> Result<String> {
 }
 
 /// Run the 'init' subcommand - add or update instructions
-pub fn run_init(file: Option<PathBuf>, remove: bool, project_root: &Path) -> Result<()> {
-    let status = get_status(project_root, file.as_deref())?;
+pub fn run_init(file: Option<PathBuf>, remove: bool) -> Result<()> {
+    let cwd = std::env::current_dir().context("Failed to get current directory")?;
+    let status = get_status(&cwd, file.as_deref())?;
 
     if remove {
         // Handle remove
@@ -234,8 +235,8 @@ pub fn run_init(file: Option<PathBuf>, remove: bool, project_root: &Path) -> Res
                 if let Some(f) = file {
                     f
                 } else {
-                    // Default to AGENTS.md
-                    project_root.join("AGENTS.md")
+                    // Default to AGENTS.md in current directory
+                    cwd.join("AGENTS.md")
                 }
             }
         };
@@ -379,11 +380,12 @@ mod tests {
     #[test]
     fn test_init_creates_new_file() {
         let tmp = TempDir::new().unwrap();
-        std::fs::create_dir_all(tmp.path().join(".botbus")).unwrap();
-
-        run_init(None, false, tmp.path()).unwrap();
-
         let path = tmp.path().join("AGENTS.md");
+
+        // Test via add_or_update_instructions directly since run_init uses cwd
+        let result = add_or_update_instructions(&path).unwrap();
+        assert!(result.contains("Added"));
+
         assert!(path.exists());
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains(MARKER_START));
@@ -396,7 +398,8 @@ mod tests {
         let content = format!("# Agents\n\n{}\nOld\n{}", MARKER_START, MARKER_END);
         std::fs::write(&path, content).unwrap();
 
-        run_init(None, false, tmp.path()).unwrap();
+        // Test via add_or_update_instructions directly since run_init uses cwd
+        add_or_update_instructions(&path).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains("BotBus Agent Coordination"));

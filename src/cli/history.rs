@@ -1,9 +1,13 @@
-use anyhow::{Context, Result};
+//! View message history.
+
+use anyhow::{anyhow, Context, Result};
 use chrono::{DateTime, Local, Utc};
 use colored::Colorize;
 use serde::Serialize;
 use std::path::Path;
 
+use crate::core::channel::resolve_channel;
+use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
 use crate::core::project::channel_path;
 use crate::storage::jsonl::{read_last_n, read_records, read_records_from_offset};
@@ -30,6 +34,8 @@ pub struct HistoryOptions {
     pub show_offset: bool,
     /// Output as JSON
     pub json: bool,
+    /// Agent identity (for resolving @mentions in channel names)
+    pub agent: Option<String>,
 }
 
 /// Output from history command, useful for programmatic access.
@@ -43,13 +49,26 @@ pub struct HistoryOutput {
 }
 
 /// View message history.
-pub fn run(options: HistoryOptions, project_root: &Path) -> Result<()> {
-    let output = run_with_output(options.clone(), project_root)?;
-
-    let channel = options
+pub fn run(options: HistoryOptions) -> Result<()> {
+    // Resolve channel name (handles @agent → DM channel)
+    let agent = options.agent.clone().or_else(|| resolve_agent(None));
+    let raw_channel = options
         .channel
         .clone()
         .unwrap_or_else(|| "general".to_string());
+    let channel = resolve_channel(&raw_channel, agent.as_deref()).ok_or_else(|| {
+        anyhow!(
+            "Cannot resolve DM channel '{}' without agent identity.\n\
+             Set BOTBUS_AGENT or use --agent flag.",
+            raw_channel
+        )
+    })?;
+
+    let resolved_options = HistoryOptions {
+        channel: Some(channel.clone()),
+        ..options.clone()
+    };
+    let output = run_with_output(resolved_options)?;
 
     if options.json {
         println!("{}", serde_json::to_string_pretty(&output)?);
@@ -89,20 +108,22 @@ pub fn run(options: HistoryOptions, project_root: &Path) -> Result<()> {
 
     // Follow mode
     if options.follow {
-        let path = channel_path(project_root, &channel);
-        follow_channel(&path, project_root, options.timeout, options.follow_count)?;
+        let path = channel_path(&channel);
+        follow_channel(&path, options.timeout, options.follow_count)?;
     }
 
     Ok(())
 }
 
 /// Run history and return structured output (for programmatic use).
-pub fn run_with_output(options: HistoryOptions, project_root: &Path) -> Result<HistoryOutput> {
+/// Note: channel should already be resolved (no @agent syntax).
+pub fn run_with_output(options: HistoryOptions) -> Result<HistoryOutput> {
+    // Channel should be pre-resolved by run(), but handle defaults
     let channel = options
         .channel
         .clone()
         .unwrap_or_else(|| "general".to_string());
-    let path = channel_path(project_root, &channel);
+    let path = channel_path(&channel);
 
     if !path.exists() {
         return Ok(HistoryOutput {
@@ -287,7 +308,6 @@ fn colorize_agent(name: &str) -> colored::ColoredString {
 
 fn follow_channel(
     path: &Path,
-    project_root: &Path,
     timeout_secs: Option<u64>,
     follow_count: Option<usize>,
 ) -> Result<()> {
@@ -298,7 +318,7 @@ fn follow_channel(
 
     println!("{}", "--- Following (Ctrl+C to exit) ---".dimmed());
 
-    let channels = channels_dir(project_root);
+    let channels = channels_dir();
     let (_watcher, rx) = watch_directory(&channels)?;
 
     // Track our position in the file
@@ -364,35 +384,31 @@ fn follow_channel(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{init, send};
-    use tempfile::TempDir;
+    use crate::cli::send;
+    use crate::core::project::ensure_data_dir;
 
-    fn setup() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        temp
+    fn setup() {
+        ensure_data_dir().unwrap();
     }
 
     #[test]
     fn test_history_basic() {
-        let temp = setup();
+        setup();
         send::run_simple(
-            "general".to_string(),
+            "test-history".to_string(),
             "Message 1".to_string(),
-            Some("Historian"),
-            temp.path(),
+            Some("test-historian"),
         )
         .unwrap();
         send::run_simple(
-            "general".to_string(),
+            "test-history".to_string(),
             "Message 2".to_string(),
-            Some("Historian"),
-            temp.path(),
+            Some("test-historian"),
         )
         .unwrap();
 
         let options = HistoryOptions {
-            channel: Some("general".to_string()),
+            channel: Some("test-history".to_string()),
             count: 50,
             follow: false,
             timeout: None,
@@ -405,17 +421,18 @@ mod tests {
             after_id: None,
             show_offset: false,
             json: false,
+            agent: None,
         };
 
-        run(options, temp.path()).unwrap();
+        run(options).unwrap();
     }
 
     #[test]
     fn test_history_empty_channel() {
-        let temp = setup();
+        setup();
 
         let options = HistoryOptions {
-            channel: Some("empty".to_string()),
+            channel: Some("nonexistent".to_string()),
             count: 50,
             follow: false,
             timeout: None,
@@ -428,39 +445,10 @@ mod tests {
             after_id: None,
             show_offset: false,
             json: false,
+            agent: None,
         };
 
-        run(options, temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_history_filter_from() {
-        let temp = setup();
-        send::run_simple(
-            "general".to_string(),
-            "From Historian".to_string(),
-            Some("Historian"),
-            temp.path(),
-        )
-        .unwrap();
-
-        let options = HistoryOptions {
-            channel: Some("general".to_string()),
-            count: 50,
-            follow: false,
-            timeout: None,
-            follow_count: None,
-            since: None,
-            before: None,
-            from: Some("Historian".to_string()),
-            labels: vec![],
-            after_offset: None,
-            after_id: None,
-            show_offset: false,
-            json: false,
-        };
-
-        run(options, temp.path()).unwrap();
+        run(options).unwrap();
     }
 
     #[test]

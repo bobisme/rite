@@ -11,8 +11,8 @@ use crate::storage::jsonl::{read_last_n, read_records_from_offset};
 use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
 
 /// Stream new messages in real-time.
-pub fn run(channel: Option<String>, watch_all: bool, project_root: &Path) -> Result<()> {
-    let channels = channels_dir(project_root);
+pub fn run(channel: Option<String>, watch_all: bool) -> Result<()> {
+    let channels = channels_dir();
 
     if !channels.exists() {
         println!("No channels yet. Send a message first!");
@@ -50,7 +50,7 @@ pub fn run(channel: Option<String>, watch_all: bool, project_root: &Path) -> Res
     let mut offsets: HashMap<String, u64> = HashMap::new();
 
     for ch in &watching {
-        let path = channel_path(project_root, ch);
+        let path = channel_path(ch);
         if path.exists() {
             let recent: Vec<Message> = read_last_n(&path, 10).unwrap_or_default();
             for msg in &recent {
@@ -86,7 +86,7 @@ pub fn run(channel: Option<String>, watch_all: bool, project_root: &Path) -> Res
                 continue;
             }
 
-            let path = channel_path(project_root, &ch);
+            let path = channel_path(&ch);
             let offset = offsets.get(&ch).copied().unwrap_or(0);
 
             match read_records_from_offset::<Message>(&path, offset) {

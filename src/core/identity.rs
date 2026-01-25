@@ -3,13 +3,12 @@
 //! Identity is determined by (in order of precedence):
 //! 1. Explicit --agent flag
 //! 2. BOTBUS_AGENT environment variable
-//! 3. Legacy: current_agent in state.json (for backwards compatibility)
+//!
+//! BotBus is stateless about identity - it trusts whatever name is provided.
+//! The orchestrator/user is responsible for persisting identity across sessions.
 
+use anyhow::{anyhow, Result};
 use std::env;
-use std::path::Path;
-
-use crate::core::project::state_path;
-use crate::storage::state::ProjectState;
 
 /// Environment variable name for agent identity.
 pub const AGENT_ENV_VAR: &str = "BOTBUS_AGENT";
@@ -19,10 +18,9 @@ pub const AGENT_ENV_VAR: &str = "BOTBUS_AGENT";
 /// Checks in order:
 /// 1. Explicit agent name (from --agent flag)
 /// 2. BOTBUS_AGENT environment variable
-/// 3. Legacy state file (for backwards compatibility)
 ///
 /// Returns None if no identity is configured.
-pub fn resolve_agent(explicit: Option<&str>, project_root: &Path) -> Option<String> {
+pub fn resolve_agent(explicit: Option<&str>) -> Option<String> {
     // 1. Explicit flag takes precedence
     if let Some(name) = explicit {
         return Some(name.to_string());
@@ -35,14 +33,25 @@ pub fn resolve_agent(explicit: Option<&str>, project_root: &Path) -> Option<Stri
         }
     }
 
-    // 3. Legacy: state file (for backwards compatibility)
-    let state = ProjectState::new(state_path(project_root));
-    state.current_agent().ok().flatten()
+    None
+}
+
+/// Require an agent identity, returning an error with helpful message if not set.
+pub fn require_agent(explicit: Option<&str>) -> Result<String> {
+    resolve_agent(explicit).ok_or_else(|| {
+        anyhow!(
+            "BOTBUS_AGENT environment variable not set.\n\n\
+             Set your identity:\n  \
+             export BOTBUS_AGENT=$(botbus generate-name)\n\n\
+             Or choose your own name (kebab-case preferred):\n  \
+             export BOTBUS_AGENT=my-agent-name"
+        )
+    })
 }
 
 /// Check if an agent identity is available.
-pub fn has_identity(explicit: Option<&str>, project_root: &Path) -> bool {
-    resolve_agent(explicit, project_root).is_some()
+pub fn has_identity(explicit: Option<&str>) -> bool {
+    resolve_agent(explicit).is_some()
 }
 
 /// Format the export command for shell usage.
@@ -53,29 +62,18 @@ pub fn format_export(agent_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::init;
     use std::env;
-    use tempfile::TempDir;
-
-    fn setup_project() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        temp
-    }
 
     #[test]
     fn test_explicit_takes_precedence() {
-        let temp = setup_project();
-
-        // Set env var
-        // SAFETY: Test runs in isolation
+        // SAFETY: Test isolation
         unsafe {
-            env::set_var(AGENT_ENV_VAR, "EnvAgent");
+            env::set_var(AGENT_ENV_VAR, "env-agent");
         }
 
         // Explicit should win
-        let result = resolve_agent(Some("ExplicitAgent"), temp.path());
-        assert_eq!(result, Some("ExplicitAgent".to_string()));
+        let result = resolve_agent(Some("explicit-agent"));
+        assert_eq!(result, Some("explicit-agent".to_string()));
 
         // Clean up
         unsafe {
@@ -85,15 +83,13 @@ mod tests {
 
     #[test]
     fn test_env_var_used_when_no_explicit() {
-        let temp = setup_project();
-
-        // SAFETY: Test runs in isolation
+        // SAFETY: Test isolation
         unsafe {
-            env::set_var(AGENT_ENV_VAR, "EnvAgent");
+            env::set_var(AGENT_ENV_VAR, "env-agent");
         }
 
-        let result = resolve_agent(None, temp.path());
-        assert_eq!(result, Some("EnvAgent".to_string()));
+        let result = resolve_agent(None);
+        assert_eq!(result, Some("env-agent".to_string()));
 
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
@@ -102,21 +98,32 @@ mod tests {
 
     #[test]
     fn test_no_identity() {
-        let temp = setup_project();
-
-        // Ensure env var is not set
-        // SAFETY: Test runs in isolation
+        // SAFETY: Test isolation
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
         }
 
-        let result = resolve_agent(None, temp.path());
+        let result = resolve_agent(None);
         assert!(result.is_none());
     }
 
     #[test]
+    fn test_require_agent_error() {
+        // SAFETY: Test isolation
+        unsafe {
+            env::remove_var(AGENT_ENV_VAR);
+        }
+
+        let result = require_agent(None);
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("BOTBUS_AGENT"));
+        assert!(err.contains("generate-name"));
+    }
+
+    #[test]
     fn test_format_export() {
-        let export = format_export("MyAgent");
-        assert_eq!(export, "export BOTBUS_AGENT=MyAgent");
+        let export = format_export("my-agent");
+        assert_eq!(export, "export BOTBUS_AGENT=my-agent");
     }
 }

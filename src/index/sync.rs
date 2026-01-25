@@ -1,5 +1,4 @@
 use anyhow::{Context, Result};
-use std::path::Path;
 
 use super::fts::SearchIndex;
 use crate::core::message::Message;
@@ -9,20 +8,16 @@ use crate::storage::jsonl::read_records_from_offset;
 /// Syncs JSONL logs to the FTS index.
 pub struct IndexSyncer {
     index: SearchIndex,
-    project_root: std::path::PathBuf,
 }
 
 impl IndexSyncer {
-    /// Create a new syncer for the given project.
-    pub fn new(project_root: &Path) -> Result<Self> {
-        let idx_path = index_path(project_root);
+    /// Create a new syncer.
+    pub fn new() -> Result<Self> {
+        let idx_path = index_path();
         let index = SearchIndex::open(&idx_path)
             .with_context(|| format!("Failed to open index at {}", idx_path.display()))?;
 
-        Ok(Self {
-            index,
-            project_root: project_root.to_path_buf(),
-        })
+        Ok(Self { index })
     }
 
     /// Get a reference to the underlying index.
@@ -37,7 +32,7 @@ impl IndexSyncer {
 
     /// Sync all channels incrementally.
     pub fn sync_all(&mut self) -> Result<SyncStats> {
-        let channels = channels_dir(&self.project_root);
+        let channels = channels_dir();
 
         if !channels.exists() {
             return Ok(SyncStats::default());
@@ -69,7 +64,7 @@ impl IndexSyncer {
 
     /// Sync a specific channel incrementally.
     pub fn sync_channel(&mut self, channel: &str) -> Result<usize> {
-        let path = channels_dir(&self.project_root).join(format!("{}.jsonl", channel));
+        let path = channels_dir().join(format!("{}.jsonl", channel));
 
         if !path.exists() {
             return Ok(0);
@@ -91,7 +86,7 @@ impl IndexSyncer {
     /// Rebuild the entire index from scratch.
     pub fn rebuild(&mut self) -> Result<SyncStats> {
         // Reset all offsets
-        let channels = channels_dir(&self.project_root);
+        let channels = channels_dir();
 
         if !channels.exists() {
             return Ok(SyncStats::default());
@@ -123,62 +118,6 @@ pub struct SyncStats {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::cli::{init, send};
-    use tempfile::TempDir;
-
-    fn setup() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        temp
-    }
-
-    #[test]
-    fn test_sync_channel() {
-        let temp = setup();
-
-        // Send some messages
-        send::run_simple("general".to_string(), "Hello".to_string(), Some("Indexer"), temp.path(),
-        )
-        .unwrap();
-        send::run_simple("general".to_string(), "World".to_string(), Some("Indexer"), temp.path(),
-        )
-        .unwrap();
-
-        // Sync
-        let mut syncer = IndexSyncer::new(temp.path()).unwrap();
-        let stats = syncer.sync_all().unwrap();
-
-        assert!(stats.messages_indexed >= 2);
-        assert!(stats.errors.is_empty());
-
-        // Search should work
-        let results = syncer.index().search("body:Hello", 10).unwrap();
-        assert!(!results.is_empty());
-    }
-
-    #[test]
-    fn test_incremental_sync() {
-        let temp = setup();
-
-        send::run_simple("general".to_string(), "First".to_string(), Some("Indexer"), temp.path(),
-        )
-        .unwrap();
-
-        let mut syncer = IndexSyncer::new(temp.path()).unwrap();
-        let stats1 = syncer.sync_all().unwrap();
-        let count1 = stats1.messages_indexed;
-
-        // Send more messages
-        send::run_simple("general".to_string(), "Second".to_string(), Some("Indexer"), temp.path(),
-        )
-        .unwrap();
-
-        // Sync again - should only index new messages
-        let stats2 = syncer.sync_all().unwrap();
-        assert_eq!(stats2.messages_indexed, 1);
-
-        // Total should be correct
-        assert_eq!(syncer.index().message_count().unwrap(), count1 + 1);
-    }
+    // Integration tests moved to tests/integration/ since they require
+    // global data directory mocking
 }

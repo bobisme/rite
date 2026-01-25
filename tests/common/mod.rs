@@ -2,6 +2,8 @@
 //!
 //! Provides a harness for spawning botbus subprocesses and simulating
 //! multi-agent coordination scenarios.
+//!
+//! Uses BOTBUS_DATA_DIR env var to isolate each test's data directory.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -22,65 +24,66 @@ pub fn botbus_bin() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/botbus")
 }
 
-/// A test project with a temporary .botbus directory.
+/// A test project with an isolated BotBus data directory.
+///
+/// Each TestProject gets its own temp directory that is set via BOTBUS_DATA_DIR
+/// env var when running botbus commands.
 pub struct TestProject {
     pub dir: TempDir,
-    pub path: PathBuf,
+    pub data_path: PathBuf,
+    /// Working directory for commands (simulates being in a project)
+    pub work_dir: PathBuf,
     agents: HashMap<String, Agent>,
 }
 
 impl TestProject {
-    /// Create a new test project and initialize botbus.
+    /// Create a new test project with isolated data directory.
     pub fn new() -> Self {
         let count = PROJECT_COUNTER.fetch_add(1, Ordering::SeqCst);
         let dir = TempDir::with_prefix(&format!("botbus-test-{}-", count))
             .expect("Failed to create temp dir");
-        let path = dir.path().to_path_buf();
+        let data_path = dir.path().join("data");
+        let work_dir = dir.path().join("project");
 
-        let project = Self {
+        // Create directories
+        std::fs::create_dir_all(&data_path).expect("Failed to create data dir");
+        std::fs::create_dir_all(&work_dir).expect("Failed to create work dir");
+
+        Self {
             dir,
-            path,
+            data_path,
+            work_dir,
             agents: HashMap::new(),
-        };
-
-        // Initialize botbus
-        let output = project.run_botbus(&["init"]);
-        assert!(output.success(), "Failed to init: {}", output.stderr_str());
-
-        project
+        }
     }
 
     /// Create a new test project with a custom name (for debugging).
     pub fn with_name(name: &str) -> Self {
         let dir =
             TempDir::with_prefix(&format!("botbus-{}-", name)).expect("Failed to create temp dir");
-        let path = dir.path().to_path_buf();
+        let data_path = dir.path().join("data");
+        let work_dir = dir.path().join("project");
 
-        let project = Self {
+        std::fs::create_dir_all(&data_path).expect("Failed to create data dir");
+        std::fs::create_dir_all(&work_dir).expect("Failed to create work dir");
+
+        Self {
             dir,
-            path,
+            data_path,
+            work_dir,
             agents: HashMap::new(),
-        };
-
-        let output = project.run_botbus(&["init"]);
-        assert!(output.success(), "Failed to init: {}", output.stderr_str());
-
-        project
+        }
     }
 
-    /// Register an agent and return a handle for it.
+    /// Create an agent handle (no registration needed in stateless model).
+    ///
+    /// In the new model, agents don't need to register - they just need
+    /// BOTBUS_AGENT set when running commands.
     pub fn agent(&mut self, name: &str) -> Agent {
-        let output = self.run_botbus(&["register", "--name", name]);
-        assert!(
-            output.success(),
-            "Failed to register agent {}: {}",
-            name,
-            output.stderr_str()
-        );
-
         let agent = Agent {
             name: name.to_string(),
-            project_path: self.path.clone(),
+            data_path: self.data_path.clone(),
+            work_dir: self.work_dir.clone(),
         };
 
         self.agents.insert(name.to_string(), agent.clone());
@@ -95,7 +98,8 @@ impl TestProject {
     /// Run a botbus command with optional agent environment.
     pub fn run_botbus_with_env(&self, args: &[&str], agent: Option<&str>) -> BotbusOutput {
         let mut cmd = Command::new(botbus_bin());
-        cmd.current_dir(&self.path);
+        cmd.current_dir(&self.work_dir);
+        cmd.env("BOTBUS_DATA_DIR", &self.data_path);
         cmd.args(args);
 
         if let Some(agent_name) = agent {
@@ -109,8 +113,8 @@ impl TestProject {
     /// Get message history for a channel (as raw JSONL content).
     pub fn channel_messages(&self, channel: &str) -> Vec<serde_json::Value> {
         let path = self
-            .path
-            .join(".botbus/channels")
+            .data_path
+            .join("channels")
             .join(format!("{}.jsonl", channel));
         if !path.exists() {
             return Vec::new();
@@ -126,7 +130,7 @@ impl TestProject {
 
     /// Get all active claims.
     pub fn active_claims(&self) -> Vec<serde_json::Value> {
-        let path = self.path.join(".botbus/claims.jsonl");
+        let path = self.data_path.join("claims.jsonl");
         if !path.exists() {
             return Vec::new();
         }
@@ -152,24 +156,51 @@ impl TestProject {
             .collect()
     }
 
-    /// Get all registered agents.
-    pub fn registered_agents(&self) -> Vec<serde_json::Value> {
-        let path = self.path.join(".botbus/agents.jsonl");
-        if !path.exists() {
+    /// Get list of agents who have sent messages (derived from message history).
+    ///
+    /// In the stateless model, there's no agents.jsonl - agents are identified
+    /// by their presence in message history.
+    pub fn registered_agents(&self) -> Vec<String> {
+        let channels_dir = self.data_path.join("channels");
+        if !channels_dir.exists() {
             return Vec::new();
         }
 
-        let content = std::fs::read_to_string(&path).expect("Failed to read agents");
-        content
-            .lines()
-            .filter(|l| !l.trim().is_empty())
-            .map(|l| serde_json::from_str(l).expect("Invalid JSON in agents"))
-            .collect()
+        let mut agents: std::collections::HashSet<String> = std::collections::HashSet::new();
+
+        if let Ok(entries) = std::fs::read_dir(&channels_dir) {
+            for entry in entries.filter_map(|e| e.ok()) {
+                let path = entry.path();
+                if path.extension().is_some_and(|ext| ext == "jsonl") {
+                    if let Ok(content) = std::fs::read_to_string(&path) {
+                        for line in content.lines() {
+                            if let Ok(msg) = serde_json::from_str::<serde_json::Value>(line) {
+                                if let Some(agent) = msg.get("agent").and_then(|v| v.as_str()) {
+                                    agents.insert(agent.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        agents.into_iter().collect()
     }
 
-    /// Get path to the project directory.
+    /// Get path to the data directory.
+    pub fn data_path(&self) -> &Path {
+        &self.data_path
+    }
+
+    /// Get path to the work directory (simulated project root).
+    pub fn work_dir(&self) -> &Path {
+        &self.work_dir
+    }
+
+    /// Legacy alias for backwards compatibility.
     pub fn path(&self) -> &Path {
-        &self.path
+        &self.work_dir
     }
 }
 
@@ -177,7 +208,8 @@ impl TestProject {
 #[derive(Clone)]
 pub struct Agent {
     pub name: String,
-    project_path: PathBuf,
+    data_path: PathBuf,
+    work_dir: PathBuf,
 }
 
 impl Agent {
@@ -253,7 +285,7 @@ impl Agent {
         self.run(&["whoami"])
     }
 
-    /// List agents.
+    /// List agents (derived from message history).
     pub fn agents(&self) -> BotbusOutput {
         self.run(&["agents"])
     }
@@ -296,7 +328,8 @@ impl Agent {
     /// Run an arbitrary botbus command as this agent.
     pub fn run(&self, args: &[&str]) -> BotbusOutput {
         let mut cmd = Command::new(botbus_bin());
-        cmd.current_dir(&self.project_path);
+        cmd.current_dir(&self.work_dir);
+        cmd.env("BOTBUS_DATA_DIR", &self.data_path);
         cmd.env("BOTBUS_AGENT", &self.name);
         cmd.args(args);
 
@@ -390,33 +423,50 @@ static TUI_SESSION_COUNTER: AtomicUsize = AtomicUsize::new(0);
 pub struct TuiHarness {
     session_name: String,
     #[allow(dead_code)]
-    project_path: PathBuf,
+    data_path: PathBuf,
 }
 
 impl TuiHarness {
     /// Start the TUI in a tmux session.
     pub fn start(project: &TestProject) -> Self {
+        Self::start_with_agent(project, None)
+    }
+
+    /// Start with a specific agent identity.
+    pub fn start_as(project: &TestProject, agent: &str) -> Self {
+        Self::start_with_agent(project, Some(agent))
+    }
+
+    fn start_with_agent(project: &TestProject, agent: Option<&str>) -> Self {
         let count = TUI_SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
         let session_name = format!("botbus-tui-{}-{}", std::process::id(), count);
         let bin = botbus_bin();
 
-        // Start tmux session with TUI
-        let status = Command::new("tmux")
-            .args([
-                "new-session",
-                "-d",
-                "-s",
-                &session_name,
-                "-x",
-                "100",
-                "-y",
-                "30",
-                &format!("{} ui", bin.display()),
-            ])
-            .current_dir(&project.path)
-            .status()
-            .expect("Failed to start tmux");
+        let mut cmd = Command::new("tmux");
+        cmd.args([
+            "new-session",
+            "-d",
+            "-s",
+            &session_name,
+            "-x",
+            "100",
+            "-y",
+            "30",
+        ]);
 
+        // Set env vars
+        cmd.arg("-e");
+        cmd.arg(format!("BOTBUS_DATA_DIR={}", project.data_path.display()));
+
+        if let Some(agent_name) = agent {
+            cmd.arg("-e");
+            cmd.arg(format!("BOTBUS_AGENT={}", agent_name));
+        }
+
+        cmd.arg(&format!("{} ui", bin.display()));
+        cmd.current_dir(&project.work_dir);
+
+        let status = cmd.status().expect("Failed to start tmux");
         assert!(status.success(), "Failed to start tmux session");
 
         // Give TUI time to initialize
@@ -424,40 +474,7 @@ impl TuiHarness {
 
         Self {
             session_name,
-            project_path: project.path.clone(),
-        }
-    }
-
-    /// Start with a specific agent identity.
-    pub fn start_as(project: &TestProject, agent: &str) -> Self {
-        let count = TUI_SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let session_name = format!("botbus-tui-{}-{}", std::process::id(), count);
-        let bin = botbus_bin();
-
-        let status = Command::new("tmux")
-            .args([
-                "new-session",
-                "-d",
-                "-s",
-                &session_name,
-                "-x",
-                "100",
-                "-y",
-                "30",
-                "-e",
-                &format!("BOTBUS_AGENT={}", agent),
-                &format!("{} ui", bin.display()),
-            ])
-            .current_dir(&project.path)
-            .status()
-            .expect("Failed to start tmux");
-
-        assert!(status.success(), "Failed to start tmux session");
-        std::thread::sleep(std::time::Duration::from_millis(500));
-
-        Self {
-            session_name,
-            project_path: project.path.clone(),
+            data_path: project.data_path.clone(),
         }
     }
 

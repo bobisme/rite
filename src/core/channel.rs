@@ -2,6 +2,8 @@
 ///
 /// Channel naming rules:
 /// - Regular channels: lowercase alphanumeric + hyphens, 1-64 chars
+///   - Examples: `general`, `backend`, `webapp-api`, `project-topic`
+///   - Use hyphens to separate words: `my-channel` not `my.channel`
 /// - DM channels: `_dm_{agent1}_{agent2}` where names are sorted alphabetically
 /// - Reserved prefix: `_` for system channels
 pub fn is_valid_channel_name(name: &str) -> bool {
@@ -61,6 +63,27 @@ pub fn is_dm_channel(name: &str) -> bool {
     name.starts_with("_dm_")
 }
 
+/// Check if input looks like a DM target (starts with @).
+pub fn is_dm_target(target: &str) -> bool {
+    target.starts_with('@')
+}
+
+/// Resolve a channel argument to the actual channel name.
+/// - `@agent` → resolved to DM channel name using current agent
+/// - `general` → returned as-is
+/// - `_dm_a_b` → returned as-is
+pub fn resolve_channel(channel: &str, current_agent: Option<&str>) -> Option<String> {
+    if channel.starts_with('@') {
+        // DM target - need current agent to resolve
+        let other = channel.strip_prefix('@')?;
+        let agent = current_agent?;
+        Some(dm_channel_name(agent, other))
+    } else {
+        // Regular channel or already-resolved DM channel
+        Some(channel.to_string())
+    }
+}
+
 /// Extract agent names from a DM channel name.
 pub fn dm_agents(name: &str) -> Option<(String, String)> {
     let parts: Vec<&str> = name.strip_prefix("_dm_")?.split('_').collect();
@@ -107,5 +130,35 @@ mod tests {
             Some(("Alice".to_string(), "Bob".to_string()))
         );
         assert_eq!(dm_agents("general"), None);
+    }
+
+    #[test]
+    fn test_resolve_channel() {
+        // Regular channel
+        assert_eq!(
+            resolve_channel("general", Some("alice")),
+            Some("general".to_string())
+        );
+
+        // DM target resolves to canonical DM channel name
+        assert_eq!(
+            resolve_channel("@bob", Some("alice")),
+            Some("_dm_alice_bob".to_string())
+        );
+
+        // Order is normalized
+        assert_eq!(
+            resolve_channel("@alice", Some("bob")),
+            Some("_dm_alice_bob".to_string())
+        );
+
+        // Without current agent, DM target can't resolve
+        assert_eq!(resolve_channel("@bob", None), None);
+
+        // Already-resolved DM channel passes through
+        assert_eq!(
+            resolve_channel("_dm_alice_bob", Some("alice")),
+            Some("_dm_alice_bob".to_string())
+        );
     }
 }

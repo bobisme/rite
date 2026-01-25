@@ -1,21 +1,20 @@
-use anyhow::{Context, Result};
+//! List agents derived from message history.
+
+use anyhow::Result;
 use chrono::{DateTime, Utc};
 use colored::Colorize;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::Path;
 
-use crate::core::agent::Agent;
 use crate::core::message::Message;
-use crate::core::project::{agents_path, channels_dir};
+use crate::core::project::channels_dir;
 use crate::storage::jsonl::read_records;
 
 #[derive(Debug, Serialize)]
 pub struct AgentInfo {
     pub name: String,
-    pub description: Option<String>,
-    pub registered_at: DateTime<Utc>,
-    pub last_seen: Option<DateTime<Utc>>,
+    pub last_seen: DateTime<Utc>,
+    pub message_count: usize,
     pub active: bool,
 }
 
@@ -24,28 +23,26 @@ pub struct AgentsOutput {
     pub agents: Vec<AgentInfo>,
 }
 
-/// List registered agents.
-pub fn run(json: bool, _active_only: bool, project_root: &Path) -> Result<()> {
-    let agents: Vec<Agent> =
-        read_records(&agents_path(project_root)).with_context(|| "Failed to read agents")?;
-
-    let last_seen = get_last_seen_times(project_root);
+/// List agents derived from message history.
+pub fn run(json: bool, _active_only: bool) -> Result<()> {
+    let agent_stats = get_agent_stats();
     let now = Utc::now();
 
-    let agent_infos: Vec<AgentInfo> = agents
-        .iter()
-        .map(|a| {
-            let seen = last_seen.get(&a.name).copied();
-            let active = seen.is_some_and(|ts| now.signed_duration_since(ts).num_minutes() < 30);
+    let mut agent_infos: Vec<AgentInfo> = agent_stats
+        .into_iter()
+        .map(|(name, (last_seen, count))| {
+            let active = now.signed_duration_since(last_seen).num_minutes() < 30;
             AgentInfo {
-                name: a.name.clone(),
-                description: a.description.clone(),
-                registered_at: a.ts,
-                last_seen: seen,
+                name,
+                last_seen,
+                message_count: count,
                 active,
             }
         })
         .collect();
+
+    // Sort by last seen (most recent first)
+    agent_infos.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
 
     if json {
         let output = AgentsOutput {
@@ -56,18 +53,14 @@ pub fn run(json: bool, _active_only: bool, project_root: &Path) -> Result<()> {
     }
 
     if agent_infos.is_empty() {
-        println!("No agents registered yet.");
+        println!("No agents found in message history.");
         return Ok(());
     }
 
-    println!("{}", "Agents:".bold());
+    println!("{}", "Agents (from message history):".bold());
 
     for info in &agent_infos {
-        let registered_ago = format_time_ago(info.registered_at);
-        let last_seen_str = info
-            .last_seen
-            .map(|ts| format_time_ago(ts))
-            .unwrap_or_else(|| "never".to_string());
+        let last_seen_str = format_time_ago(info.last_seen);
 
         let indicator = if info.active {
             "●".green()
@@ -76,27 +69,24 @@ pub fn run(json: bool, _active_only: bool, project_root: &Path) -> Result<()> {
         };
 
         println!(
-            "  {} {:<20} Registered {}, last seen {}",
+            "  {} {:<24} last seen {}, {} messages",
             indicator,
             info.name.cyan(),
-            registered_ago,
-            last_seen_str
+            last_seen_str,
+            info.message_count
         );
-
-        if let Some(desc) = &info.description {
-            println!("                         {}", desc.dimmed());
-        }
     }
 
     Ok(())
 }
 
-fn get_last_seen_times(project_root: &Path) -> HashMap<String, DateTime<Utc>> {
-    let mut last_seen = HashMap::new();
+/// Scan all channels and collect agent statistics.
+fn get_agent_stats() -> HashMap<String, (DateTime<Utc>, usize)> {
+    let mut stats: HashMap<String, (DateTime<Utc>, usize)> = HashMap::new();
 
-    let channels = channels_dir(project_root);
+    let channels = channels_dir();
     if !channels.exists() {
-        return last_seen;
+        return stats;
     }
 
     if let Ok(entries) = std::fs::read_dir(&channels) {
@@ -105,17 +95,18 @@ fn get_last_seen_times(project_root: &Path) -> HashMap<String, DateTime<Utc>> {
             if path.extension().is_some_and(|ext| ext == "jsonl") {
                 if let Ok(messages) = read_records::<Message>(&path) {
                     for msg in messages {
-                        let entry = last_seen.entry(msg.agent.clone()).or_insert(msg.ts);
-                        if msg.ts > *entry {
-                            *entry = msg.ts;
+                        let entry = stats.entry(msg.agent.clone()).or_insert((msg.ts, 0));
+                        if msg.ts > entry.0 {
+                            entry.0 = msg.ts;
                         }
+                        entry.1 += 1;
                     }
                 }
             }
         }
     }
 
-    last_seen
+    stats
 }
 
 fn format_time_ago(ts: DateTime<Utc>) -> String {
@@ -136,37 +127,32 @@ fn format_time_ago(ts: DateTime<Utc>) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{init, register};
-    use tempfile::TempDir;
+    use crate::cli::send;
+    use crate::core::project::ensure_data_dir;
+
+    fn setup() {
+        ensure_data_dir().unwrap();
+    }
 
     #[test]
     fn test_list_agents() {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        register::run(
-            Some("Agent1".to_string()),
-            Some("First".to_string()),
-            temp.path(),
+        setup();
+
+        // Send a message to create an agent in history
+        send::run_simple(
+            "test-agents-channel".to_string(),
+            "test message".to_string(),
+            Some("test-agent-1"),
         )
         .unwrap();
 
-        run(false, false, temp.path()).unwrap();
+        run(false, false).unwrap();
     }
 
     #[test]
     fn test_list_agents_json() {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        register::run(Some("Agent1".to_string()), None, temp.path()).unwrap();
+        setup();
 
-        run(true, false, temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_no_agents() {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-
-        run(false, false, temp.path()).unwrap();
+        run(true, false).unwrap();
     }
 }

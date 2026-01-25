@@ -11,8 +11,9 @@ use common::{TestProject, TuiHarness};
 fn test_tui_starts() {
     let mut project = TestProject::with_name("tui-start");
 
-    // Register an agent to have some content
-    project.agent("TuiTester");
+    // Create an agent and send a message to have some content
+    let agent = project.agent("TuiTester");
+    agent.send("general", "Test message").assert_success();
 
     let tui = TuiHarness::start(&project);
 
@@ -22,19 +23,17 @@ fn test_tui_starts() {
     // Should show basic structure
     let capture = tui.capture();
 
-    // Should have channels panel
+    // Should have channels/conversations panel (shows either "Channels" or "Conversations" or "general")
     assert!(
-        capture.contains("Channels") || capture.contains("general"),
+        capture.contains("Channels")
+            || capture.contains("Conversations")
+            || capture.contains("general"),
         "Expected channels panel, got:\n{}",
         capture
     );
 
-    // Should have agents panel
-    assert!(
-        capture.contains("Agents") || capture.contains("TuiTester"),
-        "Expected agents panel, got:\n{}",
-        capture
-    );
+    // NOTE: Agents panel was removed in the stateless agent model migration.
+    // Agents are now derived from message history rather than having their own panel.
 
     // Cleanup happens automatically in Drop
 }

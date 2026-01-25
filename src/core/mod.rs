@@ -8,5 +8,5 @@ pub mod project;
 
 pub use agent::{Agent, AgentEvent};
 pub use claim::{ClaimEvent, FileClaim};
-pub use identity::{resolve_agent, AGENT_ENV_VAR};
+pub use identity::{require_agent, resolve_agent, AGENT_ENV_VAR};
 pub use message::{Message, MessageMeta, SystemEvent};

@@ -1,37 +1,24 @@
 //! Integration tests for message read tracking.
 //!
-//! Note: Registering an agent sends a "joined the project" message to #general.
-//! Tests account for these registration messages.
+//! Note: With the stateless agent model, agents no longer send "joined" messages
+//! when first appearing. Agents are derived from message history.
 
 mod common;
 use common::TestProject;
 
-#[test]
-fn test_inbox_shows_registration_message() {
-    let mut project = TestProject::new();
-    let alice = project.agent("Alice");
-
-    // Registration sends a "joined" message, so inbox should show it
-    let output = alice.inbox("general");
-    output.assert_success();
-    output.assert_stdout_contains("unread");
-    output.assert_stdout_contains("joined");
-}
+// NOTE: test_inbox_shows_registration_message was removed - with the stateless
+// agent model, there are no automatic "joined" messages when agents first appear.
 
 #[test]
 fn test_inbox_shows_new_messages() {
     let mut project = TestProject::new();
     let alice = project.agent("Alice");
-
-    // Alice marks general as read to clear registration message
-    alice.mark_read("general").assert_success();
-
     let bob = project.agent("Bob");
 
     // Bob sends a message
     bob.send("general", "Hello Alice!").assert_success();
 
-    // Alice's inbox should show Bob's registration + his message
+    // Alice's inbox should show Bob's message
     let output = alice.inbox("general");
     output.assert_success();
     output.assert_stdout_contains("unread");
@@ -219,23 +206,26 @@ fn test_inbox_multiple_channels() {
 fn test_inbox_count_limit() {
     let mut project = TestProject::new();
     let alice = project.agent("Alice");
-
-    // Mark as read to clear registration messages
-    alice.mark_read("general").assert_success();
-
     let bob = project.agent("Bob");
 
-    // Send many messages (10 + 1 registration for bob = 11 new messages)
+    // Send many messages
     for i in 1..=10 {
         bob.send("general", &format!("Msg{}", i)).assert_success();
     }
 
-    // Inbox with limit of 3
+    // Alice marks as read to set a baseline
+    alice.mark_read("general").assert_success();
+
+    // Bob sends more messages
+    for i in 11..=20 {
+        bob.send("general", &format!("Msg{}", i)).assert_success();
+    }
+
+    // Inbox with limit of 3 should show only 3 of the 10 new messages
     let output = alice.run(&["inbox", "general", "-n", "3"]);
     output.assert_success();
 
     // Should show 3 messages
-    let stdout = output.stdout_str();
     output.assert_stdout_contains("3 unread");
 }
 

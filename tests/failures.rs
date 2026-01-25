@@ -72,24 +72,9 @@ fn test_invalid_channel_name() {
     );
 }
 
-/// Test that duplicate agent registration fails.
-#[test]
-fn test_duplicate_agent_registration() {
-    let mut project = TestProject::with_name("dupe-agent");
-
-    // First registration succeeds
-    let output = project.run_botbus(&["register", "--name", "UniqueAgent"]);
-    output.assert_success();
-
-    // Second registration with same name fails
-    let output = project.run_botbus(&["register", "--name", "UniqueAgent"]);
-    output.assert_failure();
-    assert!(
-        output.stderr_contains("taken") || output.stderr_contains("already"),
-        "Expected duplicate error, got: {}",
-        output.stderr_str()
-    );
-}
+// NOTE: test_duplicate_agent_registration was removed - with the stateless
+// agent model, there's no registration and no duplicate checking needed.
+// Agents are simply derived from BOTBUS_AGENT env var.
 
 /// Test that invalid agent names are rejected.
 #[test]
@@ -185,7 +170,7 @@ fn test_command_from_subdirectory() {
     let agent = project.agent("SubdirAgent");
 
     // Create a subdirectory
-    let subdir = project.path.join("src/deep/nested");
+    let subdir = project.path().join("src/deep/nested");
     std::fs::create_dir_all(&subdir).expect("Failed to create subdir");
 
     // Run command from subdirectory using explicit project path

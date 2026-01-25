@@ -5,25 +5,22 @@ use crossterm::event::{
 };
 use ratatui::prelude::*;
 
-use std::path::{Path, PathBuf};
+use std::path::Path;
 use std::time::Duration;
 
-use crate::core::agent::Agent;
 use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
-use crate::core::project::{agents_path, channel_path, channels_dir};
-use crate::storage::jsonl::{read_last_n, read_records, read_records_from_offset};
+use crate::core::project::{channel_path, channels_dir};
+use crate::storage::jsonl::{read_last_n, read_records_from_offset};
 use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
 
 use super::ui;
 
 pub struct App {
-    project_root: PathBuf,
     current_agent: Option<String>,
     channels: Vec<String>,
     dm_channels: Vec<String>,
     selected_channel: usize,
-    agents: Vec<Agent>,
     messages: Vec<Message>,
     message_scroll: usize,
     should_quit: bool,
@@ -48,12 +45,11 @@ pub enum Focus {
 }
 
 impl App {
-    pub fn new(project_root: &Path, initial_channel: Option<String>) -> Result<Self> {
+    pub fn new(initial_channel: Option<String>) -> Result<Self> {
         // Get agent from env var (no explicit flag for TUI)
-        let current_agent = resolve_agent(None, project_root);
+        let current_agent = resolve_agent(None);
 
-        let (channels, dm_channels) = list_channels(project_root)?;
-        let agents: Vec<Agent> = read_records(&agents_path(project_root))?;
+        let (channels, dm_channels) = list_channels()?;
 
         // Find initial channel index (search in both channels and DMs)
         let selected_channel = if let Some(ch) = &initial_channel {
@@ -72,15 +68,13 @@ impl App {
         };
 
         // Capture initial file sizes for new message indicators
-        let initial_sizes = capture_channel_sizes(project_root, &channels, &dm_channels);
+        let initial_sizes = capture_channel_sizes(&channels, &dm_channels);
 
         let mut app = Self {
-            project_root: project_root.to_path_buf(),
             current_agent,
             channels,
             dm_channels,
             selected_channel,
-            agents,
             messages: Vec::new(),
             message_scroll: 0,
             should_quit: false,
@@ -108,7 +102,7 @@ impl App {
         crossterm::execute!(std::io::stdout(), EnableMouseCapture)?;
 
         // Set up file watcher
-        let channels_path = channels_dir(&self.project_root);
+        let channels_path = channels_dir();
         let (_watcher, rx) = watch_directory(&channels_path)?;
 
         let result = self.run_loop(terminal, &rx);
@@ -318,7 +312,7 @@ impl App {
 
     fn load_messages(&mut self) -> Result<()> {
         if let Some(channel) = self.current_channel() {
-            let path = channel_path(&self.project_root, &channel);
+            let path = channel_path(&channel);
             self.messages = read_last_n(&path, 100)?;
             self.channel_offset = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             self.message_scroll = 0;
@@ -328,7 +322,7 @@ impl App {
 
     fn refresh_messages(&mut self) -> Result<()> {
         if let Some(channel) = self.current_channel() {
-            let path = channel_path(&self.project_root, &channel);
+            let path = channel_path(&channel);
             let (new_msgs, new_offset): (Vec<Message>, u64) =
                 read_records_from_offset(&path, self.channel_offset)?;
 
@@ -357,7 +351,7 @@ impl App {
             .collect();
 
         for channel in all_channels {
-            let path = channel_path(&self.project_root, &channel);
+            let path = channel_path(&channel);
             let current_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let initial_size = self.initial_sizes.get(&channel).copied().unwrap_or(0);
 
@@ -405,10 +399,6 @@ impl App {
         self.channels.len() + self.dm_channels.len()
     }
 
-    pub fn agents(&self) -> &[Agent] {
-        &self.agents
-    }
-
     pub fn messages(&self) -> &[Message] {
         &self.messages
     }
@@ -443,8 +433,8 @@ impl App {
     }
 }
 
-fn list_channels(project_root: &Path) -> Result<(Vec<String>, Vec<String>)> {
-    let channels = channels_dir(project_root);
+fn list_channels() -> Result<(Vec<String>, Vec<String>)> {
+    let channels = channels_dir();
     let mut public_channels: Vec<(String, std::time::SystemTime)> = Vec::new();
     let mut dm_channels: Vec<(String, std::time::SystemTime)> = Vec::new();
 
@@ -487,14 +477,13 @@ fn list_channels(project_root: &Path) -> Result<(Vec<String>, Vec<String>)> {
 
 /// Capture initial file sizes for all channels
 fn capture_channel_sizes(
-    project_root: &Path,
     channels: &[String],
     dm_channels: &[String],
 ) -> std::collections::HashMap<String, u64> {
     let mut sizes = std::collections::HashMap::new();
 
     for channel in channels.iter().chain(dm_channels.iter()) {
-        let path = channel_path(project_root, channel);
+        let path = channel_path(channel);
         if let Ok(meta) = std::fs::metadata(&path) {
             sizes.insert(channel.clone(), meta.len());
         }

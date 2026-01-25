@@ -2,7 +2,7 @@
 
 mod common;
 
-use common::{Agent, TestProject};
+use common::TestProject;
 
 /// Test sending messages with labels.
 #[test]

@@ -3,10 +3,9 @@ use chrono::{DateTime, Utc};
 use colored::Colorize;
 use globset::{Glob, GlobSetBuilder};
 use serde::Serialize;
-use std::path::Path;
 
 use crate::core::claim::FileClaim;
-use crate::core::identity::{format_export, resolve_agent};
+use crate::core::identity::{require_agent, resolve_agent};
 use crate::core::message::{Message, MessageMeta};
 use crate::core::project::{channel_path, claims_path};
 use crate::storage::jsonl::{append_record, read_records};
@@ -21,45 +20,51 @@ pub struct ClaimOptions {
 }
 
 /// Claim files for editing.
-pub fn claim(options: ClaimOptions, project_root: &Path) -> Result<()> {
-    let agent_name = resolve_agent(options.agent.as_deref(), project_root).ok_or_else(|| {
-        anyhow::anyhow!(
-            "No agent identity configured.\n\n\
-             Set your identity with: {}\n\
-             Or use --agent flag.",
-            format_export("YourAgentName")
-        )
-    })?;
+pub fn claim(options: ClaimOptions) -> Result<()> {
+    let agent_name = require_agent(options.agent.as_deref())?;
 
     // Handle --extend option: extend TTL on existing claims
     if let Some(extend_pattern) = &options.extend {
-        return extend_claims(extend_pattern, options.ttl, &agent_name, project_root);
+        return extend_claims(extend_pattern, options.ttl, &agent_name);
     }
 
     // Load existing claims
-    let claims: Vec<FileClaim> = read_records(&claims_path(project_root))?;
+    let claims: Vec<FileClaim> = read_records(&claims_path())?;
 
-    // Check for conflicts
+    // Check for conflicts - deny overlapping claims
     let conflicts = check_conflicts(&options.patterns, &claims, &agent_name);
     if !conflicts.is_empty() {
-        println!("{}", "Warning: Potential conflicts detected:".yellow());
+        eprintln!("{}", "Error: Conflict with existing claim(s)".red().bold());
         for (pattern, holder, expires) in &conflicts {
             let remaining = (*expires - Utc::now()).num_minutes();
-            println!(
-                "  {} overlaps with {}'s claim (expires in {}m)",
-                pattern.cyan(),
+            eprintln!(
+                "  {} owns {} (expires in {}m)",
                 holder.yellow(),
+                pattern.cyan(),
                 remaining
             );
         }
-        println!();
+        eprintln!();
+        eprintln!("Ask them to release or narrow their claim:");
+        // Get the first conflicting agent for the example
+        let first_holder = &conflicts[0].1;
+        eprintln!(
+            "  {}",
+            format!(
+                "botbus send @{} \"Can you release {}? I need to work on it\"",
+                first_holder,
+                options.patterns.join(", ")
+            )
+            .dimmed()
+        );
+        anyhow::bail!("Cannot claim - conflicts with existing claims");
     }
 
     // Create the claim
     let claim = FileClaim::new(&agent_name, options.patterns.clone(), options.ttl);
 
     // Append to claims.jsonl
-    append_record(&claims_path(project_root), &claim).with_context(|| "Failed to record claim")?;
+    append_record(&claims_path(), &claim).with_context(|| "Failed to record claim")?;
 
     // Post message to #general
     let body = if let Some(msg) = &options.message {
@@ -73,7 +78,7 @@ pub fn claim(options: ClaimOptions, project_root: &Path) -> Result<()> {
         ttl_secs: options.ttl,
     });
 
-    append_record(&channel_path(project_root, "general"), &claim_msg)?;
+    append_record(&channel_path("general"), &claim_msg)?;
 
     // Output
     println!(
@@ -90,8 +95,8 @@ pub fn claim(options: ClaimOptions, project_root: &Path) -> Result<()> {
 }
 
 /// Extend TTL on existing claims matching the given pattern.
-fn extend_claims(pattern: &str, ttl: u64, agent_name: &str, project_root: &Path) -> Result<()> {
-    let all_claims: Vec<FileClaim> = read_records(&claims_path(project_root))?;
+fn extend_claims(pattern: &str, ttl: u64, agent_name: &str) -> Result<()> {
+    let all_claims: Vec<FileClaim> = read_records(&claims_path())?;
     let now = Utc::now();
 
     // Build active claims map
@@ -125,7 +130,7 @@ fn extend_claims(pattern: &str, ttl: u64, agent_name: &str, project_root: &Path)
         if matches {
             // Create extended claim (new record with same ID but new expiry)
             let extended = claim.extend(ttl);
-            append_record(&claims_path(project_root), &extended)?;
+            append_record(&claims_path(), &extended)?;
             extended_count += 1;
 
             // Post message
@@ -138,7 +143,7 @@ fn extend_claims(pattern: &str, ttl: u64, agent_name: &str, project_root: &Path)
                     format_duration(ttl)
                 ),
             );
-            append_record(&channel_path(project_root, "general"), &msg)?;
+            append_record(&channel_path("general"), &msg)?;
         }
     }
 
@@ -172,16 +177,10 @@ pub struct ClaimInfo {
 }
 
 /// List active file claims.
-pub fn claims(
-    json: bool,
-    show_all: bool,
-    mine_only: bool,
-    agent: Option<&str>,
-    project_root: &Path,
-) -> Result<()> {
-    let current_agent = resolve_agent(agent, project_root).unwrap_or_default();
+pub fn claims(json: bool, show_all: bool, mine_only: bool, agent: Option<&str>) -> Result<()> {
+    let current_agent = resolve_agent(agent).unwrap_or_default();
 
-    let all_claims: Vec<FileClaim> = read_records(&claims_path(project_root))?;
+    let all_claims: Vec<FileClaim> = read_records(&claims_path())?;
 
     // Build active claims map (latest state per claim ID)
     let mut active: std::collections::HashMap<ulid::Ulid, FileClaim> =
@@ -258,22 +257,10 @@ pub fn claims(
 }
 
 /// Release file claims.
-pub fn release(
-    patterns: Vec<String>,
-    release_all: bool,
-    agent: Option<&str>,
-    project_root: &Path,
-) -> Result<()> {
-    let agent_name = resolve_agent(agent, project_root).ok_or_else(|| {
-        anyhow::anyhow!(
-            "No agent identity configured.\n\n\
-             Set your identity with: {}\n\
-             Or use --agent flag.",
-            format_export("YourAgentName")
-        )
-    })?;
+pub fn release(patterns: Vec<String>, release_all: bool, agent: Option<&str>) -> Result<()> {
+    let agent_name = require_agent(agent)?;
 
-    let all_claims: Vec<FileClaim> = read_records(&claims_path(project_root))?;
+    let all_claims: Vec<FileClaim> = read_records(&claims_path())?;
 
     // Build active claims map
     let mut active: std::collections::HashMap<ulid::Ulid, FileClaim> =
@@ -308,7 +295,7 @@ pub fn release(
 
         if should_release {
             let release_record = claim.release();
-            append_record(&claims_path(project_root), &release_record)?;
+            append_record(&claims_path(), &release_record)?;
             released_count += 1;
 
             // Post release message
@@ -320,7 +307,7 @@ pub fn release(
             .with_meta(MessageMeta::Release {
                 patterns: claim.patterns.clone(),
             });
-            append_record(&channel_path(project_root, "general"), &msg)?;
+            append_record(&channel_path("general"), &msg)?;
         }
     }
 
@@ -363,16 +350,11 @@ pub struct ClaimConflict {
 /// Check if a file/pattern conflicts with existing claims.
 /// Returns Ok(true) if safe, Ok(false) if conflict exists.
 /// Exits with code 1 on conflict for easy shell scripting.
-pub fn check_claim(
-    path: String,
-    json: bool,
-    agent: Option<&str>,
-    project_root: &Path,
-) -> Result<bool> {
-    let current_agent = resolve_agent(agent, project_root).unwrap_or_default();
+pub fn check_claim(path: String, json: bool, agent: Option<&str>) -> Result<bool> {
+    let current_agent = resolve_agent(agent).unwrap_or_default();
     let now = Utc::now();
 
-    let all_claims: Vec<FileClaim> = read_records(&claims_path(project_root)).unwrap_or_default();
+    let all_claims: Vec<FileClaim> = read_records(&claims_path()).unwrap_or_default();
 
     // Build active claims map
     let mut active: std::collections::HashMap<ulid::Ulid, FileClaim> =
@@ -558,156 +540,12 @@ fn format_duration(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::init;
-    use tempfile::TempDir;
-
-    fn setup() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        temp
-    }
-
-    #[test]
-    fn test_claim_and_list() {
-        let temp = setup();
-
-        claim(
-            ClaimOptions {
-                patterns: vec!["src/**/*.rs".to_string()],
-                ttl: 3600,
-                message: None,
-                extend: None,
-                agent: Some("Claimer".to_string()),
-            },
-            temp.path(),
-        )
-        .unwrap();
-
-        claims(false, false, false, Some("Claimer"), temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_claim_and_release() {
-        let temp = setup();
-
-        claim(
-            ClaimOptions {
-                patterns: vec!["*.toml".to_string()],
-                ttl: 3600,
-                message: Some("Updating deps".to_string()),
-                extend: None,
-                agent: Some("Claimer".to_string()),
-            },
-            temp.path(),
-        )
-        .unwrap();
-
-        release(vec![], true, Some("Claimer"), temp.path()).unwrap();
-    }
 
     #[test]
     fn test_patterns_overlap() {
         assert!(patterns_overlap("src/**/*.rs", "src/main.rs"));
         assert!(patterns_overlap("src/auth/**", "src/auth/login.rs"));
         assert!(!patterns_overlap("src/api/**", "tests/**"));
-    }
-
-    #[test]
-    fn test_check_claim_no_conflicts() {
-        let temp = setup();
-
-        // No claims exist, should be safe
-        let safe = check_claim(
-            "src/main.rs".to_string(),
-            false,
-            Some("Checker"),
-            temp.path(),
-        )
-        .unwrap();
-        assert!(safe);
-    }
-
-    #[test]
-    fn test_check_claim_with_conflict() {
-        let temp = setup();
-
-        // Another agent claims src/**
-        claim(
-            ClaimOptions {
-                patterns: vec!["src/**".to_string()],
-                ttl: 3600,
-                message: None,
-                extend: None,
-                agent: Some("OtherAgent".to_string()),
-            },
-            temp.path(),
-        )
-        .unwrap();
-
-        // Checker tries to edit src/main.rs - should conflict
-        let safe = check_claim(
-            "src/main.rs".to_string(),
-            false,
-            Some("Checker"),
-            temp.path(),
-        )
-        .unwrap();
-        assert!(!safe);
-    }
-
-    #[test]
-    fn test_check_claim_own_claim_ok() {
-        let temp = setup();
-
-        // Agent claims src/**
-        claim(
-            ClaimOptions {
-                patterns: vec!["src/**".to_string()],
-                ttl: 3600,
-                message: None,
-                extend: None,
-                agent: Some("MyAgent".to_string()),
-            },
-            temp.path(),
-        )
-        .unwrap();
-
-        // Same agent checks - should be safe (own claim)
-        let safe = check_claim(
-            "src/main.rs".to_string(),
-            false,
-            Some("MyAgent"),
-            temp.path(),
-        )
-        .unwrap();
-        assert!(safe);
-    }
-
-    #[test]
-    fn test_check_claim_json_output() {
-        let temp = setup();
-
-        claim(
-            ClaimOptions {
-                patterns: vec!["src/**".to_string()],
-                ttl: 3600,
-                message: None,
-                extend: None,
-                agent: Some("OtherAgent".to_string()),
-            },
-            temp.path(),
-        )
-        .unwrap();
-
-        // JSON output should work
-        let safe = check_claim(
-            "src/main.rs".to_string(),
-            true, // json = true
-            Some("Checker"),
-            temp.path(),
-        )
-        .unwrap();
-        assert!(!safe);
     }
 
     #[test]
@@ -718,55 +556,6 @@ mod tests {
         assert!(!path_matches_pattern("tests/foo.rs", "src/**"));
     }
 
-    #[test]
-    fn test_extend_claim() {
-        let temp = setup();
-
-        // First, create a claim
-        claim(
-            ClaimOptions {
-                patterns: vec!["src/**/*.rs".to_string()],
-                ttl: 1800, // 30 minutes
-                message: None,
-                extend: None,
-                agent: Some("Extender".to_string()),
-            },
-            temp.path(),
-        )
-        .unwrap();
-
-        // Now extend it
-        claim(
-            ClaimOptions {
-                patterns: vec![],
-                ttl: 7200, // 2 hours
-                message: None,
-                extend: Some("src/**".to_string()),
-                agent: Some("Extender".to_string()),
-            },
-            temp.path(),
-        )
-        .unwrap();
-
-        // Verify the claim is still active with extended TTL
-        claims(false, false, true, Some("Extender"), temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_extend_no_matching_claims() {
-        let temp = setup();
-
-        // Try to extend when no claims exist
-        claim(
-            ClaimOptions {
-                patterns: vec![],
-                ttl: 3600,
-                message: None,
-                extend: Some("nonexistent/**".to_string()),
-                agent: Some("Extender".to_string()),
-            },
-            temp.path(),
-        )
-        .unwrap(); // Should not error, just print "No matching claims to extend"
-    }
+    // Integration tests that need project setup are moved to tests/integration/
+    // since they require the global data directory to be mocked
 }

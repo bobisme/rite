@@ -1,11 +1,10 @@
 //! Mark channel as read command.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{bail, Result};
 use colored::Colorize;
-use std::path::Path;
 
-use crate::core::identity::resolve_agent;
-use crate::core::project::channel_path;
+use crate::core::identity::require_agent;
+use crate::core::project::{channel_path, data_dir};
 use crate::storage::agent_state::AgentStateManager;
 
 pub struct MarkReadOptions {
@@ -18,15 +17,10 @@ pub struct MarkReadOptions {
 }
 
 /// Mark a channel as read for the current agent.
-pub fn run(
-    options: MarkReadOptions,
-    explicit_agent: Option<&str>,
-    project_root: &Path,
-) -> Result<()> {
-    let agent = resolve_agent(explicit_agent, project_root)
-        .context("Could not determine agent identity")?;
+pub fn run(options: MarkReadOptions, explicit_agent: Option<&str>) -> Result<()> {
+    let agent = require_agent(explicit_agent)?;
 
-    let channel_file = channel_path(project_root, &options.channel);
+    let channel_file = channel_path(&options.channel);
 
     // Get the offset to use
     let offset = if let Some(o) = options.offset {
@@ -57,7 +51,7 @@ pub fn run(
     };
 
     // Save read state
-    let manager = AgentStateManager::new(project_root, &agent);
+    let manager = AgentStateManager::new(&data_dir(), &agent);
     manager.mark_read(&options.channel, offset, last_id.as_deref())?;
 
     println!(
@@ -77,82 +71,6 @@ pub fn run(
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::cli::{init, send};
-    use tempfile::TempDir;
-
-    fn setup() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        temp
-    }
-
-    #[test]
-    fn test_mark_read_basic() {
-        let temp = setup();
-
-        // Send a message first
-        send::run_simple(
-            "general".to_string(),
-            "Test message".to_string(),
-            Some("TestAgent"),
-            temp.path(),
-        )
-        .unwrap();
-
-        // Mark as read
-        let options = MarkReadOptions {
-            channel: "general".to_string(),
-            offset: None,
-            last_id: None,
-        };
-        run(options, Some("TestAgent"), temp.path()).unwrap();
-
-        // Verify state was saved
-        let manager = AgentStateManager::new(temp.path(), "TestAgent");
-        let cursor = manager.get_read_cursor("general").unwrap();
-        assert!(cursor.offset > 0);
-        assert!(cursor.last_id.is_some());
-    }
-
-    #[test]
-    fn test_mark_read_explicit_offset() {
-        let temp = setup();
-
-        // Send a message first
-        send::run_simple(
-            "general".to_string(),
-            "Test message".to_string(),
-            Some("TestAgent"),
-            temp.path(),
-        )
-        .unwrap();
-
-        // Mark as read with explicit offset
-        let options = MarkReadOptions {
-            channel: "general".to_string(),
-            offset: Some(50),
-            last_id: Some("01CUSTOM".to_string()),
-        };
-        run(options, Some("TestAgent"), temp.path()).unwrap();
-
-        // Verify state was saved with our values
-        let manager = AgentStateManager::new(temp.path(), "TestAgent");
-        let cursor = manager.get_read_cursor("general").unwrap();
-        assert_eq!(cursor.offset, 50);
-        assert_eq!(cursor.last_id, Some("01CUSTOM".to_string()));
-    }
-
-    #[test]
-    fn test_mark_read_nonexistent_channel() {
-        let temp = setup();
-
-        let options = MarkReadOptions {
-            channel: "nonexistent".to_string(),
-            offset: None,
-            last_id: None,
-        };
-        let result = run(options, Some("TestAgent"), temp.path());
-        assert!(result.is_err());
-    }
+    // Integration tests moved to tests/integration/ since they require
+    // global data directory mocking
 }

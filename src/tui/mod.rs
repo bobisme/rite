@@ -12,10 +12,9 @@ use crossterm::{
 };
 use ratatui::prelude::*;
 use std::io;
-use std::path::Path;
 
 /// Run the TUI application.
-pub fn run(project_root: &Path, initial_channel: Option<String>) -> Result<()> {
+pub fn run(initial_channel: Option<String>) -> Result<()> {
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();
@@ -24,7 +23,7 @@ pub fn run(project_root: &Path, initial_channel: Option<String>) -> Result<()> {
     let mut terminal = Terminal::new(backend)?;
 
     // Create app
-    let mut app = App::new(project_root, initial_channel)?;
+    let mut app = App::new(initial_channel)?;
 
     // Run main loop
     let result = app.run(&mut terminal);

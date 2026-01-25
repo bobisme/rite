@@ -9,7 +9,7 @@ pub mod history;
 pub mod inbox;
 pub mod init;
 pub mod mark_read;
-pub mod register;
+pub mod names;
 pub mod search;
 pub mod send;
 pub mod status;
@@ -22,10 +22,6 @@ pub mod whoami;
 #[command(name = "botbus")]
 #[command(author, version, about = "Chat-oriented coordination for AI coding agents", long_about = None)]
 pub struct Cli {
-    /// Project directory (default: auto-detect)
-    #[arg(short, long, global = true, env = "BOTBUS_PROJECT")]
-    pub project: Option<PathBuf>,
-
     /// Agent identity (default: from BOTBUS_AGENT env var)
     #[arg(short, long, global = true, env = "BOTBUS_AGENT")]
     pub agent: Option<String>,
@@ -48,23 +44,11 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Initialize BotBus in a project directory
-    Init {
-        /// Overwrite existing .botbus directory
-        #[arg(long)]
-        force: bool,
-    },
+    /// Initialize the BotBus data directory
+    Init,
 
-    /// Register an agent identity in the current project
-    Register {
-        /// Agent name (auto-generated if omitted)
-        #[arg(short, long)]
-        name: Option<String>,
-
-        /// Optional description
-        #[arg(short, long)]
-        description: Option<String>,
-    },
+    /// Generate a random agent name (kebab-case)
+    GenerateName,
 
     /// Display current agent identity
     Whoami,
@@ -152,12 +136,12 @@ pub enum Commands {
 
     /// List all channels
     Channels {
-        /// Include DM channels
+        /// Only show channels you've participated in (sent or mentioned)
         #[arg(long)]
-        all: bool,
+        mine: bool,
     },
 
-    /// List registered agents
+    /// List agents (derived from message history)
     Agents {
         /// Only show recently active agents
         #[arg(long)]
@@ -184,7 +168,7 @@ pub enum Commands {
 
     /// Claim files for editing (advisory lock)
     Claim {
-        /// Glob patterns to claim
+        /// Glob patterns to claim (relative paths expanded to absolute)
         #[arg(required_unless_present = "extend")]
         patterns: Vec<String>,
 
@@ -263,10 +247,10 @@ pub enum Commands {
         mark_read: bool,
     },
 
-    /// Show project status overview
+    /// Show status overview
     Status,
 
-    /// Wait for a message to arrive
+    /// Wait for a message (blocking, with optional timeout)
     Wait {
         /// Wait for @mention of current agent
         #[arg(long)]

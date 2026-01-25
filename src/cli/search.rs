@@ -2,7 +2,6 @@ use anyhow::{Context, Result};
 use chrono::{DateTime, Local, Utc};
 use colored::Colorize;
 use serde::Serialize;
-use std::path::Path;
 
 use crate::index::fts::SearchResult;
 use crate::index::IndexSyncer;
@@ -23,10 +22,9 @@ pub struct SearchOutput {
 }
 
 /// Full-text search messages.
-pub fn run(options: SearchOptions, project_root: &Path) -> Result<()> {
+pub fn run(options: SearchOptions) -> Result<()> {
     // Sync index first to include recent messages
-    let mut syncer =
-        IndexSyncer::new(project_root).with_context(|| "Failed to open search index")?;
+    let mut syncer = IndexSyncer::new().with_context(|| "Failed to open search index")?;
 
     let stats = syncer.sync_all().with_context(|| "Failed to sync index")?;
 
@@ -116,111 +114,6 @@ fn colorize_agent(name: &str) -> colored::ColoredString {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::cli::{init, send};
-    use tempfile::TempDir;
-
-    fn setup() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        temp
-    }
-
-    #[test]
-    fn test_search_basic() {
-        let temp = setup();
-
-        send::run_simple(
-            "general".to_string(),
-            "Hello world".to_string(),
-            Some("Searcher"),
-            temp.path(),
-        )
-        .unwrap();
-        send::run_simple(
-            "general".to_string(),
-            "Working on authentication".to_string(),
-            Some("Searcher"),
-            temp.path(),
-        )
-        .unwrap();
-
-        let options = SearchOptions {
-            query: "auth*".to_string(),
-            channel: None,
-            count: 20,
-            from: None,
-            json: false,
-        };
-
-        run(options, temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_search_json() {
-        let temp = setup();
-
-        send::run_simple(
-            "general".to_string(),
-            "Hello world".to_string(),
-            Some("Searcher"),
-            temp.path(),
-        )
-        .unwrap();
-
-        let options = SearchOptions {
-            query: "Hello".to_string(),
-            channel: None,
-            count: 20,
-            from: None,
-            json: true,
-        };
-
-        run(options, temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_search_in_channel() {
-        let temp = setup();
-
-        send::run_simple(
-            "general".to_string(),
-            "Hello general".to_string(),
-            Some("Searcher"),
-            temp.path(),
-        )
-        .unwrap();
-        send::run_simple(
-            "backend".to_string(),
-            "Hello backend".to_string(),
-            Some("Searcher"),
-            temp.path(),
-        )
-        .unwrap();
-
-        let options = SearchOptions {
-            query: "Hello".to_string(),
-            channel: Some("backend".to_string()),
-            count: 20,
-            from: None,
-            json: false,
-        };
-
-        run(options, temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_search_no_results() {
-        let temp = setup();
-
-        let options = SearchOptions {
-            query: "nonexistent".to_string(),
-            channel: None,
-            count: 20,
-            from: None,
-            json: false,
-        };
-
-        run(options, temp.path()).unwrap();
-    }
+    // Integration tests moved to tests/integration/ since they require
+    // global data directory mocking
 }

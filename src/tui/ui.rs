@@ -27,17 +27,10 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .constraints([Constraint::Length(20), Constraint::Min(40)])
         .split(outer_chunks[0]);
 
-    // Sidebar: channels | agents
-    let sidebar_chunks = Layout::default()
-        .direction(Direction::Vertical)
-        .constraints([Constraint::Percentage(60), Constraint::Percentage(40)])
-        .split(main_chunks[0]);
-
     // Update cached layout areas for mouse detection
-    app.set_layout_areas(sidebar_chunks[0], main_chunks[1]);
+    app.set_layout_areas(main_chunks[0], main_chunks[1]);
 
-    draw_channels(f, app, sidebar_chunks[0]);
-    draw_agents(f, app, sidebar_chunks[1]);
+    draw_channels(f, app, main_chunks[0]);
     draw_messages(f, app, main_chunks[1]);
     draw_status(f, app, outer_chunks[1]);
 
@@ -179,36 +172,6 @@ fn format_channel_line_dm(
     }
 
     Line::from(spans)
-}
-
-fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
-    let items: Vec<ListItem> = app
-        .agents()
-        .iter()
-        .map(|agent| {
-            let style = if Some(agent.name.as_str()) == app.current_agent() {
-                Style::default()
-                    .fg(Color::Green)
-                    .add_modifier(Modifier::BOLD)
-            } else {
-                Style::default()
-            };
-            ListItem::new(format!("  {}", agent.name)).style(style)
-        })
-        .collect();
-
-    // Agents pane is never focused, always show inactive style
-    let list = List::new(items).block(
-        Block::default()
-            .title(Span::styled(
-                " Agents ",
-                Style::default().fg(INACTIVE_TITLE),
-            ))
-            .borders(Borders::ALL)
-            .border_type(BorderType::Rounded),
-    );
-
-    f.render_widget(list, area);
 }
 
 fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {

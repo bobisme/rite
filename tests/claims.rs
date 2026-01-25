@@ -6,9 +6,9 @@ mod common;
 
 use common::TestProject;
 
-/// Test that claiming already-claimed files shows a warning.
+/// Test that claiming already-claimed files is denied.
 #[test]
-fn test_claim_conflict_warning() {
+fn test_claim_conflict_denied() {
     let mut project = TestProject::with_name("claim-conflict");
 
     let agent1 = project.agent("FirstClaimer");
@@ -17,15 +17,25 @@ fn test_claim_conflict_warning() {
     // First agent claims a directory
     agent1.claim(&["src/**"]).assert_success();
 
-    // Second agent tries to claim overlapping files
+    // Second agent tries to claim overlapping files - should be denied
     let output = agent2.claim(&["src/main.rs"]);
-    output.assert_success(); // Claims still succeed, but with warning
+    output.assert_failure();
 
-    // Verify warning was shown
+    // Verify error message explains the conflict and suggests resolution
     assert!(
-        output.stdout_contains("conflict") || output.stdout_contains("Warning"),
-        "Expected conflict warning, got: {}",
-        output.stdout_str()
+        output.stderr_contains("Conflict") || output.stderr_contains("conflict"),
+        "Expected conflict error, got: {}",
+        output.stderr_str()
+    );
+    assert!(
+        output.stderr_contains("FirstClaimer"),
+        "Expected to mention claim owner, got: {}",
+        output.stderr_str()
+    );
+    assert!(
+        output.stderr_contains("botbus send @"),
+        "Expected to suggest messaging, got: {}",
+        output.stderr_str()
     );
 }
 

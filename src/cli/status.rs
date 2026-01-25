@@ -5,13 +5,11 @@ use chrono::{DateTime, Utc};
 use colored::Colorize;
 use serde::Serialize;
 use std::collections::HashMap;
-use std::path::Path;
 
-use crate::core::agent::Agent;
 use crate::core::claim::FileClaim;
 use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
-use crate::core::project::{agents_path, channels_dir, claims_path};
+use crate::core::project::{channels_dir, claims_path, data_dir};
 use crate::storage::agent_state::AgentStateManager;
 use crate::storage::jsonl::{count_records, read_records};
 
@@ -20,8 +18,6 @@ use crate::storage::jsonl::{count_records, read_records};
 pub struct StatusOutput {
     /// Current agent identity (if any)
     pub agent: Option<String>,
-    /// Number of registered agents
-    pub agent_count: usize,
     /// Agents active in last 30 minutes
     pub active_agents: Vec<String>,
     /// Channel summaries
@@ -50,8 +46,8 @@ pub struct ClaimStatus {
 }
 
 /// Run status command.
-pub fn run(json: bool, explicit_agent: Option<&str>, project_root: &Path) -> Result<()> {
-    let output = collect_status(explicit_agent, project_root)?;
+pub fn run(json: bool, explicit_agent: Option<&str>) -> Result<()> {
+    let output = collect_status(explicit_agent)?;
 
     if json {
         println!("{}", serde_json::to_string_pretty(&output)?);
@@ -62,27 +58,22 @@ pub fn run(json: bool, explicit_agent: Option<&str>, project_root: &Path) -> Res
     Ok(())
 }
 
-fn collect_status(explicit_agent: Option<&str>, project_root: &Path) -> Result<StatusOutput> {
-    let current_agent = resolve_agent(explicit_agent, project_root);
+fn collect_status(explicit_agent: Option<&str>) -> Result<StatusOutput> {
+    let current_agent = resolve_agent(explicit_agent);
     let now = Utc::now();
 
-    // Load agents
-    let agents: Vec<Agent> = read_records(&agents_path(project_root)).unwrap_or_default();
-    let last_seen = get_last_seen_times(project_root);
+    // Get last seen times from message history
+    let last_seen = get_last_seen_times();
 
     // Find active agents (seen in last 30 min)
-    let active_agents: Vec<String> = agents
+    let active_agents: Vec<String> = last_seen
         .iter()
-        .filter(|a| {
-            last_seen
-                .get(&a.name)
-                .is_some_and(|ts| now.signed_duration_since(*ts).num_minutes() < 30)
-        })
-        .map(|a| a.name.clone())
+        .filter(|(_, ts)| now.signed_duration_since(**ts).num_minutes() < 30)
+        .map(|(name, _)| name.clone())
         .collect();
 
     // Load channels
-    let channels = collect_channels(current_agent.as_deref(), project_root)?;
+    let channels = collect_channels(current_agent.as_deref())?;
 
     // Calculate total unread
     let unread_total = if current_agent.is_some() {
@@ -92,11 +83,10 @@ fn collect_status(explicit_agent: Option<&str>, project_root: &Path) -> Result<S
     };
 
     // Load claims
-    let (my_claims, other_claims) = collect_claims(current_agent.as_deref(), project_root)?;
+    let (my_claims, other_claims) = collect_claims(current_agent.as_deref())?;
 
     Ok(StatusOutput {
         agent: current_agent,
-        agent_count: agents.len(),
         active_agents,
         channels,
         my_claims,
@@ -105,17 +95,14 @@ fn collect_status(explicit_agent: Option<&str>, project_root: &Path) -> Result<S
     })
 }
 
-fn collect_channels(
-    current_agent: Option<&str>,
-    project_root: &Path,
-) -> Result<Vec<ChannelStatus>> {
-    let channels_path = channels_dir(project_root);
+fn collect_channels(current_agent: Option<&str>) -> Result<Vec<ChannelStatus>> {
+    let channels_path = channels_dir();
     if !channels_path.exists() {
         return Ok(Vec::new());
     }
 
     let mut results = Vec::new();
-    let state_manager = current_agent.map(|a| AgentStateManager::new(project_root, a));
+    let state_manager = current_agent.map(|a| AgentStateManager::new(&data_dir(), a));
 
     for entry in std::fs::read_dir(&channels_path)? {
         let entry = entry?;
@@ -178,12 +165,9 @@ fn collect_channels(
     Ok(results)
 }
 
-fn collect_claims(
-    current_agent: Option<&str>,
-    project_root: &Path,
-) -> Result<(Vec<ClaimStatus>, Vec<ClaimStatus>)> {
+fn collect_claims(current_agent: Option<&str>) -> Result<(Vec<ClaimStatus>, Vec<ClaimStatus>)> {
     let now = Utc::now();
-    let all_claims: Vec<FileClaim> = read_records(&claims_path(project_root)).unwrap_or_default();
+    let all_claims: Vec<FileClaim> = read_records(&claims_path()).unwrap_or_default();
 
     // Build active claims (latest state per ID, not expired, still active)
     let mut active: HashMap<ulid::Ulid, FileClaim> = HashMap::new();
@@ -215,9 +199,9 @@ fn collect_claims(
     Ok((my_claims, other_claims))
 }
 
-fn get_last_seen_times(project_root: &Path) -> HashMap<String, DateTime<Utc>> {
+fn get_last_seen_times() -> HashMap<String, DateTime<Utc>> {
     let mut last_seen = HashMap::new();
-    let channels = channels_dir(project_root);
+    let channels = channels_dir();
 
     if !channels.exists() {
         return last_seen;
@@ -256,9 +240,8 @@ fn print_status(status: &StatusOutput) {
 
     // Agents
     println!(
-        "  {} {} registered, {} active",
+        "  {} {} active",
         "Agents:".dimmed(),
-        status.agent_count,
         status.active_agents.len()
     );
     if !status.active_agents.is_empty() {
@@ -366,53 +349,17 @@ fn format_duration_short(secs: u64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::cli::{init, register, send};
-    use tempfile::TempDir;
 
-    fn setup() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        temp
+    #[test]
+    fn test_format_time_ago() {
+        let now = Utc::now();
+        assert_eq!(format_time_ago(now), "just now");
     }
 
     #[test]
-    fn test_status_empty_project() {
-        let temp = setup();
-        run(false, None, temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_status_with_agent() {
-        let temp = setup();
-        register::run(Some("TestAgent".to_string()), None, temp.path()).unwrap();
-        run(false, Some("TestAgent"), temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_status_json() {
-        let temp = setup();
-        register::run(Some("TestAgent".to_string()), None, temp.path()).unwrap();
-        send::run_simple(
-            "general".to_string(),
-            "Hello".to_string(),
-            Some("TestAgent"),
-            temp.path(),
-        )
-        .unwrap();
-
-        run(true, Some("TestAgent"), temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_status_output_structure() {
-        let temp = setup();
-        register::run(Some("Agent1".to_string()), None, temp.path()).unwrap();
-        register::run(Some("Agent2".to_string()), None, temp.path()).unwrap();
-
-        let output = collect_status(Some("Agent1"), temp.path()).unwrap();
-
-        assert_eq!(output.agent, Some("Agent1".to_string()));
-        assert_eq!(output.agent_count, 2);
-        assert!(!output.channels.is_empty()); // general has registration messages
+    fn test_format_duration_short() {
+        assert_eq!(format_duration_short(30), "30s");
+        assert_eq!(format_duration_short(120), "2m");
+        assert_eq!(format_duration_short(7200), "2h");
     }
 }

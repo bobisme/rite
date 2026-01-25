@@ -1,31 +1,27 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use clap::Parser;
-use std::path::PathBuf;
 
 use botbus::cli::{self, Cli, Commands};
-use botbus::core::project::find_project_root;
+use botbus::core::project::ensure_data_dir;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
 
+    // Ensure data directory exists for most commands
+    // (init creates it explicitly, generate-name doesn't need it)
+    if !matches!(cli.command, Commands::GenerateName | Commands::Init) {
+        ensure_data_dir()?;
+    }
+
     match cli.command {
-        Commands::Init { force } => {
-            // For init, use current directory or specified project
-            let project_root = cli
-                .project
-                .unwrap_or_else(|| std::env::current_dir().unwrap());
-            cli::init::run(force, &project_root)
+        Commands::Init => cli::init::run(),
+
+        Commands::GenerateName => {
+            cli::names::run();
+            Ok(())
         }
 
-        Commands::Register { name, description } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::register::run(name, description, &project_root)
-        }
-
-        Commands::Whoami => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::whoami::run(cli.json, cli.agent.as_deref(), &project_root)
-        }
+        Commands::Whoami => cli::whoami::run(cli.json, cli.agent.as_deref()),
 
         Commands::Send {
             target,
@@ -33,18 +29,14 @@ fn main() -> Result<()> {
             meta,
             labels,
             attachments,
-        } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::send::run(
-                target,
-                message,
-                meta,
-                labels,
-                attachments,
-                cli.agent.as_deref(),
-                &project_root,
-            )
-        }
+        } => cli::send::run(
+            target,
+            message,
+            meta,
+            labels,
+            attachments,
+            cli.agent.as_deref(),
+        ),
 
         Commands::History {
             channel,
@@ -59,192 +51,121 @@ fn main() -> Result<()> {
             after_offset,
             after_id,
             show_offset,
-        } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::history::run(
-                cli::history::HistoryOptions {
-                    channel,
-                    count,
-                    follow,
-                    timeout,
-                    follow_count,
-                    since,
-                    before,
-                    from,
-                    labels,
-                    after_offset,
-                    after_id,
-                    show_offset,
-                    json: cli.json,
-                },
-                &project_root,
-            )
-        }
+        } => cli::history::run(cli::history::HistoryOptions {
+            channel,
+            count,
+            follow,
+            timeout,
+            follow_count,
+            since,
+            before,
+            from,
+            labels,
+            after_offset,
+            after_id,
+            show_offset,
+            json: cli.json,
+            agent: cli.agent.clone(),
+        }),
 
-        Commands::Watch { channel, all } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::watch::run(channel, all, &project_root)
-        }
+        Commands::Watch { channel, all } => cli::watch::run(channel, all),
 
-        Commands::Channels { all } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::channels::run(cli.json, all, &project_root)
-        }
+        Commands::Channels { mine } => cli::channels::run(cli.json, mine, cli.agent.as_deref()),
 
-        Commands::Agents { active } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::agents::run(cli.json, active, &project_root)
-        }
+        Commands::Agents { active } => cli::agents::run(cli.json, active),
 
         Commands::Search {
             query,
             channel,
             count,
             from,
-        } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::search::run(
-                cli::search::SearchOptions {
-                    query,
-                    channel,
-                    count,
-                    from,
-                    json: cli.json,
-                },
-                &project_root,
-            )
-        }
+        } => cli::search::run(cli::search::SearchOptions {
+            query,
+            channel,
+            count,
+            from,
+            json: cli.json,
+        }),
 
         Commands::Claim {
             patterns,
             ttl,
             message,
             extend,
-        } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::claim::claim(
-                cli::claim::ClaimOptions {
-                    patterns,
-                    ttl,
-                    message,
-                    extend,
-                    agent: cli.agent,
-                },
-                &project_root,
-            )
-        }
+        } => cli::claim::claim(cli::claim::ClaimOptions {
+            patterns,
+            ttl,
+            message,
+            extend,
+            agent: cli.agent,
+        }),
 
         Commands::Claims { all, mine } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::claim::claims(cli.json, all, mine, cli.agent.as_deref(), &project_root)
+            cli::claim::claims(cli.json, all, mine, cli.agent.as_deref())
         }
 
         Commands::Release { patterns, all } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::claim::release(patterns, all, cli.agent.as_deref(), &project_root)
+            cli::claim::release(patterns, all, cli.agent.as_deref())
         }
 
         Commands::CheckClaim { path } => {
-            let project_root = resolve_project_root(cli.project)?;
-            let safe =
-                cli::claim::check_claim(path, cli.json, cli.agent.as_deref(), &project_root)?;
+            let safe = cli::claim::check_claim(path, cli.json, cli.agent.as_deref())?;
             if !safe {
                 std::process::exit(1);
             }
             Ok(())
         }
 
-        Commands::Ui { channel } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::ui::run(channel, &project_root)
-        }
+        Commands::Ui { channel } => cli::ui::run(channel),
 
         Commands::MarkRead {
             channel,
             offset,
             last_id,
-        } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::mark_read::run(
-                cli::mark_read::MarkReadOptions {
-                    channel,
-                    offset,
-                    last_id,
-                },
-                cli.agent.as_deref(),
-                &project_root,
-            )
-        }
+        } => cli::mark_read::run(
+            cli::mark_read::MarkReadOptions {
+                channel,
+                offset,
+                last_id,
+            },
+            cli.agent.as_deref(),
+        ),
 
         Commands::Inbox {
             channel,
             count,
             mark_read,
-        } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::inbox::run(
-                cli::inbox::InboxOptions {
-                    channel,
-                    count,
-                    mark_read,
-                    json: cli.json,
-                },
-                cli.agent.as_deref(),
-                &project_root,
-            )
-        }
+        } => cli::inbox::run(
+            cli::inbox::InboxOptions {
+                channel,
+                count,
+                mark_read,
+                json: cli.json,
+            },
+            cli.agent.as_deref(),
+        ),
 
-        Commands::Status => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::status::run(cli.json, cli.agent.as_deref(), &project_root)
-        }
+        Commands::Status => cli::status::run(cli.json, cli.agent.as_deref()),
 
         Commands::Wait {
             mention,
             channel,
             labels,
             timeout,
-        } => {
-            let project_root = resolve_project_root(cli.project)?;
-            cli::wait::run(
-                cli::wait::WaitOptions {
-                    mention,
-                    channel,
-                    labels,
-                    timeout,
-                    json: cli.json,
-                },
-                cli.agent.as_deref(),
-                &project_root,
-            )
-        }
+        } => cli::wait::run(
+            cli::wait::WaitOptions {
+                mention,
+                channel,
+                labels,
+                timeout,
+                json: cli.json,
+            },
+            cli.agent.as_deref(),
+        ),
 
-        Commands::AgentsMd { command } => {
-            use cli::AgentsMdCommands;
-            match command {
-                AgentsMdCommands::Init { file, remove } => {
-                    let project_root = resolve_project_root(cli.project)?;
-                    cli::agentsmd::run_init(file, remove, &project_root)
-                }
-                AgentsMdCommands::Show => cli::agentsmd::run_show(),
-            }
-        }
+        Commands::AgentsMd { command } => match command {
+            cli::AgentsMdCommands::Init { file, remove } => cli::agentsmd::run_init(file, remove),
+            cli::AgentsMdCommands::Show => cli::agentsmd::run_show(),
+        },
     }
-}
-
-/// Resolve the project root, either from the CLI option or by searching upward.
-fn resolve_project_root(project: Option<PathBuf>) -> Result<PathBuf> {
-    if let Some(path) = project {
-        return Ok(path);
-    }
-
-    let cwd = std::env::current_dir().context("Failed to get current directory")?;
-
-    find_project_root(&cwd).ok_or_else(|| {
-        anyhow::anyhow!(
-            "Not in a BotBus project.\n\n\
-             Run 'botbus init' to initialize BotBus in this directory,\n\
-             or use '--project <PATH>' to specify a different location."
-        )
-    })
 }

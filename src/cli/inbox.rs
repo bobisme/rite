@@ -1,13 +1,13 @@
 //! Inbox command - show unread messages using stored read cursor.
 
-use anyhow::{Context, Result};
+use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
-use std::path::Path;
 
 use crate::cli::history::{self, HistoryOptions, HistoryOutput};
-use crate::core::identity::resolve_agent;
+use crate::core::identity::require_agent;
 use crate::core::message::Message;
+use crate::core::project::data_dir;
 use crate::storage::agent_state::AgentStateManager;
 
 pub struct InboxOptions {
@@ -31,9 +31,8 @@ pub struct InboxOutput {
 }
 
 /// Show unread messages for the current agent.
-pub fn run(options: InboxOptions, explicit_agent: Option<&str>, project_root: &Path) -> Result<()> {
-    let agent = resolve_agent(explicit_agent, project_root)
-        .context("Could not determine agent identity")?;
+pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
+    let agent = require_agent(explicit_agent)?;
 
     let channel = options
         .channel
@@ -41,7 +40,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>, project_root: &P
         .unwrap_or_else(|| "general".to_string());
 
     // Get the agent's read cursor
-    let manager = AgentStateManager::new(project_root, &agent);
+    let manager = AgentStateManager::new(&data_dir(), &agent);
     let cursor = manager.get_read_cursor(&channel)?;
 
     // Build history options using stored offset
@@ -59,9 +58,10 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>, project_root: &P
         after_id: None,
         show_offset: false,
         json: false,
+        agent: Some(agent.clone()),
     };
 
-    let output: HistoryOutput = history::run_with_output(history_options, project_root)?;
+    let output: HistoryOutput = history::run_with_output(history_options)?;
 
     // Mark as read if requested
     let marked_read = if options.mark_read && !output.messages.is_empty() {
@@ -150,126 +150,6 @@ fn colorize_agent(name: &str) -> colored::ColoredString {
 
 #[cfg(test)]
 mod tests {
-    use super::*;
-    use crate::cli::{init, send};
-    use tempfile::TempDir;
-
-    fn setup() -> TempDir {
-        let temp = TempDir::new().unwrap();
-        init::run(false, temp.path()).unwrap();
-        temp
-    }
-
-    #[test]
-    fn test_inbox_empty() {
-        let temp = setup();
-
-        let options = InboxOptions {
-            channel: Some("general".to_string()),
-            count: 50,
-            mark_read: false,
-            json: false,
-        };
-        run(options, Some("TestAgent"), temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_inbox_json() {
-        let temp = setup();
-
-        send::run_simple(
-            "general".to_string(),
-            "Hello!".to_string(),
-            Some("Sender"),
-            temp.path(),
-        )
-        .unwrap();
-
-        let options = InboxOptions {
-            channel: Some("general".to_string()),
-            count: 50,
-            mark_read: false,
-            json: true,
-        };
-        run(options, Some("Reader"), temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_inbox_with_unread() {
-        let temp = setup();
-
-        send::run_simple(
-            "general".to_string(),
-            "Hello!".to_string(),
-            Some("Sender"),
-            temp.path(),
-        )
-        .unwrap();
-
-        let options = InboxOptions {
-            channel: Some("general".to_string()),
-            count: 50,
-            mark_read: false,
-            json: false,
-        };
-        run(options, Some("Reader"), temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_inbox_mark_read() {
-        let temp = setup();
-
-        send::run_simple(
-            "general".to_string(),
-            "Hello!".to_string(),
-            Some("Sender"),
-            temp.path(),
-        )
-        .unwrap();
-
-        let options = InboxOptions {
-            channel: Some("general".to_string()),
-            count: 50,
-            mark_read: true,
-            json: false,
-        };
-        run(options, Some("Reader"), temp.path()).unwrap();
-
-        let options2 = InboxOptions {
-            channel: Some("general".to_string()),
-            count: 50,
-            mark_read: false,
-            json: false,
-        };
-        run(options2, Some("Reader"), temp.path()).unwrap();
-    }
-
-    #[test]
-    fn test_inbox_per_agent_isolation() {
-        let temp = setup();
-
-        send::run_simple(
-            "general".to_string(),
-            "Hello!".to_string(),
-            Some("Sender"),
-            temp.path(),
-        )
-        .unwrap();
-
-        let options = InboxOptions {
-            channel: Some("general".to_string()),
-            count: 50,
-            mark_read: true,
-            json: false,
-        };
-        run(options, Some("Agent1"), temp.path()).unwrap();
-
-        let options2 = InboxOptions {
-            channel: Some("general".to_string()),
-            count: 50,
-            mark_read: false,
-            json: false,
-        };
-        run(options2, Some("Agent2"), temp.path()).unwrap();
-    }
+    // Integration tests moved to tests/integration/ since they require
+    // global data directory mocking
 }

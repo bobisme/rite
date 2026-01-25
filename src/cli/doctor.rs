@@ -375,10 +375,12 @@ fn print_report(report: &DoctorReport) {
 mod tests {
     use super::*;
     use crate::core::project::DATA_DIR_ENV_VAR;
+    use serial_test::serial;
     use std::env;
     use tempfile::TempDir;
 
     #[test]
+    #[serial]
     fn test_doctor_healthy_environment() {
         let temp = TempDir::new().unwrap();
         let temp_path = temp.path().to_str().unwrap();
@@ -409,6 +411,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_doctor_missing_identity() {
         let temp = TempDir::new().unwrap();
         let temp_path = temp.path().to_str().unwrap();

@@ -133,17 +133,39 @@ fn parse_attachments(specs: &[String]) -> Result<Vec<Attachment>> {
 mod tests {
     use super::*;
     use crate::core::identity::AGENT_ENV_VAR;
-    use crate::core::project::ensure_data_dir;
+    use crate::core::project::{ensure_data_dir, DATA_DIR_ENV_VAR};
     use crate::storage::jsonl::read_records;
+    use serial_test::serial;
     use std::env;
+    use tempfile::TempDir;
 
-    fn setup() {
-        ensure_data_dir().unwrap();
+    struct TestEnv {
+        _dir: TempDir,
+    }
+
+    impl TestEnv {
+        fn new() -> Self {
+            let dir = TempDir::new().unwrap();
+            unsafe {
+                env::set_var(DATA_DIR_ENV_VAR, dir.path());
+            }
+            ensure_data_dir().unwrap();
+            Self { _dir: dir }
+        }
+    }
+
+    impl Drop for TestEnv {
+        fn drop(&mut self) {
+            unsafe {
+                env::remove_var(DATA_DIR_ENV_VAR);
+            }
+        }
     }
 
     #[test]
+    #[serial]
     fn test_send_to_channel() {
-        setup();
+        let _env = TestEnv::new();
 
         // Use explicit agent name
         run(
@@ -164,8 +186,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_send_dm() {
-        setup();
+        let _env = TestEnv::new();
 
         run(
             "@other-agent".to_string(),
@@ -185,8 +208,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_send_invalid_channel() {
-        setup();
+        let _env = TestEnv::new();
 
         let result = run(
             "INVALID".to_string(),
@@ -200,8 +224,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_send_without_identity() {
-        setup();
+        let _env = TestEnv::new();
 
         // Ensure no env var
         unsafe {
@@ -220,8 +245,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_send_with_labels() {
-        setup();
+        let _env = TestEnv::new();
 
         run(
             "test-labeled".to_string(),

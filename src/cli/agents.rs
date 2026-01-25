@@ -128,15 +128,38 @@ fn format_time_ago(ts: DateTime<Utc>) -> String {
 mod tests {
     use super::*;
     use crate::cli::send;
-    use crate::core::project::ensure_data_dir;
+    use crate::core::project::{ensure_data_dir, DATA_DIR_ENV_VAR};
+    use serial_test::serial;
+    use std::env;
+    use tempfile::TempDir;
 
-    fn setup() {
-        ensure_data_dir().unwrap();
+    struct TestEnv {
+        _dir: TempDir,
+    }
+
+    impl TestEnv {
+        fn new() -> Self {
+            let dir = TempDir::new().unwrap();
+            unsafe {
+                env::set_var(DATA_DIR_ENV_VAR, dir.path());
+            }
+            ensure_data_dir().unwrap();
+            Self { _dir: dir }
+        }
+    }
+
+    impl Drop for TestEnv {
+        fn drop(&mut self) {
+            unsafe {
+                env::remove_var(DATA_DIR_ENV_VAR);
+            }
+        }
     }
 
     #[test]
+    #[serial]
     fn test_list_agents() {
-        setup();
+        let _env = TestEnv::new();
 
         // Send a message to create an agent in history
         send::run_simple(
@@ -150,8 +173,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_list_agents_json() {
-        setup();
+        let _env = TestEnv::new();
 
         run(true, false).unwrap();
     }

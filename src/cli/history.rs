@@ -385,15 +385,38 @@ fn follow_channel(
 mod tests {
     use super::*;
     use crate::cli::send;
-    use crate::core::project::ensure_data_dir;
+    use crate::core::project::{ensure_data_dir, DATA_DIR_ENV_VAR};
+    use serial_test::serial;
+    use std::env;
+    use tempfile::TempDir;
 
-    fn setup() {
-        ensure_data_dir().unwrap();
+    struct TestEnv {
+        _dir: TempDir,
+    }
+
+    impl TestEnv {
+        fn new() -> Self {
+            let dir = TempDir::new().unwrap();
+            unsafe {
+                env::set_var(DATA_DIR_ENV_VAR, dir.path());
+            }
+            ensure_data_dir().unwrap();
+            Self { _dir: dir }
+        }
+    }
+
+    impl Drop for TestEnv {
+        fn drop(&mut self) {
+            unsafe {
+                env::remove_var(DATA_DIR_ENV_VAR);
+            }
+        }
     }
 
     #[test]
+    #[serial]
     fn test_history_basic() {
-        setup();
+        let _env = TestEnv::new();
         send::run_simple(
             "test-history".to_string(),
             "Message 1".to_string(),
@@ -428,8 +451,9 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_history_empty_channel() {
-        setup();
+        let _env = TestEnv::new();
 
         let options = HistoryOptions {
             channel: Some("nonexistent".to_string()),

@@ -139,6 +139,7 @@ pub fn index_path() -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use tempfile::TempDir;
 
     #[test]
@@ -148,6 +149,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_data_dir_override() {
         let temp = TempDir::new().unwrap();
         let temp_path = temp.path().to_str().unwrap();
@@ -167,6 +169,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_channels_dir_is_subdir() {
         let base = data_dir();
         let channels = channels_dir();
@@ -175,6 +178,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_channel_path() {
         let base = data_dir();
         let path = channel_path("general");
@@ -183,6 +187,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_claims_path() {
         let base = data_dir();
         let path = claims_path();
@@ -191,6 +196,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_state_path() {
         let base = data_dir();
         let path = state_path();
@@ -199,6 +205,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_index_path() {
         let base = data_dir();
         let path = index_path();

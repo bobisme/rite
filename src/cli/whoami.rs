@@ -65,9 +65,11 @@ pub fn run(json: bool, agent: Option<&str>) -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::env;
 
     #[test]
+    #[serial]
     fn test_whoami_shows_agent() {
         // SAFETY: Test isolation
         unsafe {
@@ -87,6 +89,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_whoami_no_agent() {
         // SAFETY: Test isolation
         unsafe {

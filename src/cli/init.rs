@@ -41,10 +41,12 @@ pub fn run() -> Result<()> {
 mod tests {
     use super::*;
     use crate::core::project::{channels_dir, claims_path, state_path, DATA_DIR_ENV_VAR};
+    use serial_test::serial;
     use std::env;
     use tempfile::TempDir;
 
     #[test]
+    #[serial]
     fn test_init_creates_structure() {
         let temp = TempDir::new().unwrap();
         let temp_path = temp.path().to_str().unwrap();
@@ -68,6 +70,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_init_idempotent() {
         let temp = TempDir::new().unwrap();
         let temp_path = temp.path().to_str().unwrap();

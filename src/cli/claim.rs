@@ -3,12 +3,72 @@ use chrono::{DateTime, Utc};
 use colored::Colorize;
 use globset::{Glob, GlobSetBuilder};
 use serde::Serialize;
+use std::path::Path;
 
 use crate::core::claim::FileClaim;
 use crate::core::identity::{require_agent, resolve_agent};
 use crate::core::message::{Message, MessageMeta};
 use crate::core::project::{channel_path, claims_path};
 use crate::storage::jsonl::{append_record, read_records};
+
+/// Expand a claim pattern to an absolute path.
+/// Relative patterns are expanded from current working directory.
+/// Glob wildcards are preserved.
+fn expand_pattern(pattern: &str) -> String {
+    // Already absolute
+    if pattern.starts_with('/') {
+        return pattern.to_string();
+    }
+
+    // Get cwd for expansion
+    let cwd = std::env::current_dir().unwrap_or_default();
+
+    // Handle glob patterns: expand the non-glob prefix, keep the glob suffix
+    // e.g., "src/**/*.rs" in /home/bob/proj -> "/home/bob/proj/src/**/*.rs"
+    cwd.join(pattern).to_string_lossy().to_string()
+}
+
+/// Display a claim pattern, making it relative if we're in the same tree.
+fn display_pattern(pattern: &str) -> String {
+    let cwd = match std::env::current_dir() {
+        Ok(p) => p,
+        Err(_) => return pattern.to_string(),
+    };
+
+    // Extract the non-glob base path for comparison
+    let base = pattern
+        .split("**")
+        .next()
+        .unwrap_or(pattern)
+        .trim_end_matches('/');
+
+    // If base is empty (pattern starts with **), show as-is
+    if base.is_empty() {
+        return pattern.to_string();
+    }
+
+    let base_path = Path::new(base);
+
+    // Check if the pattern base starts with cwd
+    if let Ok(rel) = base_path.strip_prefix(&cwd) {
+        // Reconstruct with relative base
+        let rel_base = rel.to_string_lossy();
+        if pattern.contains("**") {
+            let suffix = &pattern[base.len()..];
+            if rel_base.is_empty() {
+                // Pattern base IS cwd, so relative is just the suffix without leading /
+                suffix.trim_start_matches('/').to_string()
+            } else {
+                format!("{}{}", rel_base, suffix)
+            }
+        } else {
+            rel_base.to_string()
+        }
+    } else {
+        // Not in same tree, show absolute
+        pattern.to_string()
+    }
+}
 
 pub struct ClaimOptions {
     pub patterns: Vec<String>,
@@ -25,14 +85,19 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
 
     // Handle --extend option: extend TTL on existing claims
     if let Some(extend_pattern) = &options.extend {
-        return extend_claims(extend_pattern, options.ttl, &agent_name);
+        let expanded = expand_pattern(extend_pattern);
+        return extend_claims(&expanded, options.ttl, &agent_name);
     }
+
+    // Expand patterns to absolute paths
+    let expanded_patterns: Vec<String> =
+        options.patterns.iter().map(|p| expand_pattern(p)).collect();
 
     // Load existing claims
     let claims: Vec<FileClaim> = read_records(&claims_path())?;
 
-    // Check for conflicts - deny overlapping claims
-    let conflicts = check_conflicts(&options.patterns, &claims, &agent_name);
+    // Check for conflicts - deny overlapping claims (using expanded patterns)
+    let conflicts = check_conflicts(&expanded_patterns, &claims, &agent_name);
     if !conflicts.is_empty() {
         eprintln!("{}", "Error: Conflict with existing claim(s)".red().bold());
         for (pattern, holder, expires) in &conflicts {
@@ -60,34 +125,35 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
         anyhow::bail!("Cannot claim - conflicts with existing claims");
     }
 
-    // Create the claim
-    let claim = FileClaim::new(&agent_name, options.patterns.clone(), options.ttl);
+    // Create the claim with expanded (absolute) patterns
+    let claim = FileClaim::new(&agent_name, expanded_patterns.clone(), options.ttl);
 
     // Append to claims.jsonl
     append_record(&claims_path(), &claim).with_context(|| "Failed to record claim")?;
 
-    // Post message to #general
+    // Post message to #general (use original patterns for readability)
+    let display_patterns: Vec<String> = options.patterns.clone();
     let body = if let Some(msg) = &options.message {
-        format!("Claimed {} ({})", options.patterns.join(", "), msg)
+        format!("Claimed {} ({})", display_patterns.join(", "), msg)
     } else {
-        format!("Claimed {}", options.patterns.join(", "))
+        format!("Claimed {}", display_patterns.join(", "))
     };
 
     let claim_msg = Message::new(&agent_name, "general", &body).with_meta(MessageMeta::Claim {
-        patterns: options.patterns.clone(),
+        patterns: display_patterns.clone(),
         ttl_secs: options.ttl,
     });
 
     append_record(&channel_path("general"), &claim_msg)?;
 
-    // Output
+    // Output (use original patterns for readability)
     println!(
         "{} Claimed {} pattern(s) for {}",
         "Success:".green(),
-        options.patterns.len(),
+        display_patterns.len(),
         format_duration(options.ttl)
     );
-    for pattern in &options.patterns {
+    for pattern in &display_patterns {
         println!("  {}", pattern.cyan());
     }
 
@@ -245,10 +311,14 @@ pub fn claims(json: bool, show_all: bool, mine_only: bool, agent: Option<&str>) 
             claim.agent.yellow().normal()
         };
 
+        // Display patterns relative to cwd when possible
+        let display_patterns: Vec<String> =
+            claim.patterns.iter().map(|p| display_pattern(p)).collect();
+
         println!(
             "  {:<16} {:<30} {}",
             agent_display,
-            claim.patterns.join(", ").dimmed(),
+            display_patterns.join(", ").dimmed(),
             status
         );
     }
@@ -259,6 +329,9 @@ pub fn claims(json: bool, show_all: bool, mine_only: bool, agent: Option<&str>) 
 /// Release file claims.
 pub fn release(patterns: Vec<String>, release_all: bool, agent: Option<&str>) -> Result<()> {
     let agent_name = require_agent(agent)?;
+
+    // Expand release patterns to absolute paths
+    let expanded_patterns: Vec<String> = patterns.iter().map(|p| expand_pattern(p)).collect();
 
     let all_claims: Vec<FileClaim> = read_records(&claims_path())?;
 
@@ -286,11 +359,11 @@ pub fn release(patterns: Vec<String>, release_all: bool, agent: Option<&str>) ->
         // Check if we should release this one
         let should_release = if release_all {
             true
-        } else if patterns.is_empty() {
+        } else if expanded_patterns.is_empty() {
             true
         } else {
-            // Check if any pattern matches
-            patterns.iter().any(|p| claim.patterns.contains(p))
+            // Check if any expanded pattern matches stored patterns
+            expanded_patterns.iter().any(|p| claim.patterns.contains(p))
         };
 
         if should_release {
@@ -298,14 +371,16 @@ pub fn release(patterns: Vec<String>, release_all: bool, agent: Option<&str>) ->
             append_record(&claims_path(), &release_record)?;
             released_count += 1;
 
-            // Post release message
+            // Post release message (use display patterns for readability)
+            let display_patterns: Vec<String> =
+                claim.patterns.iter().map(|p| display_pattern(p)).collect();
             let msg = Message::new(
                 &agent_name,
                 "general",
-                format!("Released {}", claim.patterns.join(", ")),
+                format!("Released {}", display_patterns.join(", ")),
             )
             .with_meta(MessageMeta::Release {
-                patterns: claim.patterns.clone(),
+                patterns: display_patterns,
             });
             append_record(&channel_path("general"), &msg)?;
         }
@@ -354,6 +429,9 @@ pub fn check_claim(path: String, json: bool, agent: Option<&str>) -> Result<bool
     let current_agent = resolve_agent(agent).unwrap_or_default();
     let now = Utc::now();
 
+    // Expand path to absolute for matching against stored claims
+    let expanded_path = expand_pattern(&path);
+
     let all_claims: Vec<FileClaim> = read_records(&claims_path()).unwrap_or_default();
 
     // Build active claims map
@@ -378,10 +456,10 @@ pub fn check_claim(path: String, json: bool, agent: Option<&str>) -> Result<bool
 
         // Check if our path matches any of their patterns
         for pattern in &claim.patterns {
-            if path_matches_pattern(&path, pattern) {
+            if path_matches_pattern(&expanded_path, pattern) {
                 conflicts.push(ClaimConflict {
                     agent: claim.agent.clone(),
-                    pattern: pattern.clone(),
+                    pattern: display_pattern(pattern), // Show relative when possible
                     expires_at: claim.expires_at,
                     expires_in_secs: (claim.expires_at - now).num_seconds(),
                 });
@@ -554,6 +632,32 @@ mod tests {
         assert!(path_matches_pattern("src/auth/login.rs", "src/auth/**"));
         assert!(path_matches_pattern("Cargo.toml", "*.toml"));
         assert!(!path_matches_pattern("tests/foo.rs", "src/**"));
+    }
+
+    #[test]
+    fn test_expand_pattern() {
+        // Absolute paths pass through unchanged
+        assert_eq!(expand_pattern("/home/user/src/**"), "/home/user/src/**");
+
+        // Relative paths get expanded (depends on cwd, so just check it's absolute)
+        let expanded = expand_pattern("src/**");
+        assert!(
+            expanded.starts_with('/'),
+            "Should be absolute: {}",
+            expanded
+        );
+        assert!(
+            expanded.ends_with("src/**"),
+            "Should preserve glob: {}",
+            expanded
+        );
+    }
+
+    #[test]
+    fn test_display_pattern() {
+        // Patterns not in current tree are returned as-is
+        let unrelated = display_pattern("/some/other/path/**");
+        assert_eq!(unrelated, "/some/other/path/**");
     }
 
     // Integration tests that need project setup are moved to tests/integration/

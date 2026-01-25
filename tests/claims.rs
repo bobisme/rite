@@ -83,13 +83,18 @@ fn test_release_specific_pattern() {
     let claims_after = project.active_claims();
     assert_eq!(claims_after.len(), 1);
 
-    // The remaining claim should be for tests/**
+    // The remaining claim should be for tests/** (stored as absolute path)
     let patterns: Vec<&str> = claims_after[0]
         .get("patterns")
         .and_then(|v| v.as_array())
         .map(|arr| arr.iter().filter_map(|p| p.as_str()).collect())
         .unwrap_or_default();
-    assert!(patterns.contains(&"tests/**"));
+    // Patterns are now stored with absolute paths, so check suffix
+    assert!(
+        patterns.iter().any(|p| p.ends_with("tests/**")),
+        "Expected pattern ending with tests/**, got: {:?}",
+        patterns
+    );
 }
 
 /// Test claim with TTL (time-to-live).

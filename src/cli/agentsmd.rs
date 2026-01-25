@@ -27,43 +27,48 @@ fn get_instructions_content() -> String {
 
 ## BotBus Agent Coordination
 
-This project uses [BotBus](https://github.com/anomalyco/botbus) for multi-agent coordination. Before starting work, check for other agents and active file claims.
+This project uses [BotBus](https://github.com/anomalyco/botbus) for multi-agent coordination. BotBus uses global storage (~/.local/share/botbus/) shared across all projects.
 
 ### Quick Start
 
 ```bash
-# Register yourself (once per session)
-botbus register --name YourAgentName --description "Brief description"
+# Set your identity (once per session)
+export BOTBUS_AGENT=$(botbus generate-name)  # e.g., "swift-falcon"
+# Or choose your own: export BOTBUS_AGENT=my-agent-name
 
 # Check what's happening
-botbus status              # Overview of project state
-botbus history             # Recent messages
-botbus agents              # Who's registered
+botbus status              # Overview: agents, channels, claims
+botbus history             # Recent messages in #general
+botbus agents              # Who's been active
 
 # Communicate
 botbus send general "Starting work on X"
 botbus send general "Done with X, ready for review"
-botbus send @OtherAgent "Question about Y"
+botbus send @other-agent "Question about Y"
 
-# Coordinate file access
+# Coordinate file access (claims use absolute paths internally)
 botbus claim "src/api/**" -m "Working on API routes"
-botbus check-claim src/api/routes.rs   # Before editing
+botbus check-claim src/api/routes.rs   # Check before editing
 botbus release --all                    # When done
 ```
 
 ### Best Practices
 
-1. **Announce your intent** before starting significant work
-2. **Claim files** you plan to edit to avoid conflicts
-3. **Check claims** before editing files outside your claimed area
-4. **Send updates** on blockers, questions, or completed work
-5. **Release claims** when done - don't hoard files
+1. **Set BOTBUS_AGENT** at session start - identity is stateless
+2. **Run `botbus status`** to see current state before starting work
+3. **Claim files** you plan to edit - overlapping claims are denied
+4. **Check claims** before editing files outside your claimed area
+5. **Send updates** on blockers, questions, or completed work
+6. **Release claims** when done - don't hoard files
 
 ### Channel Conventions
 
-- `#general` - Default channel for project-wide updates
-- `#backend`, `#frontend`, etc. - Create topic channels as needed
-- `@AgentName` - Direct messages for specific coordination
+- `#general` - Default channel for cross-project coordination
+- `#project-name` - Project-specific updates (e.g., `#myapp`, `#backend`)
+- `#project-topic` - Sub-topics (e.g., `#myapp-api`, `#backend-auth`)
+- `@agent-name` - Direct messages for specific coordination
+
+Channel names: lowercase alphanumeric with hyphens (e.g., `my-channel`)
 
 ### Message Conventions
 
@@ -72,6 +77,17 @@ Keep messages concise and actionable:
 - "Blocked: need database credentials to proceed"
 - "Question: should auth middleware go in src/api or src/auth?"
 - "Done: implemented bar, tests passing"
+
+### Waiting for Replies
+
+```bash
+# After sending a DM, wait for reply
+botbus send @other-agent "Can you review this?"
+botbus wait -c @other-agent -t 60  # Wait up to 60s for reply
+
+# Wait for any @mention of you
+botbus wait --mention -t 120
+```
 
 {MARKER_END}"#
     )

@@ -82,6 +82,10 @@ pub fn run(
 
 /// Parse attachment specifications.
 /// Format: "name:path", "path" (name derived from filename), or "url:https://..."
+///
+/// # Security
+/// File paths are canonicalized to prevent path traversal issues and ensure
+/// consistent path representation across different working directories.
 fn parse_attachments(specs: &[String]) -> Result<Vec<Attachment>> {
     let mut attachments = Vec::new();
     let cwd = std::env::current_dir().unwrap_or_default();
@@ -97,7 +101,11 @@ fn parse_attachments(specs: &[String]) -> Result<Vec<Attachment>> {
             if !full_path.exists() {
                 bail!("Attachment file not found: {}", path);
             }
-            Attachment::file(name, path)
+            // Canonicalize to resolve symlinks and normalize path
+            let canonical_path = full_path
+                .canonicalize()
+                .with_context(|| format!("Failed to resolve path: {}", path))?;
+            Attachment::file(name, canonical_path.to_string_lossy())
         } else {
             // Just a path - derive name from filename
             let path = spec;
@@ -105,11 +113,15 @@ fn parse_attachments(specs: &[String]) -> Result<Vec<Attachment>> {
             if !full_path.exists() {
                 bail!("Attachment file not found: {}", path);
             }
+            // Canonicalize to resolve symlinks and normalize path
+            let canonical_path = full_path
+                .canonicalize()
+                .with_context(|| format!("Failed to resolve path: {}", path))?;
             let name = std::path::Path::new(path)
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or(path);
-            Attachment::file(name, path)
+            Attachment::file(name, canonical_path.to_string_lossy())
         };
         attachments.push(attachment);
     }

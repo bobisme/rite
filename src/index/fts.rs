@@ -6,6 +6,23 @@ use std::path::Path;
 use super::schema::init_schema;
 use crate::core::message::Message;
 
+/// Escape a string for safe use in FTS5 queries.
+///
+/// FTS5 has special characters that need escaping:
+/// - Double quotes: used for phrase queries
+/// - Asterisk: used for prefix queries
+/// - Parentheses: used for grouping
+/// - AND, OR, NOT: boolean operators
+/// - NEAR: proximity operator
+/// - Colon: column filter
+///
+/// We wrap the term in double quotes and escape any internal quotes.
+fn escape_fts5_term(term: &str) -> String {
+    // Escape double quotes by doubling them, then wrap in quotes
+    let escaped = term.replace('"', "\"\"");
+    format!("\"{}\"", escaped)
+}
+
 /// A search result from the FTS index.
 #[derive(Debug, Clone, Serialize)]
 pub struct SearchResult {
@@ -122,14 +139,16 @@ impl SearchIndex {
         limit: usize,
     ) -> Result<Vec<SearchResult>> {
         // Combine query with channel filter using FTS5 AND syntax
-        let fts_query = format!("{} AND channel:{}", query, channel);
+        // Escape the channel name to prevent FTS5 injection
+        let fts_query = format!("{} AND channel:{}", query, escape_fts5_term(channel));
         self.search(&fts_query, limit)
     }
 
     /// Search messages from a specific agent.
     pub fn search_from(&self, query: &str, agent: &str, limit: usize) -> Result<Vec<SearchResult>> {
         // Combine query with agent filter using FTS5 AND syntax
-        let fts_query = format!("{} AND agent:{}", query, agent);
+        // Escape the agent name to prevent FTS5 injection
+        let fts_query = format!("{} AND agent:{}", query, escape_fts5_term(agent));
         self.search(&fts_query, limit)
     }
 
@@ -171,6 +190,25 @@ mod tests {
     use super::*;
     use chrono::Utc;
     use ulid::Ulid;
+
+    #[test]
+    fn test_escape_fts5_term() {
+        // Simple term
+        assert_eq!(escape_fts5_term("hello"), "\"hello\"");
+
+        // Term with double quotes
+        assert_eq!(escape_fts5_term("say \"hello\""), "\"say \"\"hello\"\"\"");
+
+        // Term with FTS5 operators (should be neutralized by quoting)
+        assert_eq!(escape_fts5_term("foo AND bar"), "\"foo AND bar\"");
+        assert_eq!(escape_fts5_term("foo OR bar"), "\"foo OR bar\"");
+        assert_eq!(escape_fts5_term("NOT foo"), "\"NOT foo\"");
+
+        // Term with special characters
+        assert_eq!(escape_fts5_term("prefix*"), "\"prefix*\"");
+        assert_eq!(escape_fts5_term("(grouped)"), "\"(grouped)\"");
+        assert_eq!(escape_fts5_term("col:value"), "\"col:value\"");
+    }
 
     fn make_message(channel: &str, agent: &str, body: &str) -> Message {
         Message {

@@ -22,6 +22,9 @@ use std::env;
 use std::fs;
 use std::path::PathBuf;
 
+#[cfg(unix)]
+use std::os::unix::fs::PermissionsExt;
+
 /// Environment variable to override the data directory (for testing).
 pub const DATA_DIR_ENV_VAR: &str = "BOTBUS_DATA_DIR";
 
@@ -63,12 +66,28 @@ pub fn data_dir() -> PathBuf {
 /// Ensure the data directory and subdirectories exist.
 ///
 /// Creates:
-/// - Data directory
+/// - Data directory (with restricted permissions: 0700 on Unix)
 /// - Channels subdirectory
+///
+/// # Security
+/// The data directory is created with restrictive permissions (owner-only)
+/// to protect message history and agent state from other users.
 pub fn ensure_data_dir() -> Result<PathBuf> {
     let dir = data_dir();
+    let created = !dir.exists();
+
     fs::create_dir_all(&dir)
         .with_context(|| format!("Failed to create data dir: {}", dir.display()))?;
+
+    // Set restrictive permissions on the data directory (Unix only)
+    #[cfg(unix)]
+    if created {
+        // 0700 = rwx------ (owner only)
+        let permissions = fs::Permissions::from_mode(0o700);
+        fs::set_permissions(&dir, permissions)
+            .with_context(|| format!("Failed to set permissions on: {}", dir.display()))?;
+    }
+
     fs::create_dir_all(channels_dir()).with_context(|| {
         format!(
             "Failed to create channels dir: {}",
@@ -84,8 +103,22 @@ pub fn channels_dir() -> PathBuf {
 }
 
 /// Get the path to a specific channel file.
+///
+/// # Security
+/// Validates channel name to prevent path traversal attacks.
+/// Rejects names containing path separators or parent directory references.
 pub fn channel_path(channel: &str) -> PathBuf {
-    channels_dir().join(format!("{}.jsonl", channel))
+    // Defense-in-depth: reject path traversal attempts even if CLI validated
+    debug_assert!(
+        !channel.contains('/') && !channel.contains('\\') && !channel.contains(".."),
+        "channel_path called with unsafe channel name: {}",
+        channel
+    );
+
+    // Sanitize: remove any path separators (should never happen if CLI validates)
+    let safe_channel = channel.replace('/', "").replace('\\', "").replace("..", "");
+
+    channels_dir().join(format!("{}.jsonl", safe_channel))
 }
 
 /// Get the claims.jsonl path.

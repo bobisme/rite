@@ -11,21 +11,55 @@ use crate::core::message::{Message, MessageMeta};
 use crate::core::project::{channel_path, claims_path};
 use crate::storage::jsonl::{append_record, read_records};
 
-/// Expand a claim pattern to an absolute path.
+/// Expand a claim pattern to an absolute, canonicalized path.
 /// Relative patterns are expanded from current working directory.
 /// Glob wildcards are preserved.
+///
+/// # Security
+/// Canonicalizes the base path portion to resolve symlinks and normalize
+/// path components like `.` and `..`, preventing path confusion attacks.
 fn expand_pattern(pattern: &str) -> String {
-    // Already absolute
-    if pattern.starts_with('/') {
-        return pattern.to_string();
-    }
-
     // Get cwd for expansion
     let cwd = std::env::current_dir().unwrap_or_default();
 
-    // Handle glob patterns: expand the non-glob prefix, keep the glob suffix
-    // e.g., "src/**/*.rs" in /home/bob/proj -> "/home/bob/proj/src/**/*.rs"
-    cwd.join(pattern).to_string_lossy().to_string()
+    // Split into base (canonicalizable) and glob suffix
+    let (base, suffix) = if let Some(idx) = pattern.find("**") {
+        let base_end = pattern[..idx].rfind('/').map(|i| i + 1).unwrap_or(idx);
+        (&pattern[..base_end], &pattern[base_end..])
+    } else if pattern.contains('*') || pattern.contains('?') || pattern.contains('[') {
+        // Simple glob - find last / before any glob char
+        let glob_start = pattern
+            .find(|c| c == '*' || c == '?' || c == '[')
+            .unwrap_or(pattern.len());
+        let base_end = pattern[..glob_start].rfind('/').map(|i| i + 1).unwrap_or(0);
+        (&pattern[..base_end], &pattern[base_end..])
+    } else {
+        // No glob - entire path is base
+        (pattern, "")
+    };
+
+    // Build absolute base path
+    let abs_base = if base.starts_with('/') {
+        Path::new(base).to_path_buf()
+    } else if base.is_empty() {
+        cwd.clone()
+    } else {
+        cwd.join(base)
+    };
+
+    // Try to canonicalize the base path (resolve symlinks, normalize ..)
+    // If it fails (e.g., path doesn't exist yet), just use the cleaned absolute path
+    let canonical_base = abs_base.canonicalize().unwrap_or_else(|_| abs_base.clone());
+
+    // Recombine with glob suffix
+    if suffix.is_empty() {
+        canonical_base.to_string_lossy().to_string()
+    } else {
+        let base_str = canonical_base.to_string_lossy();
+        let base_str = base_str.trim_end_matches('/');
+        let suffix_str = suffix.trim_start_matches('/');
+        format!("{}/{}", base_str, suffix_str)
+    }
 }
 
 /// Display a claim pattern, making it relative if we're in the same tree.

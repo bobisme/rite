@@ -5,6 +5,7 @@ pub mod agents;
 pub mod agentsmd;
 pub mod channels;
 pub mod claim;
+pub mod doctor;
 pub mod history;
 pub mod inbox;
 pub mod init;
@@ -46,6 +47,9 @@ pub struct Cli {
 pub enum Commands {
     /// Initialize the BotBus data directory
     Init,
+
+    /// Check environment health and configuration
+    Doctor,
 
     /// Generate a random agent name (kebab-case)
     GenerateName,

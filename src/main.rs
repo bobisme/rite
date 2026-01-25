@@ -8,13 +8,18 @@ fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Ensure data directory exists for most commands
-    // (init creates it explicitly, generate-name doesn't need it)
-    if !matches!(cli.command, Commands::GenerateName | Commands::Init) {
+    // (init creates it explicitly, generate-name and doctor don't require it)
+    if !matches!(
+        cli.command,
+        Commands::GenerateName | Commands::Init | Commands::Doctor
+    ) {
         ensure_data_dir()?;
     }
 
     match cli.command {
         Commands::Init => cli::init::run(),
+
+        Commands::Doctor => cli::doctor::run(cli.json),
 
         Commands::GenerateName => {
             cli::names::run();

@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use std::path::PathBuf;
 
 pub mod agents;
@@ -6,6 +6,7 @@ pub mod agentsmd;
 pub mod channels;
 pub mod claim;
 pub mod doctor;
+pub mod format;
 pub mod history;
 pub mod inbox;
 pub mod init;
@@ -18,6 +19,18 @@ pub mod ui;
 pub mod wait;
 pub mod watch;
 pub mod whoami;
+
+/// Output format for structured data.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+pub enum OutputFormat {
+    /// Human-readable text (default)
+    #[default]
+    Text,
+    /// JSON - standard machine-readable format
+    Json,
+    /// TOON - Text-Only Object Notation, optimized for AI agents
+    Toon,
+}
 
 #[derive(Parser)]
 #[command(name = "botbus")]
@@ -35,9 +48,13 @@ pub struct Cli {
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
-    /// Output in JSON format (where applicable)
+    /// Output in JSON format (where applicable) [deprecated: use --format json]
     #[arg(long, global = true)]
     pub json: bool,
+
+    /// Output format: text (default), json, or toon
+    #[arg(long, global = true, value_enum, default_value = "text")]
+    pub format: OutputFormat,
 
     #[command(subcommand)]
     pub command: Commands,

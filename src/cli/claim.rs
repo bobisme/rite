@@ -5,6 +5,8 @@ use globset::{Glob, GlobSetBuilder};
 use serde::Serialize;
 use std::path::Path;
 
+use super::format::{to_toon, to_toon_list};
+use super::OutputFormat;
 use crate::core::claim::FileClaim;
 use crate::core::identity::{require_agent, resolve_agent};
 use crate::core::message::{Message, MessageMeta};
@@ -277,7 +279,12 @@ pub struct ClaimInfo {
 }
 
 /// List active file claims.
-pub fn claims(json: bool, show_all: bool, mine_only: bool, agent: Option<&str>) -> Result<()> {
+pub fn claims(
+    format: OutputFormat,
+    show_all: bool,
+    mine_only: bool,
+    agent: Option<&str>,
+) -> Result<()> {
     let current_agent = resolve_agent(agent).unwrap_or_default();
 
     let all_claims: Vec<FileClaim> = read_records(&claims_path())?;
@@ -306,21 +313,37 @@ pub fn claims(json: bool, show_all: bool, mine_only: bool, agent: Option<&str>) 
 
     claims_list.sort_by(|a, b| a.expires_at.cmp(&b.expires_at));
 
-    if json {
-        let output = ClaimsOutput {
-            claims: claims_list
-                .iter()
-                .map(|c| ClaimInfo {
-                    agent: c.agent.clone(),
-                    patterns: c.patterns.clone(),
-                    active: c.active,
-                    expires_at: c.expires_at,
-                    expires_in_secs: (c.expires_at - now).num_seconds(),
-                })
-                .collect(),
-        };
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        return Ok(());
+    // Prepare structured output
+    let claim_infos: Vec<ClaimInfo> = claims_list
+        .iter()
+        .map(|c| ClaimInfo {
+            agent: c.agent.clone(),
+            patterns: c.patterns.clone(),
+            active: c.active,
+            expires_at: c.expires_at,
+            expires_in_secs: (c.expires_at - now).num_seconds(),
+        })
+        .collect();
+
+    match format {
+        OutputFormat::Json => {
+            let output = ClaimsOutput {
+                claims: claim_infos,
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
+            return Ok(());
+        }
+        OutputFormat::Toon => {
+            if claim_infos.is_empty() {
+                println!("claims: []");
+            } else {
+                println!("{}", to_toon_list(&claim_infos));
+            }
+            return Ok(());
+        }
+        OutputFormat::Text => {
+            // Continue to text output below
+        }
     }
 
     if claims_list.is_empty() {
@@ -459,7 +482,7 @@ pub struct ClaimConflict {
 /// Check if a file/pattern conflicts with existing claims.
 /// Returns Ok(true) if safe, Ok(false) if conflict exists.
 /// Exits with code 1 on conflict for easy shell scripting.
-pub fn check_claim(path: String, json: bool, agent: Option<&str>) -> Result<bool> {
+pub fn check_claim(path: String, format: OutputFormat, agent: Option<&str>) -> Result<bool> {
     let current_agent = resolve_agent(agent).unwrap_or_default();
     let now = Utc::now();
 
@@ -509,20 +532,28 @@ pub fn check_claim(path: String, json: bool, agent: Option<&str>) -> Result<bool
         conflicts,
     };
 
-    if json {
-        println!("{}", serde_json::to_string_pretty(&output)?);
-    } else if safe {
-        println!("{} {} is safe to edit", "✓".green(), path.cyan());
-    } else {
-        println!("{} {} has conflicts:", "✗".red(), path.cyan());
-        for conflict in &output.conflicts {
-            let expires = format_duration(conflict.expires_in_secs as u64);
-            println!(
-                "  {} claimed {} (expires in {})",
-                conflict.agent.yellow(),
-                conflict.pattern.dimmed(),
-                expires
-            );
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Toon => {
+            println!("{}", to_toon(&output));
+        }
+        OutputFormat::Text => {
+            if safe {
+                println!("{} {} is safe to edit", "✓".green(), path.cyan());
+            } else {
+                println!("{} {} has conflicts:", "✗".red(), path.cyan());
+                for conflict in &output.conflicts {
+                    let expires = format_duration(conflict.expires_in_secs as u64);
+                    println!(
+                        "  {} claimed {} (expires in {})",
+                        conflict.agent.yellow(),
+                        conflict.pattern.dimmed(),
+                        expires
+                    );
+                }
+            }
         }
     }
 

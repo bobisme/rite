@@ -9,6 +9,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
+use super::format::to_toon;
+use super::OutputFormat;
 use crate::core::identity::resolve_agent;
 use crate::core::names::is_valid_name;
 use crate::core::project::{channels_dir, claims_path, data_dir, index_path, state_path};
@@ -65,7 +67,7 @@ impl DoctorReport {
 }
 
 /// Run all doctor checks.
-pub fn run(json: bool) -> Result<()> {
+pub fn run(format: OutputFormat) -> Result<()> {
     let mut report = DoctorReport::new();
 
     // Check 1: Data directory exists
@@ -89,10 +91,16 @@ pub fn run(json: bool) -> Result<()> {
     // Check 7: Data directory permissions (security)
     check_permissions(&mut report);
 
-    if json {
-        println!("{}", serde_json::to_string_pretty(&report)?);
-    } else {
-        print_report(&report);
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&report)?);
+        }
+        OutputFormat::Toon => {
+            println!("{}", to_toon(&report));
+        }
+        OutputFormat::Text => {
+            print_report(&report);
+        }
     }
 
     if !report.is_healthy() {

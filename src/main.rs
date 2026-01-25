@@ -1,11 +1,18 @@
 use anyhow::Result;
 use clap::Parser;
 
-use botbus::cli::{self, Cli, Commands};
+use botbus::cli::{self, Cli, Commands, OutputFormat};
 use botbus::core::project::ensure_data_dir;
 
 fn main() -> Result<()> {
     let cli = Cli::parse();
+
+    // Resolve effective output format (--json flag overrides --format for backwards compatibility)
+    let format = if cli.json {
+        OutputFormat::Json
+    } else {
+        cli.format
+    };
 
     // Ensure data directory exists for most commands
     // (init creates it explicitly, generate-name and doctor don't require it)
@@ -19,7 +26,7 @@ fn main() -> Result<()> {
     match cli.command {
         Commands::Init => cli::init::run(),
 
-        Commands::Doctor => cli::doctor::run(cli.json),
+        Commands::Doctor => cli::doctor::run(format),
 
         Commands::GenerateName => {
             cli::names::run();
@@ -106,7 +113,7 @@ fn main() -> Result<()> {
         }),
 
         Commands::Claims { all, mine } => {
-            cli::claim::claims(cli.json, all, mine, cli.agent.as_deref())
+            cli::claim::claims(format, all, mine, cli.agent.as_deref())
         }
 
         Commands::Release { patterns, all } => {
@@ -114,7 +121,7 @@ fn main() -> Result<()> {
         }
 
         Commands::CheckClaim { path } => {
-            let safe = cli::claim::check_claim(path, cli.json, cli.agent.as_deref())?;
+            let safe = cli::claim::check_claim(path, format, cli.agent.as_deref())?;
             if !safe {
                 std::process::exit(1);
             }
@@ -150,7 +157,7 @@ fn main() -> Result<()> {
             cli.agent.as_deref(),
         ),
 
-        Commands::Status => cli::status::run(cli.json, cli.agent.as_deref()),
+        Commands::Status => cli::status::run(format, cli.agent.as_deref()),
 
         Commands::Wait {
             mention,

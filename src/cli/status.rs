@@ -6,6 +6,8 @@ use colored::Colorize;
 use serde::Serialize;
 use std::collections::HashMap;
 
+use super::format::to_toon;
+use super::OutputFormat;
 use crate::core::claim::FileClaim;
 use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
@@ -46,13 +48,19 @@ pub struct ClaimStatus {
 }
 
 /// Run status command.
-pub fn run(json: bool, explicit_agent: Option<&str>) -> Result<()> {
+pub fn run(format: OutputFormat, explicit_agent: Option<&str>) -> Result<()> {
     let output = collect_status(explicit_agent)?;
 
-    if json {
-        println!("{}", serde_json::to_string_pretty(&output)?);
-    } else {
-        print_status(&output);
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Toon => {
+            println!("{}", to_toon(&output));
+        }
+        OutputFormat::Text => {
+            print_status(&output);
+        }
     }
 
     Ok(())

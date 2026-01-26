@@ -13,14 +13,34 @@ use crate::core::message::{Message, MessageMeta};
 use crate::core::project::{channel_path, claims_path};
 use crate::storage::jsonl::{append_record, read_records};
 
+/// Check if a pattern looks like a URI (has a scheme like "bead://", "db://", etc.)
+fn is_uri(pattern: &str) -> bool {
+    // URIs have a scheme followed by "://"
+    // Common schemes: bead://, db://, port://, file://, http://, etc.
+    if let Some(colon_pos) = pattern.find(':') {
+        // Check that scheme is alphanumeric and followed by //
+        let scheme = &pattern[..colon_pos];
+        let after_colon = &pattern[colon_pos..];
+        return !scheme.is_empty()
+            && scheme.chars().all(|c| c.is_ascii_alphanumeric())
+            && after_colon.starts_with("://");
+    }
+    false
+}
+
 /// Expand a claim pattern to an absolute, canonicalized path.
 /// Relative patterns are expanded from current working directory.
 /// Glob wildcards are preserved.
+/// URIs (patterns with schemes like "bead://") are passed through unchanged.
 ///
 /// # Security
 /// Canonicalizes the base path portion to resolve symlinks and normalize
 /// path components like `.` and `..`, preventing path confusion attacks.
 fn expand_pattern(pattern: &str) -> String {
+    // URIs pass through unchanged - they're not file paths
+    if is_uri(pattern) {
+        return pattern.to_string();
+    }
     // Get cwd for expansion
     let cwd = std::env::current_dir().unwrap_or_default();
 
@@ -65,7 +85,13 @@ fn expand_pattern(pattern: &str) -> String {
 }
 
 /// Display a claim pattern, making it relative if we're in the same tree.
+/// URIs are displayed as-is.
 fn display_pattern(pattern: &str) -> String {
+    // URIs display as-is
+    if is_uri(pattern) {
+        return pattern.to_string();
+    }
+
     let cwd = match std::env::current_dir() {
         Ok(p) => p,
         Err(_) => return pattern.to_string(),
@@ -351,8 +377,26 @@ pub fn claims(
         return Ok(());
     }
 
-    println!("{}", "Active Claims:".bold());
+    // Group claims by type: files vs URI schemes
+    let mut file_claims: Vec<_> = Vec::new();
+    let mut uri_claims: std::collections::HashMap<String, Vec<_>> =
+        std::collections::HashMap::new();
+
     for claim in &claims_list {
+        let first_pattern = claim.patterns.first().map(|s| s.as_str()).unwrap_or("");
+        if is_uri(first_pattern) {
+            let scheme = first_pattern
+                .split("://")
+                .next()
+                .unwrap_or("uri")
+                .to_string();
+            uri_claims.entry(scheme).or_default().push(claim);
+        } else {
+            file_claims.push(claim);
+        }
+    }
+
+    let format_claim = |claim: &&FileClaim, current_agent: &str, now: DateTime<Utc>| {
         let remaining = (claim.expires_at - now).num_minutes();
         let status = if claim.expires_at < now {
             "expired".red()
@@ -378,6 +422,34 @@ pub fn claims(
             display_patterns.join(", ").dimmed(),
             status
         );
+    };
+
+    // Display file claims first
+    if !file_claims.is_empty() {
+        println!("{}", "File Claims:".bold());
+        for claim in &file_claims {
+            format_claim(claim, &current_agent, now);
+        }
+    }
+
+    // Display URI claims grouped by scheme
+    let mut schemes: Vec<_> = uri_claims.keys().collect();
+    schemes.sort();
+    for scheme in schemes {
+        if let Some(claims) = uri_claims.get(scheme) {
+            println!("{}", format!("{} Claims:", scheme).bold());
+            for claim in claims {
+                format_claim(claim, &current_agent, now);
+            }
+        }
+    }
+
+    // Fallback if we had claims but no groupings (shouldn't happen)
+    if file_claims.is_empty() && uri_claims.is_empty() {
+        println!("{}", "Active Claims:".bold());
+        for claim in &claims_list {
+            format_claim(claim, &current_agent, now);
+        }
     }
 
     Ok(())
@@ -560,9 +632,15 @@ pub fn check_claim(path: String, format: OutputFormat, agent: Option<&str>) -> R
     Ok(safe)
 }
 
-/// Check if a specific path matches a glob pattern.
+/// Check if a specific path/URI matches a glob pattern.
+/// For URIs, uses prefix matching with wildcard support.
 fn path_matches_pattern(path: &str, pattern: &str) -> bool {
-    // Try glob matching
+    // Handle URI patterns
+    if is_uri(pattern) || is_uri(path) {
+        return uri_matches_pattern(path, pattern);
+    }
+
+    // Try glob matching for file paths
     if let Ok(glob) = Glob::new(pattern) {
         let mut builder = GlobSetBuilder::new();
         builder.add(glob);
@@ -581,6 +659,43 @@ fn path_matches_pattern(path: &str, pattern: &str) -> bool {
         .trim_end_matches('/');
     if !pattern_base.is_empty() && path.starts_with(pattern_base) {
         return true;
+    }
+
+    false
+}
+
+/// Check if a URI matches a URI pattern.
+/// Supports exact match and wildcard suffix (e.g., "bead://project/*" matches "bead://project/bd-123")
+fn uri_matches_pattern(uri: &str, pattern: &str) -> bool {
+    // Exact match
+    if uri == pattern {
+        return true;
+    }
+
+    // Wildcard pattern: "scheme://path/*" matches "scheme://path/anything"
+    if pattern.ends_with("/*") {
+        let prefix = &pattern[..pattern.len() - 1]; // Remove trailing *
+        if uri.starts_with(prefix) {
+            return true;
+        }
+    }
+
+    // Also support "**" suffix for consistency with file globs
+    if pattern.ends_with("/**") {
+        let prefix = &pattern[..pattern.len() - 2]; // Remove trailing **
+        if uri.starts_with(prefix) {
+            return true;
+        }
+    }
+
+    // Prefix matching: if pattern is a prefix of URI (without wildcards)
+    // e.g., "bead://project" matches "bead://project/bd-123"
+    if !pattern.contains('*') && uri.starts_with(pattern) {
+        // Ensure we're matching at a boundary (/ or end)
+        let remainder = &uri[pattern.len()..];
+        if remainder.is_empty() || remainder.starts_with('/') {
+            return true;
+        }
     }
 
     false
@@ -626,7 +741,12 @@ fn check_conflicts(
 }
 
 fn patterns_overlap(a: &str, b: &str) -> bool {
-    // Build glob matchers
+    // Handle URI patterns
+    if is_uri(a) || is_uri(b) {
+        return uri_patterns_overlap(a, b);
+    }
+
+    // Build glob matchers for file patterns
     let mut builder_a = GlobSetBuilder::new();
     let mut builder_b = GlobSetBuilder::new();
 
@@ -663,6 +783,33 @@ fn patterns_overlap(a: &str, b: &str) -> bool {
 
     if !a_base.is_empty() && !b_base.is_empty() {
         if a_base.starts_with(b_base) || b_base.starts_with(a_base) {
+            return true;
+        }
+    }
+
+    false
+}
+
+/// Check if two URI patterns overlap.
+fn uri_patterns_overlap(a: &str, b: &str) -> bool {
+    // Different schemes can't overlap
+    let scheme_a = a.split("://").next().unwrap_or("");
+    let scheme_b = b.split("://").next().unwrap_or("");
+    if scheme_a != scheme_b {
+        return false;
+    }
+
+    // Check if either matches the other
+    if uri_matches_pattern(a, b) || uri_matches_pattern(b, a) {
+        return true;
+    }
+
+    // Check prefix overlap (without wildcards)
+    let base_a = a.trim_end_matches('*').trim_end_matches('/');
+    let base_b = b.trim_end_matches('*').trim_end_matches('/');
+
+    if !base_a.is_empty() && !base_b.is_empty() {
+        if base_a.starts_with(base_b) || base_b.starts_with(base_a) {
             return true;
         }
     }
@@ -723,6 +870,115 @@ mod tests {
         // Patterns not in current tree are returned as-is
         let unrelated = display_pattern("/some/other/path/**");
         assert_eq!(unrelated, "/some/other/path/**");
+    }
+
+    // === URI claim tests ===
+
+    #[test]
+    fn test_is_uri() {
+        // Valid URIs
+        assert!(is_uri("bead://project/bd-123"));
+        assert!(is_uri("db://myapp/users"));
+        assert!(is_uri("port://8080"));
+        assert!(is_uri("file:///home/user/file.txt"));
+        assert!(is_uri("http://example.com"));
+
+        // Not URIs (file paths)
+        assert!(!is_uri("src/main.rs"));
+        assert!(!is_uri("/home/user/src/**"));
+        assert!(!is_uri("*.toml"));
+        assert!(!is_uri("src:file.rs")); // No ://
+    }
+
+    #[test]
+    fn test_expand_pattern_uri() {
+        // URIs pass through unchanged
+        assert_eq!(
+            expand_pattern("bead://botbus/bd-123"),
+            "bead://botbus/bd-123"
+        );
+        assert_eq!(expand_pattern("db://myapp/users"), "db://myapp/users");
+        assert_eq!(expand_pattern("port://8080"), "port://8080");
+    }
+
+    #[test]
+    fn test_display_pattern_uri() {
+        // URIs display as-is
+        assert_eq!(
+            display_pattern("bead://botbus/bd-123"),
+            "bead://botbus/bd-123"
+        );
+        assert_eq!(display_pattern("db://myapp/*"), "db://myapp/*");
+    }
+
+    #[test]
+    fn test_uri_matches_pattern() {
+        // Exact match
+        assert!(uri_matches_pattern(
+            "bead://botbus/bd-123",
+            "bead://botbus/bd-123"
+        ));
+
+        // Wildcard suffix
+        assert!(uri_matches_pattern(
+            "bead://botbus/bd-123",
+            "bead://botbus/*"
+        ));
+        assert!(uri_matches_pattern("db://myapp/users", "db://myapp/*"));
+
+        // Double-star wildcard
+        assert!(uri_matches_pattern(
+            "bead://botbus/bd-123",
+            "bead://botbus/**"
+        ));
+
+        // Prefix matching
+        assert!(uri_matches_pattern("bead://botbus/bd-123", "bead://botbus"));
+
+        // Non-matches
+        assert!(!uri_matches_pattern(
+            "bead://other/bd-123",
+            "bead://botbus/*"
+        ));
+        assert!(!uri_matches_pattern("db://myapp/users", "bead://myapp/*"));
+    }
+
+    #[test]
+    fn test_uri_patterns_overlap() {
+        // Same URI
+        assert!(uri_patterns_overlap(
+            "bead://botbus/bd-123",
+            "bead://botbus/bd-123"
+        ));
+
+        // Wildcard overlaps specific
+        assert!(uri_patterns_overlap(
+            "bead://botbus/*",
+            "bead://botbus/bd-123"
+        ));
+        assert!(uri_patterns_overlap(
+            "bead://botbus/bd-123",
+            "bead://botbus/*"
+        ));
+
+        // Different schemes don't overlap
+        assert!(!uri_patterns_overlap(
+            "bead://botbus/bd-123",
+            "db://botbus/bd-123"
+        ));
+
+        // Different paths don't overlap
+        assert!(!uri_patterns_overlap(
+            "bead://project-a/bd-123",
+            "bead://project-b/bd-456"
+        ));
+    }
+
+    #[test]
+    fn test_path_matches_pattern_mixed() {
+        // File paths don't match URIs
+        assert!(!path_matches_pattern("src/main.rs", "bead://botbus/*"));
+        assert!(!path_matches_pattern("bead://botbus/bd-123", "src/**"));
     }
 
     // Integration tests that need project setup are moved to tests/integration/

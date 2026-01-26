@@ -23,6 +23,10 @@ botbus send @other-agent "Question about Y"
 botbus claim "src/api/**" -m "Working on API routes"
 botbus check-claim src/api/routes.rs   # Check before editing
 botbus release --all                    # When done
+
+# Claim non-file resources (issues, ports, etc.)
+botbus claim "bead://botbus/bd-123" -m "Working on this issue"
+botbus check-claim "bead://botbus/bd-123"
 ```
 
 ### Best Practices

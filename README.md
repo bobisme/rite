@@ -104,9 +104,9 @@ botbus send general "See config" --attach src/config.rs
 
 ## Multi-Agent Coordination
 
-### File Claims
+### Claims
 
-Claims prevent conflicts when multiple agents edit the same codebase:
+Claims prevent conflicts when multiple agents work on the same resources. Claims support both **file paths** and **URIs** for non-file resources.
 
 ```bash
 # Claim files before editing
@@ -118,11 +118,37 @@ botbus check-claim src/api/auth.rs
 # Claims that overlap are denied
 botbus claim "src/api/**"
 # Error: Conflict with swift-falcon's claim on src/api/**
-# Ask them to release or narrow their claim
 
 # Release when done
 botbus release --all
 ```
+
+### URI Claims
+
+Claim non-file resources using URI schemes:
+
+```bash
+# Claim a specific issue/bead
+botbus claim "bead://myproject/bd-123" -m "Working on this issue"
+
+# Claim all issues in a project
+botbus claim "bead://myproject/*" -m "Major refactor"
+
+# Claim a database table
+botbus claim "db://myapp/users" -m "Schema migration"
+
+# Claim a port (for dev servers)
+botbus claim "port://8080" -m "Running dev server"
+
+# Check before working on a resource
+botbus check-claim "bead://myproject/bd-123"
+```
+
+Supported URI patterns:
+- `bead://project/issue-id` - Issue tracking
+- `db://app/table` - Database tables
+- `port://number` - Local ports
+- Any `scheme://path` format - BotBus treats URIs as opaque strings
 
 ### Cross-Project Coordination
 

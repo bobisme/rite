@@ -74,6 +74,56 @@ botbus wait --mention -t 120
 - Agent identity flows via `BOTBUS_AGENT` env var or `--agent` flag (stateless)
 - Claims stored with absolute paths, displayed relative when in same directory tree
 
+### Version Control: jj (Jujutsu) with Git
+
+This repo uses jj colocated with git. jj creates commits on a "floating" working copy, not directly on branches. **You must move the `main` bookmark after committing to ensure changes can be pushed to GitHub.**
+
+#### Commit Workflow
+
+```bash
+# 1. Make your changes and commit
+jj commit -m "feat(scope): description
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# 2. Move main bookmark to include your commit
+#    @- means "parent of working copy" (your just-created commit)
+jj bookmark set main -r @-
+
+# 3. Verify main is ahead of origin
+jj log --limit 3
+# Should show: main (your commit) ahead of main@origin
+
+# 4. Push to GitHub
+jj git push
+# Or: git push
+```
+
+#### If You Forget to Move the Bookmark
+
+If you committed but forgot to move `main`, find your commit and move the bookmark:
+
+```bash
+# Find your commit
+jj log
+
+# Move main to it (use the change ID like 'opzoplvm' or revision like '6e2a5dff')
+jj bookmark set main -r <change-id>
+
+# If git HEAD is detached, also run:
+git checkout main
+```
+
+#### Quick Reference
+
+| Task | Command |
+|------|---------|
+| See current state | `jj log --limit 5` |
+| Commit changes | `jj commit -m "message"` |
+| Move main to last commit | `jj bookmark set main -r @-` |
+| Push to GitHub | `jj git push` |
+| Sync from GitHub | `jj git fetch` then `jj rebase -d main@origin` |
+
 ### Commit Conventions
 
 Use [semantic commits](https://www.conventionalcommits.org/):

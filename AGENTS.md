@@ -78,6 +78,13 @@ botbus wait --mention -t 120
 
 This repo uses jj colocated with git. jj creates commits on a "floating" working copy, not directly on branches. **You must move the `main` bookmark after committing to ensure changes can be pushed to GitHub.**
 
+#### First-Time Setup
+
+```bash
+# Track the main bookmark with origin (one-time setup)
+jj bookmark track main --remote=origin
+```
+
 #### Commit Workflow
 
 ```bash

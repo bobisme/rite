@@ -145,6 +145,16 @@ impl App {
             let changes = debounce_events(rx, Duration::from_millis(1));
             let channel_changes = filter_channel_events(changes);
 
+            // Check if any changed channels are new (not in our current list)
+            let has_new_channels = channel_changes
+                .iter()
+                .any(|ch| !self.channels.contains(ch) && !self.dm_channels.contains(ch));
+
+            if has_new_channels {
+                // Refresh channel list to pick up new channels
+                self.refresh_channels()?;
+            }
+
             if let Some(current) = self.current_channel() {
                 if channel_changes.contains(&current) {
                     self.refresh_messages()?;
@@ -342,6 +352,39 @@ impl App {
         Ok(())
     }
 
+    fn refresh_channels(&mut self) -> Result<()> {
+        let (channels, dm_channels) = list_channels()?;
+
+        // Preserve the current selection if possible
+        let current_name = self.current_channel();
+
+        self.channels = channels;
+        self.dm_channels = dm_channels;
+
+        // Try to maintain selection on the same channel
+        if let Some(name) = current_name {
+            if let Some(idx) = self.channels.iter().position(|c| c == &name) {
+                self.selected_channel = idx;
+            } else if let Some(idx) = self.dm_channels.iter().position(|c| c == &name) {
+                self.selected_channel = self.channels.len() + idx;
+            } else {
+                // Channel disappeared, reset to first
+                self.selected_channel = 0;
+            }
+        }
+
+        // Update initial sizes for new channels
+        for channel in self.channels.iter().chain(self.dm_channels.iter()) {
+            if !self.initial_sizes.contains_key(channel) {
+                let path = channel_path(channel);
+                let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                self.initial_sizes.insert(channel.clone(), size);
+            }
+        }
+
+        Ok(())
+    }
+
     fn update_new_message_counts(&mut self) {
         let all_channels: Vec<String> = self
             .channels
@@ -513,4 +556,99 @@ fn count_new_messages(path: &Path, start: u64, end: u64) -> usize {
 
     // Count newlines
     buffer[..bytes_read].iter().filter(|&&b| b == b'\n').count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serial_test::serial;
+    use std::env;
+    use std::fs;
+    use tempfile::TempDir;
+
+    const DATA_DIR_ENV_VAR: &str = "BOTBUS_DATA_DIR";
+
+    #[test]
+    #[serial]
+    fn test_refresh_channels_picks_up_new_channels() {
+        let temp = TempDir::new().unwrap();
+        let temp_path = temp.path().to_str().unwrap();
+
+        unsafe {
+            env::set_var(DATA_DIR_ENV_VAR, temp_path);
+            env::set_var("BOTBUS_AGENT", "test-agent");
+        }
+
+        // Create channels directory
+        let channels_dir = temp.path().join("channels");
+        fs::create_dir_all(&channels_dir).unwrap();
+
+        // Create initial channel
+        fs::write(
+            channels_dir.join("general.jsonl"),
+            r#"{"ts":"2024-01-01T00:00:00Z","id":"01HX0000000000000000000000","agent":"test","channel":"general","body":"hello"}"#,
+        )
+        .unwrap();
+
+        // Create app - should see only general
+        let mut app = App::new(None).unwrap();
+        assert_eq!(app.channels.len(), 1);
+        assert_eq!(app.channels[0], "general");
+
+        // Create a new channel while app is "running"
+        fs::write(
+            channels_dir.join("new-channel.jsonl"),
+            r#"{"ts":"2024-01-01T00:01:00Z","id":"01HX0000000000000000000001","agent":"test","channel":"new-channel","body":"hi"}"#,
+        )
+        .unwrap();
+
+        // Refresh channels - should now see both
+        app.refresh_channels().unwrap();
+        assert_eq!(app.channels.len(), 2);
+        assert!(app.channels.contains(&"general".to_string()));
+        assert!(app.channels.contains(&"new-channel".to_string()));
+
+        unsafe {
+            env::remove_var(DATA_DIR_ENV_VAR);
+            env::remove_var("BOTBUS_AGENT");
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_refresh_channels_preserves_selection() {
+        let temp = TempDir::new().unwrap();
+        let temp_path = temp.path().to_str().unwrap();
+
+        unsafe {
+            env::set_var(DATA_DIR_ENV_VAR, temp_path);
+            env::set_var("BOTBUS_AGENT", "test-agent");
+        }
+
+        let channels_dir = temp.path().join("channels");
+        fs::create_dir_all(&channels_dir).unwrap();
+
+        // Create two channels
+        fs::write(channels_dir.join("general.jsonl"), "").unwrap();
+        fs::write(channels_dir.join("backend.jsonl"), "").unwrap();
+
+        let mut app = App::new(Some("backend".to_string())).unwrap();
+        assert_eq!(app.selected_channel, 1); // backend is second after general
+
+        // Create a new channel
+        fs::write(channels_dir.join("frontend.jsonl"), "").unwrap();
+
+        // Refresh - should still have backend selected
+        let before_name = app.current_channel().unwrap();
+        app.refresh_channels().unwrap();
+        let after_name = app.current_channel().unwrap();
+
+        assert_eq!(before_name, after_name);
+        assert_eq!(after_name, "backend");
+
+        unsafe {
+            env::remove_var(DATA_DIR_ENV_VAR);
+            env::remove_var("BOTBUS_AGENT");
+        }
+    }
 }

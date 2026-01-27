@@ -5,3 +5,4 @@
 tmp/
 # BotBus index (generated)
 .botbus/index.sqlite
+opencode.json

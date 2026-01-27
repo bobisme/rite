@@ -36,6 +36,10 @@ pub struct App {
     initial_sizes: std::collections::HashMap<String, u64>,
     /// Current new message counts per channel
     new_message_counts: std::collections::HashMap<String, usize>,
+    /// Timestamp when current channel was focused (for auto-clear timer)
+    channel_focused_at: Option<std::time::Instant>,
+    /// Which channels have visible separators
+    separator_visible: std::collections::HashSet<String>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -86,6 +90,8 @@ impl App {
             messages_area: Rect::default(),
             initial_sizes,
             new_message_counts: std::collections::HashMap::new(),
+            channel_focused_at: None,
+            separator_visible: std::collections::HashSet::new(),
         };
 
         app.load_messages()?;
@@ -158,6 +164,13 @@ impl App {
             if let Some(current) = self.current_channel() {
                 if channel_changes.contains(&current) {
                     self.refresh_messages()?;
+                }
+
+                // Check if separator should auto-clear (after 2 seconds of viewing)
+                if let Some(focused_at) = self.channel_focused_at {
+                    if focused_at.elapsed() >= Duration::from_secs(2) {
+                        self.clear_separator_and_mark_read(&current);
+                    }
                 }
             }
         }
@@ -326,6 +339,15 @@ impl App {
             self.messages = read_last_n(&path, 100)?;
             self.channel_offset = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             self.message_scroll = 0;
+
+            // Start timer for separator auto-clear when viewing channel with new messages
+            if self.new_message_count(&channel) > 0 {
+                self.channel_focused_at = Some(std::time::Instant::now());
+                self.separator_visible.insert(channel.clone());
+            } else {
+                self.channel_focused_at = None;
+                self.separator_visible.remove(&channel);
+            }
         }
         Ok(())
     }
@@ -385,6 +407,18 @@ impl App {
         Ok(())
     }
 
+    fn clear_separator_and_mark_read(&mut self, channel: &str) {
+        // Mark all messages as read by updating initial_sizes
+        let path = channel_path(channel);
+        let current_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+        self.initial_sizes.insert(channel.to_string(), current_size);
+
+        // Clear the separator and counters
+        self.separator_visible.remove(channel);
+        self.new_message_counts.remove(channel);
+        self.channel_focused_at = None;
+    }
+
     fn update_new_message_counts(&mut self) {
         let all_channels: Vec<String> = self
             .channels
@@ -412,6 +446,37 @@ impl App {
 
     pub fn new_message_count(&self, channel: &str) -> usize {
         self.new_message_counts.get(channel).copied().unwrap_or(0)
+    }
+
+    pub fn has_separator(&self, channel: &str) -> bool {
+        self.separator_visible.contains(channel)
+    }
+
+    pub fn separator_position(&self, channel: &str) -> Option<usize> {
+        // Calculate how many messages are "old" (before initial_sizes)
+        let initial_size = self.initial_sizes.get(channel).copied()?;
+        if initial_size == 0 {
+            return None; // All messages are new, no separator needed
+        }
+
+        // Count messages that were present when TUI started
+        // Messages are stored newest-first, so we need to find where old messages end
+        let path = channel_path(channel);
+        let current_size = std::fs::metadata(&path).map(|m| m.len()).ok()?;
+
+        if current_size <= initial_size {
+            return None; // No new messages
+        }
+
+        // Count new messages
+        let new_count = count_new_messages(&path, initial_size, current_size);
+        if new_count == 0 || new_count >= self.messages.len() {
+            return None; // All messages are new or counting failed
+        }
+
+        // Separator should appear after the new messages (which are at the end)
+        // Messages are rendered bottom-to-top, newest at bottom
+        Some(new_count)
     }
 
     pub fn current_channel(&self) -> Option<String> {

@@ -196,13 +196,30 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
         (Style::default(), Style::default().fg(INACTIVE_TITLE))
     };
 
-    // Convert all messages to lines
-    let messages = app.messages();
-    let lines: Vec<Line> = messages.iter().map(|msg| format_message(msg)).collect();
-
-    // Calculate the total rendered height accounting for wrapping
+    // Calculate dimensions first
     let inner_width = area.width.saturating_sub(2) as usize; // Account for borders
     let inner_height = area.height.saturating_sub(2) as usize;
+
+    // Convert all messages to lines, inserting separator if needed
+    let messages = app.messages();
+    let mut lines: Vec<Line> = Vec::new();
+
+    let separator_pos = if app.has_separator(&raw_channel_name) {
+        app.separator_position(&raw_channel_name)
+    } else {
+        None
+    };
+
+    for (idx, msg) in messages.iter().enumerate() {
+        lines.push(format_message(msg));
+
+        // Insert separator after new messages (which are at the end/bottom)
+        if let Some(pos) = separator_pos {
+            if idx == pos - 1 {
+                lines.push(create_separator_line(inner_width));
+            }
+        }
+    }
 
     // Estimate wrapped line count - ceiling division for each line
     let total_lines: usize = lines
@@ -240,6 +257,41 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
         .scroll((scroll_from_top as u16, 0));
 
     f.render_widget(paragraph, area);
+}
+
+fn create_separator_line(width: usize) -> Line<'static> {
+    let text = " New Messages ";
+    let text_len = text.len();
+
+    // Calculate padding (leave space for borders)
+    let available_width = width.saturating_sub(2);
+
+    if text_len >= available_width {
+        // Not enough space, just show the text
+        return Line::from(Span::styled(
+            text,
+            Style::default()
+                .fg(Color::DarkGray)
+                .add_modifier(Modifier::BOLD),
+        ));
+    }
+
+    // Create centered separator with box drawing characters
+    let line_char = "─"; // U+2500
+    let total_line_len = available_width.saturating_sub(text_len);
+    let left_len = total_line_len / 2;
+    let right_len = total_line_len - left_len;
+
+    let line_style = Style::default().fg(Color::DarkGray);
+    let text_style = Style::default()
+        .fg(Color::Gray)
+        .add_modifier(Modifier::BOLD);
+
+    Line::from(vec![
+        Span::styled(line_char.repeat(left_len), line_style),
+        Span::styled(text, text_style),
+        Span::styled(line_char.repeat(right_len), line_style),
+    ])
 }
 
 fn format_message(msg: &crate::core::message::Message) -> Line<'static> {

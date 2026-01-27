@@ -460,7 +460,6 @@ impl App {
         }
 
         // Count messages that were present when TUI started
-        // Messages are stored newest-first, so we need to find where old messages end
         let path = channel_path(channel);
         let current_size = std::fs::metadata(&path).map(|m| m.len()).ok()?;
 
@@ -474,9 +473,16 @@ impl App {
             return None; // All messages are new or counting failed
         }
 
-        // Separator should appear after the new messages (which are at the end)
-        // Messages are rendered bottom-to-top, newest at bottom
-        Some(new_count)
+        // Messages Vec is oldest-first chronologically
+        // Separator should appear BEFORE the first new message
+        // If we have 5 messages and 2 are new, separator goes at index 3
+        // (after old messages at 0,1,2 and before new messages at 3,4)
+        let old_count = self.messages.len().saturating_sub(new_count);
+        if old_count == 0 {
+            return None; // All messages are new
+        }
+
+        Some(old_count)
     }
 
     pub fn current_channel(&self) -> Option<String> {

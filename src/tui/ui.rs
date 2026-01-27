@@ -211,14 +211,14 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     for (idx, msg) in messages.iter().enumerate() {
-        lines.push(format_message(msg));
-
-        // Insert separator after new messages (which are at the end/bottom)
+        // Insert separator BEFORE the first new message
         if let Some(pos) = separator_pos {
-            if idx == pos - 1 {
+            if idx == pos {
                 lines.push(create_separator_line(inner_width));
             }
         }
+
+        lines.push(format_message(msg));
     }
 
     // Estimate wrapped line count - ceiling division for each line

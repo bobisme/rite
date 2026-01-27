@@ -94,8 +94,8 @@ impl App {
             separator_visible: std::collections::HashSet::new(),
         };
 
-        app.load_messages()?;
         app.update_new_message_counts();
+        app.load_messages()?;
 
         Ok(app)
     }
@@ -370,6 +370,16 @@ impl App {
 
         // Update new message counts for all channels
         self.update_new_message_counts();
+
+        // If current channel now has new messages, show separator
+        if let Some(channel) = self.current_channel() {
+            if self.new_message_count(&channel) > 0 {
+                if !self.separator_visible.contains(&channel) {
+                    self.channel_focused_at = Some(std::time::Instant::now());
+                    self.separator_visible.insert(channel);
+                }
+            }
+        }
 
         Ok(())
     }

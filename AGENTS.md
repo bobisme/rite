@@ -276,3 +276,129 @@ When making visual changes to the TUI, update the README screenshot:
 ```
 
 Requires: Hyprland, kitty, grim, pngquant. The script spawns a floating window, captures it, and compresses the image.
+
+<!-- crit-agent-instructions -->
+
+## Crit: Agent-Centric Code Review
+
+This project uses [crit](https://github.com/anomalyco/botcrit) for distributed code reviews optimized for AI agents.
+
+### Quick Start
+
+```bash
+# Initialize crit in the repository (once)
+crit init
+
+# Create a review for current change
+crit reviews create --title "Add feature X"
+
+# List open reviews
+crit reviews list
+
+# Check reviews needing your attention
+crit reviews list --needs-review --author $BOTBUS_AGENT
+
+# Show review details
+crit reviews show <review_id>
+```
+
+### Adding Comments (Recommended)
+
+The simplest way to comment on code - auto-creates threads:
+
+```bash
+# Add a comment on a specific line (creates thread automatically)
+crit comment <review_id> --file src/main.rs --line 42 "Consider using Option here"
+
+# Add another comment on same line (reuses existing thread)
+crit comment <review_id> --file src/main.rs --line 42 "Good point, will fix"
+
+# Comment on a line range
+crit comment <review_id> --file src/main.rs --line 10-20 "This block needs refactoring"
+```
+
+### Managing Threads
+
+```bash
+# List threads on a review
+crit threads list <review_id>
+
+# Show thread with context
+crit threads show <thread_id>
+
+# Resolve a thread
+crit threads resolve <thread_id> --reason "Fixed in latest commit"
+```
+
+### Voting on Reviews
+
+```bash
+# Approve a review (LGTM)
+crit lgtm <review_id> -m "Looks good!"
+
+# Block a review (request changes)
+crit block <review_id> -r "Need more test coverage"
+```
+
+### Viewing Full Reviews
+
+```bash
+# Show full review with all threads and comments
+crit review <review_id>
+
+# Show with more context lines
+crit review <review_id> --context 5
+
+# List threads with first comment preview
+crit threads list <review_id> -v
+```
+
+### Approving and Merging
+
+```bash
+# Approve a review (changes status to approved)
+crit reviews approve <review_id>
+
+# Mark as merged (after jj squash/merge)
+# Note: Will fail if there are blocking votes
+crit reviews merge <review_id>
+
+# Self-approve and merge in one step (solo workflows)
+crit reviews merge <review_id> --self-approve
+```
+
+### Agent Best Practices
+
+1. **Set your identity** via environment:
+   ```bash
+   export BOTBUS_AGENT=my-agent-name
+   ```
+
+2. **Check for pending reviews** at session start:
+   ```bash
+   crit reviews list --needs-review --author $BOTBUS_AGENT
+   ```
+
+3. **Check status** to see unresolved threads:
+   ```bash
+   crit status <review_id> --unresolved-only
+   ```
+
+4. **Run doctor** to verify setup:
+   ```bash
+   crit doctor
+   ```
+
+### Output Formats
+
+- Default output is TOON (token-optimized, human-readable)
+- Use `--json` flag for machine-parseable JSON output
+
+### Key Concepts
+
+- **Reviews** are anchored to jj Change IDs (survive rebases)
+- **Threads** group comments on specific file locations
+- **crit comment** is the simple way to leave feedback (auto-creates threads)
+- Works across jj workspaces (shared .crit/ in main repo)
+
+<!-- end-crit-agent-instructions -->

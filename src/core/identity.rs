@@ -27,11 +27,10 @@ pub fn resolve_agent(explicit: Option<&str>) -> Option<String> {
     }
 
     // 2. Environment variable
-    if let Ok(name) = env::var(AGENT_ENV_VAR) {
-        if !name.is_empty() {
+    if let Ok(name) = env::var(AGENT_ENV_VAR)
+        && !name.is_empty() {
             return Some(name);
         }
-    }
 
     None
 }

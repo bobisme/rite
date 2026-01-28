@@ -86,8 +86,8 @@ pub fn run(options: WaitOptions, explicit_agent: Option<&str>) -> Result<()> {
 
     loop {
         // Check timeout
-        if let Some(timeout) = timeout_duration {
-            if start.elapsed() >= timeout {
+        if let Some(timeout) = timeout_duration
+            && start.elapsed() >= timeout {
                 let output = WaitOutput {
                     received: false,
                     message: None,
@@ -104,7 +104,6 @@ pub fn run(options: WaitOptions, explicit_agent: Option<&str>) -> Result<()> {
                 // Exit with code 1 on timeout
                 std::process::exit(1);
             }
-        }
 
         // Wait for file changes (with short poll interval for timeout checking)
         let poll_duration = Duration::from_millis(500);
@@ -114,11 +113,10 @@ pub fn run(options: WaitOptions, explicit_agent: Option<&str>) -> Result<()> {
         // Check each changed channel for new messages
         for channel_name in changed_channels {
             // Skip if we're filtering to a specific channel
-            if let Some(ref filter_channel) = options.channel {
-                if &channel_name != filter_channel {
+            if let Some(ref filter_channel) = options.channel
+                && &channel_name != filter_channel {
                     continue;
                 }
-            }
 
             let channel_path = channels_path.join(format!("{}.jsonl", channel_name));
             let offset = channel_offsets.get(&channel_name).copied().unwrap_or(0);
@@ -190,19 +188,17 @@ fn collect_channel_offsets(
     if let Ok(entries) = std::fs::read_dir(channels_path) {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "jsonl") {
-                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+            if path.extension().is_some_and(|ext| ext == "jsonl")
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
                     // Skip if filtering to specific channel
-                    if let Some(filter) = filter_channel {
-                        if name != filter {
+                    if let Some(filter) = filter_channel
+                        && name != filter {
                             continue;
                         }
-                    }
 
                     let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
                     offsets.insert(name.to_string(), size);
                 }
-            }
         }
     }
 

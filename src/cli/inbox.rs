@@ -191,7 +191,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
 
             // Print messages grouped by channel
             for inbox in &channel_inboxes {
-                print_channel_inbox(&inbox, &agent);
+                print_channel_inbox(inbox, &agent);
             }
 
             if options.mark_read {
@@ -222,7 +222,7 @@ fn get_dm_channels_for_agent(agent: &str) -> Result<Vec<String>> {
 
     for entry in entries.filter_map(|e| e.ok()) {
         let path = entry.path();
-        if !path.extension().is_some_and(|ext| ext == "jsonl") {
+        if path.extension().is_none_or(|ext| ext != "jsonl") {
             continue;
         }
 
@@ -232,13 +232,11 @@ fn get_dm_channels_for_agent(agent: &str) -> Result<Vec<String>> {
             .unwrap_or("")
             .to_string();
 
-        if is_dm_channel(&channel_name) {
-            if let Some((a, b)) = dm_agents(&channel_name) {
-                if a == agent || b == agent {
+        if is_dm_channel(&channel_name)
+            && let Some((a, b)) = dm_agents(&channel_name)
+                && (a == agent || b == agent) {
                     dm_channels.push(channel_name);
                 }
-            }
-        }
     }
 
     Ok(dm_channels)
@@ -256,7 +254,7 @@ fn get_all_channels() -> Result<Vec<String>> {
 
     for entry in entries.filter_map(|e| e.ok()) {
         let path = entry.path();
-        if !path.extension().is_some_and(|ext| ext == "jsonl") {
+        if path.extension().is_none_or(|ext| ext != "jsonl") {
             continue;
         }
 

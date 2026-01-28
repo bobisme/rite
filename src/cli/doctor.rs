@@ -221,8 +221,8 @@ fn check_claims(report: &mut DoctorReport) {
 
 fn check_state(report: &mut DoctorReport) {
     let path = state_path();
-    if let Some(parent) = path.parent() {
-        if parent.exists() {
+    if let Some(parent) = path.parent()
+        && parent.exists() {
             if is_writable(parent) {
                 report.add(Check {
                     name: "state_storage".to_string(),
@@ -239,13 +239,12 @@ fn check_state(report: &mut DoctorReport) {
                 });
             }
         }
-    }
 }
 
 fn check_index(report: &mut DoctorReport) {
     let path = index_path();
-    if let Some(parent) = path.parent() {
-        if parent.exists() {
+    if let Some(parent) = path.parent()
+        && parent.exists() {
             if is_writable(parent) {
                 let index_exists = path.exists();
                 report.add(Check {
@@ -267,7 +266,6 @@ fn check_index(report: &mut DoctorReport) {
                 });
             }
         }
-    }
 }
 
 fn check_permissions(report: &mut DoctorReport) {

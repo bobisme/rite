@@ -92,8 +92,8 @@ fn get_agent_stats() -> HashMap<String, (DateTime<Utc>, usize)> {
     if let Ok(entries) = std::fs::read_dir(&channels) {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "jsonl") {
-                if let Ok(messages) = read_records::<Message>(&path) {
+            if path.extension().is_some_and(|ext| ext == "jsonl")
+                && let Ok(messages) = read_records::<Message>(&path) {
                     for msg in messages {
                         let entry = stats.entry(msg.agent.clone()).or_insert((msg.ts, 0));
                         if msg.ts > entry.0 {
@@ -102,7 +102,6 @@ fn get_agent_stats() -> HashMap<String, (DateTime<Utc>, usize)> {
                         entry.1 += 1;
                     }
                 }
-            }
         }
     }
 

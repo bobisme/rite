@@ -51,7 +51,7 @@ fn expand_pattern(pattern: &str) -> String {
     } else if pattern.contains('*') || pattern.contains('?') || pattern.contains('[') {
         // Simple glob - find last / before any glob char
         let glob_start = pattern
-            .find(|c| c == '*' || c == '?' || c == '[')
+            .find(['*', '?', '['])
             .unwrap_or(pattern.len());
         let base_end = pattern[..glob_start].rfind('/').map(|i| i + 1).unwrap_or(0);
         (&pattern[..base_end], &pattern[base_end..])
@@ -486,14 +486,9 @@ pub fn release(patterns: Vec<String>, release_all: bool, agent: Option<&str>) ->
         }
 
         // Check if we should release this one
-        let should_release = if release_all {
-            true
-        } else if expanded_patterns.is_empty() {
-            true
-        } else {
-            // Check if any expanded pattern matches stored patterns
-            expanded_patterns.iter().any(|p| claim.patterns.contains(p))
-        };
+        let should_release = release_all
+            || expanded_patterns.is_empty()
+            || expanded_patterns.iter().any(|p| claim.patterns.contains(p));
 
         if should_release {
             let release_record = claim.release();
@@ -644,11 +639,10 @@ fn path_matches_pattern(path: &str, pattern: &str) -> bool {
     if let Ok(glob) = Glob::new(pattern) {
         let mut builder = GlobSetBuilder::new();
         builder.add(glob);
-        if let Ok(set) = builder.build() {
-            if set.is_match(path) {
+        if let Ok(set) = builder.build()
+            && set.is_match(path) {
                 return true;
             }
-        }
     }
 
     // Also check prefix matching for directory patterns
@@ -764,28 +758,25 @@ fn patterns_overlap(a: &str, b: &str) -> bool {
     // This is not perfect but handles common cases
 
     // Check if b matches a as a literal path
-    if let Some(ref set) = set_b {
-        if set.is_match(a) {
+    if let Some(ref set) = set_b
+        && set.is_match(a) {
             return true;
         }
-    }
 
     // Check if a matches b as a literal path
-    if let Some(ref set) = set_a {
-        if set.is_match(b) {
+    if let Some(ref set) = set_a
+        && set.is_match(b) {
             return true;
         }
-    }
 
     // Check for common prefix (simple heuristic)
     let a_base = a.split("**").next().unwrap_or(a).trim_end_matches('/');
     let b_base = b.split("**").next().unwrap_or(b).trim_end_matches('/');
 
-    if !a_base.is_empty() && !b_base.is_empty() {
-        if a_base.starts_with(b_base) || b_base.starts_with(a_base) {
+    if !a_base.is_empty() && !b_base.is_empty()
+        && (a_base.starts_with(b_base) || b_base.starts_with(a_base)) {
             return true;
         }
-    }
 
     false
 }
@@ -808,11 +799,10 @@ fn uri_patterns_overlap(a: &str, b: &str) -> bool {
     let base_a = a.trim_end_matches('*').trim_end_matches('/');
     let base_b = b.trim_end_matches('*').trim_end_matches('/');
 
-    if !base_a.is_empty() && !base_b.is_empty() {
-        if base_a.starts_with(base_b) || base_b.starts_with(base_a) {
+    if !base_a.is_empty() && !base_b.is_empty()
+        && (base_a.starts_with(base_b) || base_b.starts_with(base_a)) {
             return true;
         }
-    }
 
     false
 }

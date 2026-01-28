@@ -44,8 +44,8 @@ impl IndexSyncer {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().is_some_and(|ext| ext == "jsonl") {
-                if let Some(channel) = path.file_stem().and_then(|s| s.to_str()) {
+            if path.extension().is_some_and(|ext| ext == "jsonl")
+                && let Some(channel) = path.file_stem().and_then(|s| s.to_str()) {
                     match self.sync_channel(channel) {
                         Ok(count) => {
                             stats.messages_indexed += count;
@@ -56,7 +56,6 @@ impl IndexSyncer {
                         }
                     }
                 }
-            }
         }
 
         Ok(stats)
@@ -97,11 +96,10 @@ impl IndexSyncer {
             let entry = entry?;
             let path = entry.path();
 
-            if path.extension().is_some_and(|ext| ext == "jsonl") {
-                if let Some(channel) = path.file_stem().and_then(|s| s.to_str()) {
+            if path.extension().is_some_and(|ext| ext == "jsonl")
+                && let Some(channel) = path.file_stem().and_then(|s| s.to_str()) {
                     self.index.set_sync_offset(channel, 0)?;
                 }
-            }
         }
 
         self.sync_all()

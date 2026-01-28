@@ -143,6 +143,7 @@ impl ProjectState {
             .read(true)
             .write(true)
             .create(true)
+            .truncate(false)
             .open(&self.path)
             .with_context(|| {
                 format!(

@@ -167,11 +167,10 @@ impl App {
                 }
 
                 // Check if separator should auto-clear (after 2 seconds of viewing)
-                if let Some(focused_at) = self.channel_focused_at {
-                    if focused_at.elapsed() >= Duration::from_secs(2) {
+                if let Some(focused_at) = self.channel_focused_at
+                    && focused_at.elapsed() >= Duration::from_secs(2) {
                         self.clear_separator_and_mark_read(&current);
                     }
-                }
             }
         }
 
@@ -380,14 +379,12 @@ impl App {
         self.update_new_message_counts();
 
         // If current channel now has new messages, show separator
-        if let Some(channel) = self.current_channel() {
-            if self.new_message_count(&channel) > 0 {
-                if !self.separator_visible.contains(&channel) {
+        if let Some(channel) = self.current_channel()
+            && self.new_message_count(&channel) > 0
+                && !self.separator_visible.contains(&channel) {
                     self.channel_focused_at = Some(std::time::Instant::now());
                     self.separator_visible.insert(channel);
                 }
-            }
-        }
 
         Ok(())
     }
@@ -574,8 +571,8 @@ fn list_channels() -> Result<(Vec<String>, Vec<String>)> {
         for entry in std::fs::read_dir(&channels)? {
             let entry = entry?;
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "jsonl") {
-                if let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
+            if path.extension().is_some_and(|ext| ext == "jsonl")
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
                     let modified = std::fs::metadata(&path)
                         .and_then(|m| m.modified())
                         .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
@@ -587,7 +584,6 @@ fn list_channels() -> Result<(Vec<String>, Vec<String>)> {
                         public_channels.push((name.to_string(), modified));
                     }
                 }
-            }
         }
     }
 

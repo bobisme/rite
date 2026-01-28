@@ -39,11 +39,10 @@ pub const DATA_DIR_ENV_VAR: &str = "BOTBUS_DATA_DIR";
 /// values for different test cases.
 pub fn data_dir() -> PathBuf {
     // 1. Check env var override (for testing)
-    if let Ok(dir) = env::var(DATA_DIR_ENV_VAR) {
-        if !dir.is_empty() {
+    if let Ok(dir) = env::var(DATA_DIR_ENV_VAR)
+        && !dir.is_empty() {
             return PathBuf::from(dir);
         }
-    }
 
     // 2. Try XDG-compliant path
     if let Some(proj_dirs) = ProjectDirs::from("", "", "botbus") {
@@ -116,7 +115,7 @@ pub fn channel_path(channel: &str) -> PathBuf {
     );
 
     // Sanitize: remove any path separators (should never happen if CLI validates)
-    let safe_channel = channel.replace('/', "").replace('\\', "").replace("..", "");
+    let safe_channel = channel.replace(['/', '\\'], "").replace("..", "");
 
     channels_dir().join(format!("{}.jsonl", safe_channel))
 }

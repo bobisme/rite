@@ -174,7 +174,7 @@ pub fn count_records(path: &Path) -> Result<usize> {
     let reader = BufReader::new(&file);
     let count = reader
         .lines()
-        .filter_map(|l| l.ok())
+        .map_while(Result::ok)
         .filter(|l| !l.trim().is_empty())
         .count();
 

@@ -147,7 +147,7 @@ fn collect_channels(current_agent: Option<&str>) -> Result<Vec<ChannelStatus>> {
                                 cursor
                                     .last_id
                                     .as_ref()
-                                    .map_or(true, |last| m.id.to_string() > *last)
+                                    .is_none_or(|last| m.id.to_string() > *last)
                             })
                             .count(),
                     )
@@ -218,8 +218,8 @@ fn get_last_seen_times() -> HashMap<String, DateTime<Utc>> {
     if let Ok(entries) = std::fs::read_dir(&channels) {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
-            if path.extension().is_some_and(|ext| ext == "jsonl") {
-                if let Ok(messages) = read_records::<Message>(&path) {
+            if path.extension().is_some_and(|ext| ext == "jsonl")
+                && let Ok(messages) = read_records::<Message>(&path) {
                     for msg in messages {
                         let entry = last_seen.entry(msg.agent.clone()).or_insert(msg.ts);
                         if msg.ts > *entry {
@@ -227,7 +227,6 @@ fn get_last_seen_times() -> HashMap<String, DateTime<Utc>> {
                         }
                     }
                 }
-            }
         }
     }
 
@@ -287,7 +286,7 @@ fn print_status(status: &StatusOutput) {
 
             let activity = ch
                 .last_activity
-                .map(|ts| format_time_ago(ts))
+                .map(format_time_ago)
                 .unwrap_or_else(|| "no activity".to_string());
 
             println!(

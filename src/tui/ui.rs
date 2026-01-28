@@ -119,9 +119,7 @@ fn format_channel_line(
         Style::default()
             .fg(ACTIVE_BORDER)
             .add_modifier(Modifier::BOLD)
-    } else if is_selected {
-        Style::default().add_modifier(Modifier::BOLD)
-    } else if new_count > 0 {
+    } else if is_selected || new_count > 0 {
         Style::default().add_modifier(Modifier::BOLD)
     } else {
         Style::default()
@@ -150,11 +148,7 @@ fn format_channel_line_dm(
         Style::default()
             .fg(ACTIVE_BORDER)
             .add_modifier(Modifier::BOLD)
-    } else if is_selected {
-        Style::default()
-            .fg(Color::Magenta)
-            .add_modifier(Modifier::BOLD)
-    } else if new_count > 0 {
+    } else if is_selected || new_count > 0 {
         Style::default()
             .fg(Color::Magenta)
             .add_modifier(Modifier::BOLD)
@@ -212,11 +206,10 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
 
     for (idx, msg) in messages.iter().enumerate() {
         // Insert separator BEFORE the first new message
-        if let Some(pos) = separator_pos {
-            if idx == pos {
+        if let Some(pos) = separator_pos
+            && idx == pos {
                 lines.push(create_separator_line(inner_width));
             }
-        }
 
         lines.extend(format_message(msg, inner_width));
     }

@@ -219,14 +219,15 @@ fn get_last_seen_times() -> HashMap<String, DateTime<Utc>> {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "jsonl")
-                && let Ok(messages) = read_records::<Message>(&path) {
-                    for msg in messages {
-                        let entry = last_seen.entry(msg.agent.clone()).or_insert(msg.ts);
-                        if msg.ts > *entry {
-                            *entry = msg.ts;
-                        }
+                && let Ok(messages) = read_records::<Message>(&path)
+            {
+                for msg in messages {
+                    let entry = last_seen.entry(msg.agent.clone()).or_insert(msg.ts);
+                    if msg.ts > *entry {
+                        *entry = msg.ts;
                     }
                 }
+            }
         }
     }
 

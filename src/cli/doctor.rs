@@ -222,50 +222,52 @@ fn check_claims(report: &mut DoctorReport) {
 fn check_state(report: &mut DoctorReport) {
     let path = state_path();
     if let Some(parent) = path.parent()
-        && parent.exists() {
-            if is_writable(parent) {
-                report.add(Check {
-                    name: "state_storage".to_string(),
-                    status: CheckStatus::Pass,
-                    message: "State storage location is writable".to_string(),
-                    suggestion: None,
-                });
-            } else {
-                report.add(Check {
-                    name: "state_storage".to_string(),
-                    status: CheckStatus::Fail,
-                    message: "State storage location not writable".to_string(),
-                    suggestion: Some(format!("Check permissions on {}", parent.display())),
-                });
-            }
+        && parent.exists()
+    {
+        if is_writable(parent) {
+            report.add(Check {
+                name: "state_storage".to_string(),
+                status: CheckStatus::Pass,
+                message: "State storage location is writable".to_string(),
+                suggestion: None,
+            });
+        } else {
+            report.add(Check {
+                name: "state_storage".to_string(),
+                status: CheckStatus::Fail,
+                message: "State storage location not writable".to_string(),
+                suggestion: Some(format!("Check permissions on {}", parent.display())),
+            });
         }
+    }
 }
 
 fn check_index(report: &mut DoctorReport) {
     let path = index_path();
     if let Some(parent) = path.parent()
-        && parent.exists() {
-            if is_writable(parent) {
-                let index_exists = path.exists();
-                report.add(Check {
-                    name: "search_index".to_string(),
-                    status: CheckStatus::Pass,
-                    message: if index_exists {
-                        "Search index exists and location is writable".to_string()
-                    } else {
-                        "Search index location is writable (index not yet created)".to_string()
-                    },
-                    suggestion: None,
-                });
-            } else {
-                report.add(Check {
-                    name: "search_index".to_string(),
-                    status: CheckStatus::Warn,
-                    message: "Search index location not writable".to_string(),
-                    suggestion: Some(format!("Check permissions on {}", parent.display())),
-                });
-            }
+        && parent.exists()
+    {
+        if is_writable(parent) {
+            let index_exists = path.exists();
+            report.add(Check {
+                name: "search_index".to_string(),
+                status: CheckStatus::Pass,
+                message: if index_exists {
+                    "Search index exists and location is writable".to_string()
+                } else {
+                    "Search index location is writable (index not yet created)".to_string()
+                },
+                suggestion: None,
+            });
+        } else {
+            report.add(Check {
+                name: "search_index".to_string(),
+                status: CheckStatus::Warn,
+                message: "Search index location not writable".to_string(),
+                suggestion: Some(format!("Check permissions on {}", parent.display())),
+            });
         }
+    }
 }
 
 fn check_permissions(report: &mut DoctorReport) {

@@ -111,9 +111,10 @@ fn list_channels(channels_dir: &Path) -> Result<Vec<String>> {
         let entry = entry?;
         let path = entry.path();
         if path.extension().is_some_and(|ext| ext == "jsonl")
-            && let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                channels.push(name.to_string());
-            }
+            && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+        {
+            channels.push(name.to_string());
+        }
     }
 
     Ok(channels)

@@ -40,9 +40,10 @@ pub const DATA_DIR_ENV_VAR: &str = "BOTBUS_DATA_DIR";
 pub fn data_dir() -> PathBuf {
     // 1. Check env var override (for testing)
     if let Ok(dir) = env::var(DATA_DIR_ENV_VAR)
-        && !dir.is_empty() {
-            return PathBuf::from(dir);
-        }
+        && !dir.is_empty()
+    {
+        return PathBuf::from(dir);
+    }
 
     // 2. Try XDG-compliant path
     if let Some(proj_dirs) = ProjectDirs::from("", "", "botbus") {

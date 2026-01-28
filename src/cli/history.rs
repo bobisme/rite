@@ -196,23 +196,26 @@ fn filter_messages(messages: Vec<Message>, options: &HistoryOptions) -> Vec<Mess
         .filter(|msg| {
             // Filter by sender
             if let Some(from) = &options.from
-                && &msg.agent != from {
-                    return false;
-                }
+                && &msg.agent != from
+            {
+                return false;
+            }
 
             // Filter by since
             if let Some(since_str) = &options.since
                 && let Ok(since) = parse_datetime(since_str)
-                    && msg.ts < since {
-                        return false;
-                    }
+                && msg.ts < since
+            {
+                return false;
+            }
 
             // Filter by before
             if let Some(before_str) = &options.before
                 && let Ok(before) = parse_datetime(before_str)
-                    && msg.ts > before {
-                        return false;
-                    }
+                && msg.ts > before
+            {
+                return false;
+            }
 
             // Filter by labels (message must have ANY of the specified labels)
             if !options.labels.is_empty() && !msg.has_any_label(&options.labels) {
@@ -326,20 +329,22 @@ fn follow_channel(
     loop {
         // Check timeout
         if let Some(timeout) = timeout_secs
-            && start.elapsed() >= Duration::from_secs(timeout) {
-                println!("{}", format!("--- Timeout after {}s ---", timeout).dimmed());
-                break;
-            }
+            && start.elapsed() >= Duration::from_secs(timeout)
+        {
+            println!("{}", format!("--- Timeout after {}s ---", timeout).dimmed());
+            break;
+        }
 
         // Check message count limit
         if let Some(max_count) = follow_count
-            && messages_received >= max_count {
-                println!(
-                    "{}",
-                    format!("--- Received {} messages ---", max_count).dimmed()
-                );
-                break;
-            }
+            && messages_received >= max_count
+        {
+            println!(
+                "{}",
+                format!("--- Received {} messages ---", max_count).dimmed()
+            );
+            break;
+        }
 
         let changed = debounce_events(&rx, Duration::from_millis(100));
         let channel_changes = filter_channel_events(changed);
@@ -357,13 +362,14 @@ fn follow_channel(
 
                 // Check if we've hit the message limit after each message
                 if let Some(max_count) = follow_count
-                    && messages_received >= max_count {
-                        println!(
-                            "{}",
-                            format!("--- Received {} messages ---", max_count).dimmed()
-                        );
-                        return Ok(());
-                    }
+                    && messages_received >= max_count
+                {
+                    println!(
+                        "{}",
+                        format!("--- Received {} messages ---", max_count).dimmed()
+                    );
+                    return Ok(());
+                }
             }
 
             offset = new_offset;

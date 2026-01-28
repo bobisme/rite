@@ -93,15 +93,16 @@ fn get_agent_stats() -> HashMap<String, (DateTime<Utc>, usize)> {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "jsonl")
-                && let Ok(messages) = read_records::<Message>(&path) {
-                    for msg in messages {
-                        let entry = stats.entry(msg.agent.clone()).or_insert((msg.ts, 0));
-                        if msg.ts > entry.0 {
-                            entry.0 = msg.ts;
-                        }
-                        entry.1 += 1;
+                && let Ok(messages) = read_records::<Message>(&path)
+            {
+                for msg in messages {
+                    let entry = stats.entry(msg.agent.clone()).or_insert((msg.ts, 0));
+                    if msg.ts > entry.0 {
+                        entry.0 = msg.ts;
                     }
+                    entry.1 += 1;
                 }
+            }
         }
     }
 

@@ -50,9 +50,7 @@ fn expand_pattern(pattern: &str) -> String {
         (&pattern[..base_end], &pattern[base_end..])
     } else if pattern.contains('*') || pattern.contains('?') || pattern.contains('[') {
         // Simple glob - find last / before any glob char
-        let glob_start = pattern
-            .find(['*', '?', '['])
-            .unwrap_or(pattern.len());
+        let glob_start = pattern.find(['*', '?', '[']).unwrap_or(pattern.len());
         let base_end = pattern[..glob_start].rfind('/').map(|i| i + 1).unwrap_or(0);
         (&pattern[..base_end], &pattern[base_end..])
     } else {
@@ -640,9 +638,10 @@ fn path_matches_pattern(path: &str, pattern: &str) -> bool {
         let mut builder = GlobSetBuilder::new();
         builder.add(glob);
         if let Ok(set) = builder.build()
-            && set.is_match(path) {
-                return true;
-            }
+            && set.is_match(path)
+        {
+            return true;
+        }
     }
 
     // Also check prefix matching for directory patterns
@@ -759,24 +758,28 @@ fn patterns_overlap(a: &str, b: &str) -> bool {
 
     // Check if b matches a as a literal path
     if let Some(ref set) = set_b
-        && set.is_match(a) {
-            return true;
-        }
+        && set.is_match(a)
+    {
+        return true;
+    }
 
     // Check if a matches b as a literal path
     if let Some(ref set) = set_a
-        && set.is_match(b) {
-            return true;
-        }
+        && set.is_match(b)
+    {
+        return true;
+    }
 
     // Check for common prefix (simple heuristic)
     let a_base = a.split("**").next().unwrap_or(a).trim_end_matches('/');
     let b_base = b.split("**").next().unwrap_or(b).trim_end_matches('/');
 
-    if !a_base.is_empty() && !b_base.is_empty()
-        && (a_base.starts_with(b_base) || b_base.starts_with(a_base)) {
-            return true;
-        }
+    if !a_base.is_empty()
+        && !b_base.is_empty()
+        && (a_base.starts_with(b_base) || b_base.starts_with(a_base))
+    {
+        return true;
+    }
 
     false
 }
@@ -799,10 +802,12 @@ fn uri_patterns_overlap(a: &str, b: &str) -> bool {
     let base_a = a.trim_end_matches('*').trim_end_matches('/');
     let base_b = b.trim_end_matches('*').trim_end_matches('/');
 
-    if !base_a.is_empty() && !base_b.is_empty()
-        && (base_a.starts_with(base_b) || base_b.starts_with(base_a)) {
-            return true;
-        }
+    if !base_a.is_empty()
+        && !base_b.is_empty()
+        && (base_a.starts_with(base_b) || base_b.starts_with(base_a))
+    {
+        return true;
+    }
 
     false
 }

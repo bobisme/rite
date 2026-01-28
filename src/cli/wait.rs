@@ -87,23 +87,24 @@ pub fn run(options: WaitOptions, explicit_agent: Option<&str>) -> Result<()> {
     loop {
         // Check timeout
         if let Some(timeout) = timeout_duration
-            && start.elapsed() >= timeout {
-                let output = WaitOutput {
-                    received: false,
-                    message: None,
-                    channel: None,
-                    reason: "timeout".to_string(),
-                };
+            && start.elapsed() >= timeout
+        {
+            let output = WaitOutput {
+                received: false,
+                message: None,
+                channel: None,
+                reason: "timeout".to_string(),
+            };
 
-                if options.json {
-                    println!("{}", serde_json::to_string_pretty(&output)?);
-                } else {
-                    println!("{} Timeout after {}s", "✗".red(), timeout.as_secs());
-                }
-
-                // Exit with code 1 on timeout
-                std::process::exit(1);
+            if options.json {
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            } else {
+                println!("{} Timeout after {}s", "✗".red(), timeout.as_secs());
             }
+
+            // Exit with code 1 on timeout
+            std::process::exit(1);
+        }
 
         // Wait for file changes (with short poll interval for timeout checking)
         let poll_duration = Duration::from_millis(500);
@@ -114,9 +115,10 @@ pub fn run(options: WaitOptions, explicit_agent: Option<&str>) -> Result<()> {
         for channel_name in changed_channels {
             // Skip if we're filtering to a specific channel
             if let Some(ref filter_channel) = options.channel
-                && &channel_name != filter_channel {
-                    continue;
-                }
+                && &channel_name != filter_channel
+            {
+                continue;
+            }
 
             let channel_path = channels_path.join(format!("{}.jsonl", channel_name));
             let offset = channel_offsets.get(&channel_name).copied().unwrap_or(0);
@@ -189,16 +191,18 @@ fn collect_channel_offsets(
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "jsonl")
-                && let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    // Skip if filtering to specific channel
-                    if let Some(filter) = filter_channel
-                        && name != filter {
-                            continue;
-                        }
-
-                    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    offsets.insert(name.to_string(), size);
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+            {
+                // Skip if filtering to specific channel
+                if let Some(filter) = filter_channel
+                    && name != filter
+                {
+                    continue;
                 }
+
+                let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
+                offsets.insert(name.to_string(), size);
+            }
         }
     }
 

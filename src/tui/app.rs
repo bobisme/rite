@@ -168,9 +168,10 @@ impl App {
 
                 // Check if separator should auto-clear (after 2 seconds of viewing)
                 if let Some(focused_at) = self.channel_focused_at
-                    && focused_at.elapsed() >= Duration::from_secs(2) {
-                        self.clear_separator_and_mark_read(&current);
-                    }
+                    && focused_at.elapsed() >= Duration::from_secs(2)
+                {
+                    self.clear_separator_and_mark_read(&current);
+                }
             }
         }
 
@@ -381,10 +382,11 @@ impl App {
         // If current channel now has new messages, show separator
         if let Some(channel) = self.current_channel()
             && self.new_message_count(&channel) > 0
-                && !self.separator_visible.contains(&channel) {
-                    self.channel_focused_at = Some(std::time::Instant::now());
-                    self.separator_visible.insert(channel);
-                }
+            && !self.separator_visible.contains(&channel)
+        {
+            self.channel_focused_at = Some(std::time::Instant::now());
+            self.separator_visible.insert(channel);
+        }
 
         Ok(())
     }
@@ -572,18 +574,19 @@ fn list_channels() -> Result<(Vec<String>, Vec<String>)> {
             let entry = entry?;
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "jsonl")
-                && let Some(name) = path.file_stem().and_then(|s| s.to_str()) {
-                    let modified = std::fs::metadata(&path)
-                        .and_then(|m| m.modified())
-                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+            {
+                let modified = std::fs::metadata(&path)
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
 
-                    if name.starts_with("_dm_") {
-                        // Show ALL DMs - omniscient observer view
-                        dm_channels.push((name.to_string(), modified));
-                    } else {
-                        public_channels.push((name.to_string(), modified));
-                    }
+                if name.starts_with("_dm_") {
+                    // Show ALL DMs - omniscient observer view
+                    dm_channels.push((name.to_string(), modified));
+                } else {
+                    public_channels.push((name.to_string(), modified));
                 }
+            }
         }
     }
 

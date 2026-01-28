@@ -207,9 +207,10 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
     for (idx, msg) in messages.iter().enumerate() {
         // Insert separator BEFORE the first new message
         if let Some(pos) = separator_pos
-            && idx == pos {
-                lines.push(create_separator_line(inner_width));
-            }
+            && idx == pos
+        {
+            lines.push(create_separator_line(inner_width));
+        }
 
         lines.extend(format_message(msg, inner_width));
     }

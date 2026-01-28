@@ -234,9 +234,10 @@ fn get_dm_channels_for_agent(agent: &str) -> Result<Vec<String>> {
 
         if is_dm_channel(&channel_name)
             && let Some((a, b)) = dm_agents(&channel_name)
-                && (a == agent || b == agent) {
-                    dm_channels.push(channel_name);
-                }
+            && (a == agent || b == agent)
+        {
+            dm_channels.push(channel_name);
+        }
     }
 
     Ok(dm_channels)

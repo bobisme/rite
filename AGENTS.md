@@ -529,3 +529,94 @@ crit reviews merge <review_id> --self-approve
 - Works across jj workspaces (shared .crit/ in main repo)
 
 <!-- end-crit-agent-instructions -->
+
+<!-- maw-agent-instructions-v1 -->
+
+## Multi-Agent Workflow with MAW
+
+This project uses MAW for coordinating multiple agents via jj workspaces.
+Each agent gets an isolated working copy and **their own commit** - you can edit files without blocking other agents.
+
+### Quick Start
+
+```bash
+maw ws create <your-name>      # Creates workspace + your own commit
+cd .workspaces/<your-name>
+# ... edit files ...
+jj describe -m "feat: what you did"
+maw ws status                  # See all agent work
+```
+
+### Quick Reference
+
+| Task | Command |
+|------|---------|
+| Create workspace | `maw ws create <name>` |
+| Check status | `maw ws status` |
+| Sync stale workspace | `maw ws sync` |
+| Run jj in workspace | `maw ws jj <name> <args>` |
+| Merge work | `maw ws merge <a> <b>` |
+| Destroy workspace | `maw ws destroy <name> --force` |
+
+**Note:** Your workspace starts with an empty commit. This is intentional - it gives you ownership immediately, preventing conflicts when multiple agents work concurrently.
+
+### Session Start
+
+Always run at the beginning of a session:
+
+```bash
+maw ws sync                    # Handle stale workspace (safe if not stale)
+maw ws status                  # See all agent work
+```
+
+### During Work
+
+```bash
+maw ws jj <name> diff                        # See changes
+maw ws jj <name> log                         # See commit graph
+maw ws jj <name> log -r 'working_copies()'   # See all workspace commits
+maw ws jj <name> describe -m "feat: ..."     # Save work to your commit
+maw ws jj <name> commit -m "feat: ..."       # Commit and start fresh
+```
+
+`maw ws jj` runs jj in the workspace directory. Use this instead of `cd .workspaces/<name> && jj ...` — it works reliably in sandboxed environments where cd doesn't persist.
+
+### Stale Workspace
+
+If you see "working copy is stale":
+
+```bash
+maw ws sync
+```
+
+### Conflicts
+
+jj records conflicts in commits (non-blocking). If you see conflicts:
+
+```bash
+jj status                      # Shows conflicted files
+# Edit files to resolve
+jj describe -m "resolve: ..."
+```
+
+### Pushing to Remote (Coordinator)
+
+After merging workspaces, `maw ws merge` checks for push blockers and warns you.
+If it reports undescribed commits, fix them before pushing:
+
+```bash
+# Option A: rebase merge onto clean base (skips scaffolding commits)
+jj rebase -r @- -d main
+
+# Option B: describe the empty commits
+jj describe <change-id> -m "workspace setup"
+```
+
+Then move the bookmark and push:
+
+```bash
+jj bookmark set main -r @-     # Move main to merge commit
+jj git push                    # Push to remote
+```
+
+<!-- end-maw-agent-instructions -->

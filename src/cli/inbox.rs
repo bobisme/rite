@@ -3,13 +3,15 @@
 use anyhow::Result;
 use colored::Colorize;
 use serde::Serialize;
+use std::collections::HashMap;
 
 use crate::cli::history::{self, HistoryOptions, HistoryOutput};
 use crate::cli::OutputFormat;
 use crate::core::identity::require_agent;
 use crate::core::message::Message;
-use crate::core::project::data_dir;
+use crate::core::project::{channels_dir, data_dir};
 use crate::storage::agent_state::AgentStateManager;
+use crate::storage::jsonl::read_records;
 
 pub struct InboxOptions {
     /// Channel to check (default: general)
@@ -20,6 +22,8 @@ pub struct InboxOptions {
     pub mark_read: bool,
     /// Output format
     pub format: OutputFormat,
+    /// Check all channels for @mentions of current agent
+    pub mentions: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -31,10 +35,28 @@ pub struct InboxOutput {
     pub marked_read: bool,
 }
 
+#[derive(Debug, Serialize)]
+pub struct MentionedMessage {
+    pub message: Message,
+    pub channel: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct MentionsOutput {
+    pub mentions: Vec<MentionedMessage>,
+    pub total_count: usize,
+}
+
 /// Show unread messages for the current agent.
 pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
     let agent = require_agent(explicit_agent)?;
 
+    // Handle mentions mode: scan all channels for @mentions
+    if options.mentions {
+        return run_mentions_mode(&options, &agent);
+    }
+
+    // Single-channel mode (original behavior)
     let channel = options
         .channel
         .clone()
@@ -137,6 +159,138 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
                     channel,
                     channel
                 );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Scan all channels for messages mentioning the current agent.
+fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
+    let channels_path = channels_dir();
+
+    if !channels_path.exists() {
+        match options.format {
+            OutputFormat::Json => {
+                let output = MentionsOutput {
+                    mentions: vec![],
+                    total_count: 0,
+                };
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            }
+            OutputFormat::Toon => {
+                println!("total_count: 0");
+                println!();
+                println!("mentions: []");
+            }
+            OutputFormat::Text => {
+                println!("{} No mentions found", "✓".green());
+            }
+        }
+        return Ok(());
+    }
+
+    // Read all channel files
+    let entries: Vec<_> = std::fs::read_dir(&channels_path)?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
+        .collect();
+
+    // Collect all messages that mention this agent
+    let mut all_mentions: Vec<MentionedMessage> = Vec::new();
+
+    for entry in entries {
+        let path = entry.path();
+        let channel_name = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+
+        // Read all messages from this channel
+        let messages: Vec<Message> = read_records(&path).unwrap_or_default();
+
+        // Filter for messages mentioning this agent (case-sensitive)
+        for msg in messages {
+            // Check if agent is in the mentions field
+            if msg.mentions.iter().any(|m| m == agent) {
+                all_mentions.push(MentionedMessage {
+                    message: msg,
+                    channel: channel_name.clone(),
+                });
+            }
+        }
+    }
+
+    // Sort by timestamp (most recent first)
+    all_mentions.sort_by(|a, b| b.message.ts.cmp(&a.message.ts));
+
+    // Apply count limit
+    let limited_mentions: Vec<_> = all_mentions
+        .into_iter()
+        .take(options.count)
+        .collect();
+
+    let total_count = limited_mentions.len();
+
+    // Handle output format
+    match options.format {
+        OutputFormat::Json => {
+            let output = MentionsOutput {
+                mentions: limited_mentions,
+                total_count,
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Toon => {
+            println!("total_count: {}", total_count);
+            println!();
+            println!("mentions:");
+            for mention in &limited_mentions {
+                println!("  - channel: {}", mention.channel);
+                println!("    id: {}", mention.message.id);
+                println!("    agent: {}", mention.message.agent);
+                println!("    ts: {}", mention.message.ts.to_rfc3339());
+                println!("    body: {}", mention.message.body);
+            }
+        }
+        OutputFormat::Text => {
+            if limited_mentions.is_empty() {
+                println!("{} No mentions found", "✓".green());
+                return Ok(());
+            }
+
+            // Print header
+            println!(
+                "{} {} mention{} of @{}",
+                "→".cyan(),
+                total_count,
+                if total_count == 1 { "" } else { "s" },
+                agent.yellow().bold()
+            );
+            println!();
+
+            // Group by channel for cleaner display
+            let mut by_channel: HashMap<String, Vec<&MentionedMessage>> = HashMap::new();
+            for mention in &limited_mentions {
+                by_channel
+                    .entry(mention.channel.clone())
+                    .or_default()
+                    .push(mention);
+            }
+
+            // Sort channels alphabetically
+            let mut channels: Vec<_> = by_channel.keys().cloned().collect();
+            channels.sort();
+
+            for channel in channels {
+                let mentions = by_channel.get(&channel).unwrap();
+                println!("{}", format!("#{}", channel).cyan().bold());
+                for mention in mentions {
+                    print_message(&mention.message);
+                }
+                println!();
             }
         }
     }

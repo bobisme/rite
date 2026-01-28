@@ -186,7 +186,7 @@ fn extract_mentions(body: &str) -> Vec<String> {
         if c == '@' {
             let mut name = String::new();
             while let Some(&next) = chars.peek() {
-                if next.is_alphanumeric() || next == '_' {
+                if next.is_alphanumeric() || next == '_' || next == '-' {
                     name.push(chars.next().unwrap());
                 } else {
                     break;
@@ -227,6 +227,15 @@ mod tests {
         assert_eq!(extract_mentions("No mentions here"), Vec::<String>::new());
         assert_eq!(extract_mentions("@SingleMention"), vec!["SingleMention"]);
         assert_eq!(extract_mentions("Email test@example.com"), vec!["example"]);
+        // Test hyphenated agent names (kebab-case)
+        assert_eq!(
+            extract_mentions("Hey @iron-bear and @swift-falcon"),
+            vec!["iron-bear", "swift-falcon"]
+        );
+        assert_eq!(
+            extract_mentions("@multi-word-agent-name test"),
+            vec!["multi-word-agent-name"]
+        );
     }
 
     #[test]

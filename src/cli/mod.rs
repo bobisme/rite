@@ -266,6 +266,10 @@ pub enum Commands {
         /// Mark as read after displaying
         #[arg(long)]
         mark_read: bool,
+
+        /// Check all channels for @mentions of current agent
+        #[arg(long)]
+        mentions: bool,
     },
 
     /// Show status overview

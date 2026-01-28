@@ -147,12 +147,14 @@ fn main() -> Result<()> {
             channel,
             count,
             mark_read,
+            mentions,
         } => cli::inbox::run(
             cli::inbox::InboxOptions {
                 channel,
                 count,
                 mark_read,
                 format,
+                mentions,
             },
             cli.agent.as_deref(),
         ),

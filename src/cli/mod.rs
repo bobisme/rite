@@ -276,6 +276,10 @@ pub enum Commands {
         /// Check all channels for @mentions of current agent
         #[arg(long)]
         mentions: bool,
+
+        /// Only show the count of unread messages (no message content)
+        #[arg(long)]
+        count_only: bool,
     },
 
     /// Show status overview

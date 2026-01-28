@@ -149,6 +149,7 @@ fn main() -> Result<()> {
             count,
             mark_read,
             mentions,
+            count_only,
         } => cli::inbox::run(
             cli::inbox::InboxOptions {
                 channels,
@@ -157,6 +158,7 @@ fn main() -> Result<()> {
                 format,
                 all,
                 mentions,
+                count_only,
             },
             cli.agent.as_deref(),
         ),

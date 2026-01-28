@@ -27,6 +27,8 @@ pub struct InboxOptions {
     pub all: bool,
     /// Check all channels for @mentions of current agent
     pub mentions: bool,
+    /// Only show the count of unread messages
+    pub count_only: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -134,6 +136,12 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
             next_offset: output.next_offset,
             marked_read,
         });
+    }
+
+    // Handle count-only mode
+    if options.count_only {
+        println!("{}", total_unread);
+        return Ok(());
     }
 
     // Handle output format

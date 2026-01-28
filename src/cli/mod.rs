@@ -101,7 +101,7 @@ pub enum Commands {
         channel: Option<String>,
 
         /// Number of messages (default: 50)
-        #[arg(short = 'n', long, default_value = "50")]
+        #[arg(short = 'n', long, alias = "limit", default_value = "50")]
         count: usize,
 
         /// Follow mode (like tail -f)

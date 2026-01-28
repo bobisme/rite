@@ -15,6 +15,7 @@ pub mod names;
 pub mod search;
 pub mod send;
 pub mod status;
+pub mod subscribe;
 pub mod ui;
 pub mod wait;
 pub mod watch;
@@ -296,6 +297,21 @@ pub enum Commands {
         #[command(subcommand)]
         command: AgentsMdCommands,
     },
+
+    /// Subscribe to a channel
+    Subscribe {
+        /// Channel to subscribe to
+        channel: String,
+    },
+
+    /// Unsubscribe from a channel
+    Unsubscribe {
+        /// Channel to unsubscribe from
+        channel: String,
+    },
+
+    /// List subscribed channels
+    Subscriptions,
 }
 
 #[derive(Subcommand)]

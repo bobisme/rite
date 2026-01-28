@@ -26,6 +26,10 @@ pub struct AgentState {
     /// Last read timestamp per channel
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub last_read_times: HashMap<String, DateTime<Utc>>,
+
+    /// Channels this agent is subscribed to
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub subscribed_channels: Vec<String>,
 }
 
 impl AgentState {
@@ -245,6 +249,39 @@ impl AgentStateManager {
             last_time: state.last_read_times.get(channel).copied(),
         })
     }
+
+    /// Subscribe to a channel.
+    pub fn subscribe(&self, channel: &str) -> Result<bool> {
+        let mut added = false;
+        self.update(|s| {
+            if !s.subscribed_channels.contains(&channel.to_string()) {
+                s.subscribed_channels.push(channel.to_string());
+                added = true;
+            }
+        })?;
+        Ok(added)
+    }
+
+    /// Unsubscribe from a channel.
+    pub fn unsubscribe(&self, channel: &str) -> Result<bool> {
+        let mut removed = false;
+        self.update(|s| {
+            if let Some(pos) = s
+                .subscribed_channels
+                .iter()
+                .position(|c| c == channel)
+            {
+                s.subscribed_channels.remove(pos);
+                removed = true;
+            }
+        })?;
+        Ok(removed)
+    }
+
+    /// Get list of subscribed channels.
+    pub fn get_subscribed_channels(&self) -> Result<Vec<String>> {
+        Ok(self.load()?.subscribed_channels)
+    }
 }
 
 /// Read cursor information for a channel.
@@ -387,5 +424,67 @@ mod tests {
             "Expected {} increments but got {} - updates were lost!",
             expected, final_count
         );
+    }
+
+    #[test]
+    fn test_subscribe_channel() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("state.json");
+        let manager = AgentStateManager::from_path(&path);
+
+        // Subscribe to a channel
+        let added = manager.subscribe("general").unwrap();
+        assert!(added);
+
+        // Verify subscription
+        let channels = manager.get_subscribed_channels().unwrap();
+        assert_eq!(channels, vec!["general"]);
+
+        // Subscribe to same channel again (should be idempotent)
+        let added = manager.subscribe("general").unwrap();
+        assert!(!added);
+
+        let channels = manager.get_subscribed_channels().unwrap();
+        assert_eq!(channels, vec!["general"]);
+    }
+
+    #[test]
+    fn test_unsubscribe_channel() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("state.json");
+        let manager = AgentStateManager::from_path(&path);
+
+        // Subscribe to channels
+        manager.subscribe("general").unwrap();
+        manager.subscribe("dev").unwrap();
+
+        // Unsubscribe from one
+        let removed = manager.unsubscribe("general").unwrap();
+        assert!(removed);
+
+        let channels = manager.get_subscribed_channels().unwrap();
+        assert_eq!(channels, vec!["dev"]);
+
+        // Unsubscribe from non-existent (should be idempotent)
+        let removed = manager.unsubscribe("general").unwrap();
+        assert!(!removed);
+    }
+
+    #[test]
+    fn test_multiple_subscriptions() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("state.json");
+        let manager = AgentStateManager::from_path(&path);
+
+        // Subscribe to multiple channels
+        manager.subscribe("general").unwrap();
+        manager.subscribe("dev").unwrap();
+        manager.subscribe("ops").unwrap();
+
+        let channels = manager.get_subscribed_channels().unwrap();
+        assert_eq!(channels.len(), 3);
+        assert!(channels.contains(&"general".to_string()));
+        assert!(channels.contains(&"dev".to_string()));
+        assert!(channels.contains(&"ops".to_string()));
     }
 }

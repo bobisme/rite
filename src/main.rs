@@ -179,5 +179,11 @@ fn main() -> Result<()> {
             cli::AgentsMdCommands::Init { file, remove } => cli::agentsmd::run_init(file, remove),
             cli::AgentsMdCommands::Show => cli::agentsmd::run_show(),
         },
+
+        Commands::Subscribe { channel } => cli::subscribe::subscribe(channel, cli.agent.as_deref()),
+
+        Commands::Unsubscribe { channel } => cli::subscribe::unsubscribe(channel, cli.agent.as_deref()),
+
+        Commands::Subscriptions => cli::subscribe::list_subscriptions(cli.agent.as_deref()),
     }
 }

@@ -519,6 +519,10 @@ fn draw_help_overlay(f: &mut Frame) {
             Span::raw("Switch between panes"),
         ]),
         Line::from(vec![
+            Span::styled("  h/l       ", Style::default().fg(HELP_KEY)),
+            Span::raw("Switch to left/right pane"),
+        ]),
+        Line::from(vec![
             Span::styled("  j/k       ", Style::default().fg(HELP_KEY)),
             Span::raw("Scroll down/up (1 line)"),
         ]),

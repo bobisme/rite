@@ -198,6 +198,14 @@ impl App {
                 };
                 return Ok(());
             }
+            KeyCode::Char('h') => {
+                self.focus = Focus::Channels;
+                return Ok(());
+            }
+            KeyCode::Char('l') => {
+                self.focus = Focus::Messages;
+                return Ok(());
+            }
             KeyCode::Char('?') => {
                 self.show_help = true;
                 return Ok(());

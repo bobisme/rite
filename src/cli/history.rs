@@ -1,6 +1,6 @@
 //! View message history.
 
-use anyhow::{anyhow, Context, Result};
+use anyhow::{Context, Result, anyhow};
 use chrono::{DateTime, Local, Utc};
 use colored::Colorize;
 use serde::Serialize;
@@ -385,7 +385,7 @@ fn follow_channel(
 mod tests {
     use super::*;
     use crate::cli::send;
-    use crate::core::project::{ensure_data_dir, DATA_DIR_ENV_VAR};
+    use crate::core::project::{DATA_DIR_ENV_VAR, ensure_data_dir};
     use serial_test::serial;
     use std::env;
     use tempfile::TempDir;

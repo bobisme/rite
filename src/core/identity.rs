@@ -7,7 +7,7 @@
 //! BotBus is stateless about identity - it trusts whatever name is provided.
 //! The orchestrator/user is responsible for persisting identity across sessions.
 
-use anyhow::{anyhow, Result};
+use anyhow::{Result, anyhow};
 use std::env;
 
 /// Environment variable name for agent identity.

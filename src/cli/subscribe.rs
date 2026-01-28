@@ -15,17 +15,9 @@ pub fn subscribe(channel: String, explicit_agent: Option<&str>) -> Result<()> {
     let added = manager.subscribe(&channel)?;
 
     if added {
-        println!(
-            "{} Subscribed to #{}",
-            "✓".green(),
-            channel.cyan()
-        );
+        println!("{} Subscribed to #{}", "✓".green(), channel.cyan());
     } else {
-        println!(
-            "{} Already subscribed to #{}",
-            "ℹ".blue(),
-            channel.cyan()
-        );
+        println!("{} Already subscribed to #{}", "ℹ".blue(), channel.cyan());
     }
 
     Ok(())
@@ -39,17 +31,9 @@ pub fn unsubscribe(channel: String, explicit_agent: Option<&str>) -> Result<()> 
     let removed = manager.unsubscribe(&channel)?;
 
     if removed {
-        println!(
-            "{} Unsubscribed from #{}",
-            "✓".green(),
-            channel.cyan()
-        );
+        println!("{} Unsubscribed from #{}", "✓".green(), channel.cyan());
     } else {
-        println!(
-            "{} Not subscribed to #{}",
-            "ℹ".blue(),
-            channel.cyan()
-        );
+        println!("{} Not subscribed to #{}", "ℹ".blue(), channel.cyan());
     }
 
     Ok(())

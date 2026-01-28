@@ -266,11 +266,7 @@ impl AgentStateManager {
     pub fn unsubscribe(&self, channel: &str) -> Result<bool> {
         let mut removed = false;
         self.update(|s| {
-            if let Some(pos) = s
-                .subscribed_channels
-                .iter()
-                .position(|c| c == channel)
-            {
+            if let Some(pos) = s.subscribed_channels.iter().position(|c| c == channel) {
                 s.subscribed_channels.remove(pos);
                 removed = true;
             }

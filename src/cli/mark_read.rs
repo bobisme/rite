@@ -1,6 +1,6 @@
 //! Mark channel as read command.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use colored::Colorize;
 
 use crate::core::identity::require_agent;

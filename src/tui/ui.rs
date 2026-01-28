@@ -1,10 +1,10 @@
 use chrono::{DateTime, Local};
 use ratatui::{
+    Frame,
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph},
-    Frame,
 };
 
 use super::app::{App, Focus};
@@ -380,7 +380,9 @@ fn highlight_mentions(text: &str) -> Vec<Span<'static>> {
                 // Add mention in blue
                 spans.push(Span::styled(
                     text[mention_start..mention_end].to_string(),
-                    Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
+                    Style::default()
+                        .fg(Color::Blue)
+                        .add_modifier(Modifier::BOLD),
                 ));
 
                 last_end = mention_end;

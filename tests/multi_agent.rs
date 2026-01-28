@@ -297,12 +297,16 @@ fn test_concurrent_message_sending() {
         .collect();
 
     for i in 0..5 {
-        assert!(bodies
-            .iter()
-            .any(|b| b.contains(&format!("Agent1 message {}", i))));
-        assert!(bodies
-            .iter()
-            .any(|b| b.contains(&format!("Agent2 message {}", i))));
+        assert!(
+            bodies
+                .iter()
+                .any(|b| b.contains(&format!("Agent1 message {}", i)))
+        );
+        assert!(
+            bodies
+                .iter()
+                .any(|b| b.contains(&format!("Agent2 message {}", i)))
+        );
     }
 }
 

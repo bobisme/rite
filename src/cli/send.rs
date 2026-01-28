@@ -1,6 +1,6 @@
 //! Send messages to channels or agents.
 
-use anyhow::{bail, Context, Result};
+use anyhow::{Context, Result, bail};
 use colored::Colorize;
 
 use crate::core::channel::{dm_channel_name, is_valid_channel_name};
@@ -133,7 +133,7 @@ fn parse_attachments(specs: &[String]) -> Result<Vec<Attachment>> {
 mod tests {
     use super::*;
     use crate::core::identity::AGENT_ENV_VAR;
-    use crate::core::project::{ensure_data_dir, DATA_DIR_ENV_VAR};
+    use crate::core::project::{DATA_DIR_ENV_VAR, ensure_data_dir};
     use crate::storage::jsonl::read_records;
     use serial_test::serial;
     use std::env;

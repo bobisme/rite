@@ -40,7 +40,7 @@ pub fn run() -> Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::core::project::{channels_dir, claims_path, state_path, DATA_DIR_ENV_VAR};
+    use crate::core::project::{DATA_DIR_ENV_VAR, channels_dir, claims_path, state_path};
     use serial_test::serial;
     use std::env;
     use tempfile::TempDir;

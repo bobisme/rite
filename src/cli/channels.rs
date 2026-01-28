@@ -178,7 +178,7 @@ fn format_time_ago(ts: DateTime<Utc>) -> String {
 mod tests {
     use super::*;
     use crate::cli::send;
-    use crate::core::project::{ensure_data_dir, DATA_DIR_ENV_VAR};
+    use crate::core::project::{DATA_DIR_ENV_VAR, ensure_data_dir};
     use serial_test::serial;
     use std::env;
     use tempfile::TempDir;

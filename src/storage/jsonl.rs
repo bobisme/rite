@@ -1,6 +1,6 @@
 use anyhow::{Context, Result};
 use fs2::FileExt;
-use serde::{de::DeserializeOwned, Serialize};
+use serde::{Serialize, de::DeserializeOwned};
 use std::fs::{File, OpenOptions};
 use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
 use std::path::Path;

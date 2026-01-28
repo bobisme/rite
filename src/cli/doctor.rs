@@ -9,8 +9,8 @@ use std::fs;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
-use super::format::to_toon;
 use super::OutputFormat;
+use super::format::to_toon;
 use crate::core::identity::resolve_agent;
 use crate::core::names::is_valid_name;
 use crate::core::project::{channels_dir, claims_path, data_dir, index_path, state_path};

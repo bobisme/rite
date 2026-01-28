@@ -6,8 +6,8 @@ use colored::Colorize;
 use serde::Serialize;
 use std::collections::HashMap;
 
-use super::format::to_toon;
 use super::OutputFormat;
+use super::format::to_toon;
 use crate::core::claim::FileClaim;
 use crate::core::identity::resolve_agent;
 use crate::core::message::Message;

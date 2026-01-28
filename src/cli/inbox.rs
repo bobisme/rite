@@ -5,8 +5,8 @@ use colored::Colorize;
 use serde::Serialize;
 use std::collections::HashMap;
 
-use crate::cli::history::{self, HistoryOptions, HistoryOutput};
 use crate::cli::OutputFormat;
+use crate::cli::history::{self, HistoryOptions, HistoryOutput};
 use crate::core::channel::{dm_agents, is_dm_channel};
 use crate::core::identity::require_agent;
 use crate::core::message::Message;
@@ -58,7 +58,6 @@ pub struct MentionsOutput {
     pub mentions: Vec<MentionedMessage>,
     pub total_count: usize,
 }
-
 
 /// Show unread messages for the current agent.
 pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
@@ -362,10 +361,7 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
     all_mentions.sort_by(|a, b| b.message.ts.cmp(&a.message.ts));
 
     // Apply count limit
-    let limited_mentions: Vec<_> = all_mentions
-        .into_iter()
-        .take(options.count)
-        .collect();
+    let limited_mentions: Vec<_> = all_mentions.into_iter().take(options.count).collect();
 
     let total_count = limited_mentions.len();
 

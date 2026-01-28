@@ -1,10 +1,10 @@
 //! Display current agent identity.
 
-use anyhow::{bail, Result};
+use anyhow::{Result, bail};
 use colored::Colorize;
 use serde::Serialize;
 
-use crate::core::identity::{format_export, resolve_agent, AGENT_ENV_VAR};
+use crate::core::identity::{AGENT_ENV_VAR, format_export, resolve_agent};
 use crate::core::project::data_dir;
 
 #[derive(Debug, Serialize)]

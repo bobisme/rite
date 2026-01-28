@@ -3,8 +3,8 @@ use chrono::{DateTime, Local, Utc};
 use colored::Colorize;
 use serde::Serialize;
 
-use crate::index::fts::SearchResult;
 use crate::index::IndexSyncer;
+use crate::index::fts::SearchResult;
 
 pub struct SearchOptions {
     pub query: String,

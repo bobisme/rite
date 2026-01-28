@@ -5,8 +5,8 @@ use globset::{Glob, GlobSetBuilder};
 use serde::Serialize;
 use std::path::Path;
 
-use super::format::{to_toon, to_toon_list};
 use super::OutputFormat;
+use super::format::{to_toon, to_toon_list};
 use crate::core::claim::FileClaim;
 use crate::core::identity::{require_agent, resolve_agent};
 use crate::core::message::{Message, MessageMeta};

@@ -5,6 +5,7 @@ use colored::Colorize;
 use serde::Serialize;
 
 use crate::cli::history::{self, HistoryOptions, HistoryOutput};
+use crate::cli::OutputFormat;
 use crate::core::identity::require_agent;
 use crate::core::message::Message;
 use crate::core::project::data_dir;
@@ -17,8 +18,8 @@ pub struct InboxOptions {
     pub count: usize,
     /// Auto-mark as read after displaying
     pub mark_read: bool,
-    /// Output as JSON
-    pub json: bool,
+    /// Output format
+    pub format: OutputFormat,
 }
 
 #[derive(Debug, Serialize)]
@@ -71,54 +72,73 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
         false
     };
 
-    if options.json {
-        let json_output = InboxOutput {
-            channel: channel.clone(),
-            unread_count: output.messages.len(),
-            messages: output.messages,
-            next_offset: output.next_offset,
-            marked_read,
-        };
-        println!("{}", serde_json::to_string_pretty(&json_output)?);
-        return Ok(());
-    }
+    // Handle output format
+    match options.format {
+        OutputFormat::Json => {
+            let json_output = InboxOutput {
+                channel: channel.clone(),
+                unread_count: output.messages.len(),
+                messages: output.messages,
+                next_offset: output.next_offset,
+                marked_read,
+            };
+            println!("{}", serde_json::to_string_pretty(&json_output)?);
+        }
+        OutputFormat::Toon => {
+            // TOON format: minimal, structured text
+            println!("channel: {}", channel);
+            println!("unread_count: {}", output.messages.len());
+            println!("next_offset: {}", output.next_offset);
+            println!("marked_read: {}", marked_read);
+            println!();
+            println!("messages:");
+            for msg in &output.messages {
+                println!("  - id: {}", msg.id);
+                println!("    agent: {}", msg.agent);
+                println!("    ts: {}", msg.ts.to_rfc3339());
+                println!("    body: {}", msg.body);
+            }
+        }
+        OutputFormat::Text => {
+            // Human-readable text output
+            if output.messages.is_empty() {
+                println!("{} No unread messages in #{}", "✓".green(), channel.cyan());
+                return Ok(());
+            }
 
-    if output.messages.is_empty() {
-        println!("{} No unread messages in #{}", "✓".green(), channel.cyan());
-        return Ok(());
-    }
+            // Print header with unread count
+            println!(
+                "{} {} unread message{} in #{}",
+                "→".cyan(),
+                output.messages.len(),
+                if output.messages.len() == 1 { "" } else { "s" },
+                channel.cyan().bold()
+            );
+            println!();
 
-    // Print header with unread count
-    println!(
-        "{} {} unread message{} in #{}",
-        "→".cyan(),
-        output.messages.len(),
-        if output.messages.len() == 1 { "" } else { "s" },
-        channel.cyan().bold()
-    );
-    println!();
+            // Print messages
+            for msg in &output.messages {
+                print_message(msg);
+            }
 
-    // Print messages
-    for msg in &output.messages {
-        print_message(msg);
-    }
-
-    if marked_read {
-        println!();
-        println!(
-            "{} Marked as read (offset: {})",
-            "✓".green(),
-            output.next_offset
-        );
-    } else {
-        // Show hint about marking as read
-        println!();
-        println!(
-            "{} Run 'botbus inbox {} --mark-read' or 'botbus mark-read {}' to mark as read",
-            "Tip:".dimmed(),
-            channel,
-            channel
-        );
+            if marked_read {
+                println!();
+                println!(
+                    "{} Marked as read (offset: {})",
+                    "✓".green(),
+                    output.next_offset
+                );
+            } else {
+                // Show hint about marking as read
+                println!();
+                println!(
+                    "{} Run 'botbus inbox {} --mark-read' or 'botbus mark-read {}' to mark as read",
+                    "Tip:".dimmed(),
+                    channel,
+                    channel
+                );
+            }
+        }
     }
 
     Ok(())

@@ -155,6 +155,125 @@ Examples:
 - `docs: update README with new screenshot`
 - `refactor(cli): extract claim validation logic`
 
+## Development Workflow
+
+This section covers the full cycle: creating a feature branch, implementing changes, getting review, and releasing.
+
+### 1. Start a Feature Branch
+
+```bash
+# Create a new commit for your work
+jj new -m "wip: description of change"
+
+# Create a bookmark for the feature
+jj bookmark create feature-name
+
+# Work on your changes...
+jj describe -m "feat(scope): description of change"
+```
+
+### 2. Request Code Review
+
+After completing your changes and ensuring tests pass:
+
+```bash
+# Verify build and tests
+cargo build --release && cargo test
+
+# Create a review
+crit reviews create --title "feat(scope): description of change"
+# Note the review ID (e.g., cr-xxxx)
+```
+
+**Spawn specialist reviewers** using the code-review skill (`~/.claude/skills/code-review/SKILL.md`):
+
+- **Security reviewer** (always): Looks for injection, auth issues, resource exhaustion, etc.
+- **Architecture reviewer** (for structural changes): Evaluates design, abstractions, maintainability
+
+The skill has ready-to-use prompts for spawning these subagents.
+
+### 3. Address Review Feedback
+
+Monitor botbus for reviewer completion:
+
+```bash
+botbus history general
+```
+
+For each thread raised:
+
+```bash
+# View threads
+crit threads list <review_id>
+crit threads show <thread_id>
+
+# Respond (set your agent identity first)
+export BOTBUS_AGENT=<your-agent>
+crit comments add <thread_id> "Response explaining fix or rationale"
+
+# After addressing, resolve with reason
+crit threads resolve <thread_id> --reason "Fixed: description"
+crit threads resolve <thread_id> --reason "Won't fix: rationale"
+crit threads resolve <thread_id> --reason "Deferred: created bead bd-xxx"
+```
+
+### 4. Get Approval
+
+Reviewers vote with:
+
+```bash
+crit lgtm <review_id> -m "Reason"    # Approve
+crit block <review_id> -r "Reason"   # Block
+```
+
+### 5. Merge and Release
+
+Once approved (LGTM votes, no blocking votes, all threads resolved):
+
+```bash
+# Approve and merge the review
+crit reviews approve <review_id>
+crit reviews merge <review_id>
+
+# Bump version in Cargo.toml (edit manually or with sed)
+# e.g., 0.2.0 to 0.3.0
+
+# Update commit message
+jj describe -m "chore: bump version to X.Y.Z
+
+Co-Authored-By: Claude <noreply@anthropic.com>"
+
+# Move main bookmark forward and push
+jj bookmark set main -r @
+jj git push --bookmark main
+
+# Tag the release and push tag
+jj tag set vX.Y.Z -r main
+git push origin vX.Y.Z
+
+# Install locally
+just install
+
+# Verify
+botbus --version
+
+# Announce on botbus
+export BOTBUS_AGENT=<your-agent>
+botbus send botbus "Released vX.Y.Z - [summary of changes]"
+```
+
+### Quick Reference
+
+| Stage | Key Commands |
+|-------|--------------|
+| Start feature | `jj new -m "wip: ..."` then `jj bookmark create name` |
+| Create review | `crit reviews create --title "..."` |
+| View threads | `crit threads list <review_id>` |
+| Respond | `crit comments add <thread_id> "..."` |
+| Resolve | `crit threads resolve <thread_id> --reason "..."` |
+| Approve/merge | `crit reviews approve <id> && crit reviews merge <id>` |
+| Release | bump version -> `jj bookmark set main` -> push -> tag -> `just install` |
+
 ---
 
 ## Tools

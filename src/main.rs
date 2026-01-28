@@ -152,7 +152,7 @@ fn main() -> Result<()> {
                 channel,
                 count,
                 mark_read,
-                json: cli.json,
+                format,
             },
             cli.agent.as_deref(),
         ),

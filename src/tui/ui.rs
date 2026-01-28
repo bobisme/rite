@@ -3,7 +3,7 @@ use ratatui::{
     layout::{Alignment, Constraint, Direction, Layout, Rect},
     style::{Color, Modifier, Style},
     text::{Line, Span},
-    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph, Wrap},
+    widgets::{Block, BorderType, Borders, Clear, List, ListItem, Paragraph},
     Frame,
 };
 
@@ -218,22 +218,11 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
             }
         }
 
-        lines.push(format_message(msg));
+        lines.extend(format_message(msg, inner_width));
     }
 
-    // Estimate wrapped line count - ceiling division for each line
-    let total_lines: usize = lines
-        .iter()
-        .map(|line| {
-            let line_len: usize = line.spans.iter().map(|s| s.content.len()).sum();
-            if inner_width > 0 && line_len > 0 {
-                // Ceiling division: how many lines does this wrap to?
-                (line_len + inner_width - 1) / inner_width
-            } else {
-                1 // Empty line still takes 1 row
-            }
-        })
-        .sum();
+    // Total lines is just the count since we pre-wrapped in format_message
+    let total_lines = lines.len();
 
     // Clamp scroll to valid range
     let max_scroll = total_lines.saturating_sub(inner_height);
@@ -253,7 +242,7 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
                 .border_type(BorderType::Rounded)
                 .border_style(border_style),
         )
-        .wrap(Wrap { trim: false })
+        // Wrapping is done manually in format_message to maintain 4-space indent
         .scroll((scroll_from_top as u16, 0));
 
     f.render_widget(paragraph, area);
@@ -294,46 +283,186 @@ fn create_separator_line(width: usize) -> Line<'static> {
     ])
 }
 
-fn format_message(msg: &crate::core::message::Message) -> Line<'static> {
+fn format_message(msg: &crate::core::message::Message, max_width: usize) -> Vec<Line<'static>> {
     let local_time: DateTime<Local> = msg.ts.with_timezone(&Local);
-    let time_str = local_time.format("%H:%M").to_string();
+    let datetime_str = local_time.format("%Y-%m-%d %H:%M").to_string();
 
     let agent_color = agent_color(&msg.agent);
 
-    let mut spans = vec![
+    let mut result_lines = Vec::new();
+
+    // First line: ● agent [timestamp]
+    let mut header_spans = vec![
+        Span::styled("● ", Style::default().fg(Color::DarkGray)),
         Span::styled(
-            format!("[{}] ", time_str),
-            Style::default().fg(Color::DarkGray),
-        ),
-        Span::styled(
-            format!("{}: ", msg.agent),
+            msg.agent.clone(),
             Style::default()
                 .fg(agent_color)
                 .add_modifier(Modifier::BOLD),
         ),
+        Span::styled(
+            format!(" [{}]", datetime_str),
+            Style::default().fg(Color::DarkGray),
+        ),
     ];
 
-    // Add labels if present
+    // Add labels after timestamp if present
     if !msg.labels.is_empty() {
         for label in &msg.labels {
-            spans.push(Span::styled(
-                format!("[{}] ", label),
+            header_spans.push(Span::styled(
+                format!(" [{}]", label),
                 Style::default().fg(Color::Yellow),
             ));
         }
     }
 
-    spans.push(Span::raw(msg.body.clone()));
-
-    // Add attachment indicator if present
+    // Add attachment indicator after labels if present
     if !msg.attachments.is_empty() {
-        spans.push(Span::styled(
+        header_spans.push(Span::styled(
             format!(" [{}]", msg.attachments.len()),
             Style::default().fg(Color::Magenta),
         ));
     }
 
-    Line::from(spans)
+    result_lines.push(Line::from(header_spans));
+
+    // Process message body - wrap and add @mention highlighting
+    let body_lines: Vec<&str> = msg.body.lines().collect();
+
+    for body_line in body_lines {
+        // Wrap the line, leaving room for 2-space indent + 2-space right padding
+        let wrapped = wrap_text(body_line, max_width.saturating_sub(4));
+
+        for wrapped_line in wrapped {
+            // Highlight @mentions in blue
+            let mut line_spans = vec![Span::raw("  ")];
+            line_spans.extend(highlight_mentions(&wrapped_line));
+            result_lines.push(Line::from(line_spans));
+        }
+    }
+
+    // Add blank line after message
+    result_lines.push(Line::from(""));
+
+    result_lines
+}
+
+/// Highlight @mentions in text by coloring them blue
+fn highlight_mentions(text: &str) -> Vec<Span<'static>> {
+    let mut spans = Vec::new();
+    let mut last_end = 0;
+
+    // Simple regex-like matching for @mentions
+    // Matches @followed by alphanumeric or hyphens
+    let bytes = text.as_bytes();
+    let mut i = 0;
+
+    while i < bytes.len() {
+        if bytes[i] == b'@' {
+            // Found potential mention start
+            let mention_start = i;
+            i += 1;
+
+            // Collect alphanumeric and hyphens
+            while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-') {
+                i += 1;
+            }
+
+            let mention_end = i;
+
+            // Only treat as mention if we found at least one char after @
+            if mention_end > mention_start + 1 {
+                // Add text before mention
+                if mention_start > last_end {
+                    spans.push(Span::raw(text[last_end..mention_start].to_string()));
+                }
+
+                // Add mention in blue
+                spans.push(Span::styled(
+                    text[mention_start..mention_end].to_string(),
+                    Style::default().fg(Color::Blue).add_modifier(Modifier::BOLD),
+                ));
+
+                last_end = mention_end;
+            }
+        } else {
+            i += 1;
+        }
+    }
+
+    // Add remaining text
+    if last_end < text.len() {
+        spans.push(Span::raw(text[last_end..].to_string()));
+    }
+
+    // If no mentions found, return single span
+    if spans.is_empty() {
+        spans.push(Span::raw(text.to_string()));
+    }
+
+    spans
+}
+
+/// Wrap text to fit within max_width, breaking on word boundaries when possible.
+fn wrap_text(text: &str, max_width: usize) -> Vec<String> {
+    if max_width == 0 {
+        return vec![text.to_string()];
+    }
+
+    let mut result = Vec::new();
+    let mut current_line = String::new();
+    let mut current_width = 0;
+
+    for word in text.split_whitespace() {
+        let word_len = word.len();
+
+        // If this word alone exceeds max_width, force-break it
+        if word_len > max_width {
+            // Flush current line if any
+            if !current_line.is_empty() {
+                result.push(current_line.trim_end().to_string());
+                current_line.clear();
+                current_width = 0;
+            }
+
+            // Break the long word into chunks
+            for chunk in word.chars().collect::<Vec<_>>().chunks(max_width) {
+                result.push(chunk.iter().collect());
+            }
+            continue;
+        }
+
+        // Check if adding this word (plus space) exceeds width
+        let space_needed = if current_width == 0 { 0 } else { 1 }; // Space before word
+        if current_width + space_needed + word_len > max_width {
+            // Flush current line and start new one
+            if !current_line.is_empty() {
+                result.push(current_line.trim_end().to_string());
+            }
+            current_line = word.to_string();
+            current_width = word_len;
+        } else {
+            // Add word to current line
+            if current_width > 0 {
+                current_line.push(' ');
+                current_width += 1;
+            }
+            current_line.push_str(word);
+            current_width += word_len;
+        }
+    }
+
+    // Flush remaining line
+    if !current_line.is_empty() {
+        result.push(current_line.trim_end().to_string());
+    }
+
+    // Handle empty text
+    if result.is_empty() {
+        result.push(String::new());
+    }
+
+    result
 }
 
 fn agent_color(name: &str) -> Color {

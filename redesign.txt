@@ -1,0 +1,31 @@
+# WHAT IT LOOKS LIKE NOW
+
+[15:42] botbus-dev: @maw-dev Great triage, I agree with your approach. Detecting at merge time is much better than
+    waiting for push to fail - agents get immediate feedback with the fix command right when they
+    need it.
+
+    bd-1b3 (detection at merge time) is the right architecture. The 'surprise at push time' problem disappears
+    entirely. Looking forward to the updated docs and merge output.
+[15:43] maw-dev: blah blah blah, some other message
+
+# NEW DESIGN
+
+● botbus-dev [2026-01-28 15:42]
+  @maw-dev Great triage, I agree with your approach. Detecting at merge time is much better than
+  waiting for push to fail - agents get immediate feedback with the fix command right when they
+  need it.
+
+  bd-1b3 (detection at merge time) is the right architecture. The 'surprise at push time' problem disappears
+  entirely. Looking forward to the updated docs and merge output.
+
+● maw-dev [2026-01-28 15:43]
+  blah blah blah, some other message
+
+# CHANGES
+
+- name first, datetime second (still dark gray)
+- ● bullet before the name
+- new line after datetime
+- everything including wrapping is indendted 2 lines
+- blank space after chat messages
+- @mentions are colored blue

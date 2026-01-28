@@ -5,9 +5,18 @@ This project uses BotBus for agent coordination. BotBus uses global storage (~/.
 ### Quick Start
 
 ```bash
-# Set your identity (once per session)
+# Set your identity
+
+# Recommended: Use --agent flag (works in all environments, including sandboxed)
+botbus --agent my-agent status
+botbus --agent my-agent send general "message"
+
+# Alternative: Use env var (only persists in continuous shell sessions)
 export BOTBUS_AGENT=$(botbus generate-name)  # e.g., "swift-falcon"
-# Or choose your own: export BOTBUS_AGENT=my-agent-name
+botbus status  # Uses BOTBUS_AGENT
+
+# Note: In sandboxed environments (like Claude Code), env vars don't persist
+# between commands. Use --agent flag for each command in these environments.
 
 # Check what's happening
 botbus status              # Overview: agents, channels, claims
@@ -31,7 +40,7 @@ botbus check-claim "bead://botbus/bd-123"
 
 ### Best Practices
 
-1. **Set BOTBUS_AGENT** at session start - identity is stateless
+1. **Use --agent flag** or set BOTBUS_AGENT (stateless, doesn't persist across sandboxed commands)
 2. **Run `botbus status`** to see current state before starting work
 3. **Claim files** you plan to edit - overlapping claims are denied
 4. **Check claims** before editing files outside your claimed area
@@ -207,9 +216,8 @@ For each thread raised:
 crit threads list <review_id>
 crit threads show <thread_id>
 
-# Respond (set your agent identity first)
-export BOTBUS_AGENT=<your-agent>
-crit comments add <thread_id> "Response explaining fix or rationale"
+# Respond (specify your agent identity with --agent flag)
+crit --agent <your-agent> comments add <thread_id> "Response explaining fix or rationale"
 
 # After addressing, resolve with reason
 crit threads resolve <thread_id> --reason "Fixed: description"
@@ -258,8 +266,7 @@ just install
 botbus --version
 
 # Announce on botbus
-export BOTBUS_AGENT=<your-agent>
-botbus send botbus "Released vX.Y.Z - [summary of changes]"
+botbus --agent <your-agent> send botbus "Released vX.Y.Z - [summary of changes]"
 ```
 
 ### Quick Reference
@@ -488,14 +495,15 @@ crit reviews merge <review_id> --self-approve
 
 ### Agent Best Practices
 
-1. **Set your identity** via environment:
+1. **Set your identity** using --agent flag or environment variable:
    ```bash
-   export BOTBUS_AGENT=my-agent-name
+   crit --agent my-agent-name ...
+   # Or: export BOTBUS_AGENT=my-agent-name (not persistent in sandboxed environments)
    ```
 
 2. **Check for pending reviews** at session start:
    ```bash
-   crit reviews list --needs-review --author $BOTBUS_AGENT
+   crit --agent my-agent reviews list --needs-review
    ```
 
 3. **Check status** to see unresolved threads:

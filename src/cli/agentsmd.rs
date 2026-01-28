@@ -32,9 +32,18 @@ This project uses [BotBus](https://github.com/anomalyco/botbus) for multi-agent 
 ### Quick Start
 
 ```bash
-# Set your identity (once per session)
+# Set your identity
+
+# Recommended: Use --agent flag (works in all environments, including sandboxed)
+botbus --agent my-agent status
+botbus --agent my-agent send general "message"
+
+# Alternative: Use env var (only persists in continuous shell sessions)
 export BOTBUS_AGENT=$(botbus generate-name)  # e.g., "swift-falcon"
-# Or choose your own: export BOTBUS_AGENT=my-agent-name
+botbus status  # Uses BOTBUS_AGENT
+
+# Note: In sandboxed environments (like Claude Code), env vars don't persist
+# between commands. Use --agent flag for each command in these environments.
 
 # Check what's happening
 botbus status              # Overview: agents, channels, claims
@@ -54,7 +63,7 @@ botbus release --all                    # When done
 
 ### Best Practices
 
-1. **Set BOTBUS_AGENT** at session start - identity is stateless
+1. **Use --agent flag** or set BOTBUS_AGENT (stateless, doesn't persist across sandboxed commands)
 2. **Run `botbus status`** to see current state before starting work
 3. **Claim files** you plan to edit - overlapping claims are denied
 4. **Check claims** before editing files outside your claimed area

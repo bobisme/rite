@@ -82,7 +82,7 @@ impl App {
             messages: Vec::new(),
             message_scroll: 0,
             should_quit: false,
-            focus: Focus::Messages,
+            focus: Focus::Channels,
             channel_offset: 0,
             show_help: false,
             viewport_height: 20,

@@ -257,16 +257,25 @@ pub enum Commands {
 
     /// Show unread messages (uses stored read cursor)
     Inbox {
-        /// Channel to check (default: general)
-        channel: Option<String>,
+        /// Specific channel(s) to check (default: general + DMs)
+        #[arg(short, long, action = clap::ArgAction::Append)]
+        channels: Vec<String>,
 
-        /// Maximum messages to show
+        /// Check all channels (not just general + DMs)
+        #[arg(long)]
+        all: bool,
+
+        /// Maximum messages to show per channel
         #[arg(short = 'n', long, default_value = "50")]
         count: usize,
 
         /// Mark as read after displaying
         #[arg(long)]
         mark_read: bool,
+
+        /// Check all channels for @mentions of current agent
+        #[arg(long)]
+        mentions: bool,
     },
 
     /// Show status overview

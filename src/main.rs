@@ -144,15 +144,19 @@ fn main() -> Result<()> {
         ),
 
         Commands::Inbox {
-            channel,
+            channels,
+            all,
             count,
             mark_read,
+            mentions,
         } => cli::inbox::run(
             cli::inbox::InboxOptions {
-                channel,
+                channels,
                 count,
                 mark_read,
                 format,
+                all,
+                mentions,
             },
             cli.agent.as_deref(),
         ),

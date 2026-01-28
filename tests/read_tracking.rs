@@ -222,7 +222,7 @@ fn test_inbox_count_limit() {
     }
 
     // Inbox with limit of 3 should show only 3 of the 10 new messages
-    let output = alice.run(&["inbox", "general", "-n", "3"]);
+    let output = alice.run(&["inbox", "-c", "general", "-n", "3"]);
     output.assert_success();
 
     // Should show 3 messages

@@ -82,52 +82,11 @@ fn expand_pattern(pattern: &str) -> String {
     }
 }
 
-/// Display a claim pattern, making it relative if we're in the same tree.
-/// URIs are displayed as-is.
+/// Display a claim pattern as-is (absolute paths for clarity).
+/// URIs are displayed unchanged.
 fn display_pattern(pattern: &str) -> String {
-    // URIs display as-is
-    if is_uri(pattern) {
-        return pattern.to_string();
-    }
-
-    let cwd = match std::env::current_dir() {
-        Ok(p) => p,
-        Err(_) => return pattern.to_string(),
-    };
-
-    // Extract the non-glob base path for comparison
-    let base = pattern
-        .split("**")
-        .next()
-        .unwrap_or(pattern)
-        .trim_end_matches('/');
-
-    // If base is empty (pattern starts with **), show as-is
-    if base.is_empty() {
-        return pattern.to_string();
-    }
-
-    let base_path = Path::new(base);
-
-    // Check if the pattern base starts with cwd
-    if let Ok(rel) = base_path.strip_prefix(&cwd) {
-        // Reconstruct with relative base
-        let rel_base = rel.to_string_lossy();
-        if pattern.contains("**") {
-            let suffix = &pattern[base.len()..];
-            if rel_base.is_empty() {
-                // Pattern base IS cwd, so relative is just the suffix without leading /
-                suffix.trim_start_matches('/').to_string()
-            } else {
-                format!("{}{}", rel_base, suffix)
-            }
-        } else {
-            rel_base.to_string()
-        }
-    } else {
-        // Not in same tree, show absolute
-        pattern.to_string()
-    }
+    // Always show full pattern for clarity - no relative path conversion
+    pattern.to_string()
 }
 
 pub struct ClaimOptions {
@@ -862,9 +821,18 @@ mod tests {
 
     #[test]
     fn test_display_pattern() {
-        // Patterns not in current tree are returned as-is
-        let unrelated = display_pattern("/some/other/path/**");
-        assert_eq!(unrelated, "/some/other/path/**");
+        // All patterns are displayed as-is (absolute paths for clarity)
+        assert_eq!(
+            display_pattern("/some/other/path/**"),
+            "/some/other/path/**"
+        );
+        assert_eq!(display_pattern("/home/user/src/**"), "/home/user/src/**");
+
+        // URIs pass through unchanged
+        assert_eq!(
+            display_pattern("bead://project/bd-123"),
+            "bead://project/bd-123"
+        );
     }
 
     // === URI claim tests ===

@@ -6,8 +6,8 @@ use colored::Colorize;
 use serde::Serialize;
 use std::collections::HashMap;
 
-use super::format::to_toon;
 use super::OutputFormat;
+use super::format::to_toon;
 use crate::core::message::Message;
 use crate::core::project::channels_dir;
 use crate::storage::jsonl::read_records;

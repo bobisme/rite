@@ -5,8 +5,8 @@ use chrono::{DateTime, Utc};
 use colored::Colorize;
 use serde::Serialize;
 
-use super::format::to_toon;
 use super::OutputFormat;
+use super::format::to_toon;
 use crate::core::channel::{dm_agents, is_dm_channel};
 use crate::core::identity::resolve_agent;
 use crate::core::message::Message;

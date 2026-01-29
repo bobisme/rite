@@ -4,8 +4,8 @@ use anyhow::{Result, bail};
 use colored::Colorize;
 use serde::Serialize;
 
-use super::format::to_toon;
 use super::OutputFormat;
+use super::format::to_toon;
 use crate::core::identity::{AGENT_ENV_VAR, format_export, resolve_agent};
 use crate::core::project::data_dir;
 
@@ -22,29 +22,27 @@ pub struct WhoamiOutput {
 pub fn run(format: OutputFormat, agent: Option<&str>) -> Result<()> {
     let agent_name = match resolve_agent(agent) {
         Some(name) => name,
-        None => {
-            match format {
-                OutputFormat::Json => {
-                    println!("{{\"error\": \"No agent identity configured\"}}");
-                    return Ok(());
-                }
-                OutputFormat::Toon => {
-                    println!("error: No agent identity configured");
-                    return Ok(());
-                }
-                OutputFormat::Text => {
-                    bail!(
-                        "No agent identity configured.\n\n\
+        None => match format {
+            OutputFormat::Json => {
+                println!("{{\"error\": \"No agent identity configured\"}}");
+                return Ok(());
+            }
+            OutputFormat::Toon => {
+                println!("error: No agent identity configured");
+                return Ok(());
+            }
+            OutputFormat::Text => {
+                bail!(
+                    "No agent identity configured.\n\n\
                          To set your identity:\n  \
                          export BOTBUS_AGENT=$(botbus generate-name)\n\n\
                          Or choose your own name (kebab-case preferred):\n  \
                          {}\n\n\
                          Or use --agent flag with commands.",
-                        format_export("my-agent-name")
-                    );
-                }
+                    format_export("my-agent-name")
+                );
             }
-        }
+        },
     };
 
     // Check where identity came from
@@ -53,9 +51,9 @@ pub fn run(format: OutputFormat, agent: Option<&str>) -> Result<()> {
 
     // Determine if --agent was explicitly used (different from env or env not set)
     let from_explicit_flag = match (agent, env_value.as_deref()) {
-        (Some(arg), Some(env)) => arg != env,  // --agent differs from env
-        (Some(_), None) => true,                // --agent used, no env set
-        (None, _) => false,                     // No --agent flag
+        (Some(arg), Some(env)) => arg != env, // --agent differs from env
+        (Some(_), None) => true,              // --agent used, no env set
+        (None, _) => false,                   // No --agent flag
     };
 
     let source = if from_env && !from_explicit_flag {

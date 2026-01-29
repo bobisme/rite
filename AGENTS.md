@@ -1,3 +1,24 @@
+## ⚠️ CRITICAL: Before Every Push
+
+**ALWAYS run these commands before committing and pushing:**
+
+```bash
+# 1. Format code
+cargo fmt
+
+# 2. Fix clippy warnings
+cargo clippy -- -D warnings
+
+# 3. Run tests
+cargo test --all-features
+```
+
+**If you skip these steps, CI will fail and the user will get error emails.**
+
+These checks are enforced in CI, so any formatting issues or clippy warnings will cause the build to fail. Running them locally first prevents unnecessary CI failures and email notifications.
+
+---
+
 ## Agent Communication
 
 This project uses BotBus for agent coordination. BotBus uses global storage (~/.local/share/botbus/) shared across all projects.

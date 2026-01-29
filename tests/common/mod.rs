@@ -297,12 +297,12 @@ impl Agent {
 
     /// Get inbox (unread messages).
     pub fn inbox(&self, channel: &str) -> BotbusOutput {
-        self.run(&["inbox", "-c", channel])
+        self.run(&["inbox", "-c", channel, "--format", "text"])
     }
 
     /// Get inbox and mark as read.
     pub fn inbox_mark_read(&self, channel: &str) -> BotbusOutput {
-        self.run(&["inbox", "-c", channel, "--mark-read"])
+        self.run(&["inbox", "-c", channel, "--mark-read", "--format", "text"])
     }
 
     /// Mark a channel as read.

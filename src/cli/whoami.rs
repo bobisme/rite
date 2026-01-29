@@ -6,7 +6,7 @@ use serde::Serialize;
 
 use super::OutputFormat;
 use super::format::to_toon;
-use crate::core::identity::{AGENT_ENV_VAR, format_export, resolve_agent};
+use crate::core::identity::{AGENT_ENV_VAR, resolve_agent};
 use crate::core::project::data_dir;
 
 #[derive(Debug, Serialize)]
@@ -22,27 +22,22 @@ pub struct WhoamiOutput {
 pub fn run(format: OutputFormat, agent: Option<&str>) -> Result<()> {
     let agent_name = match resolve_agent(agent) {
         Some(name) => name,
-        None => match format {
-            OutputFormat::Json => {
-                println!("{{\"error\": \"No agent identity configured\"}}");
-                return Ok(());
-            }
-            OutputFormat::Toon => {
-                println!("error: No agent identity configured");
-                return Ok(());
-            }
-            OutputFormat::Text => {
-                bail!(
+        None => {
+            // Always return an error when no identity is configured
+            // Format determines the error message style
+            let error_msg = match format {
+                OutputFormat::Json | OutputFormat::Toon => "No agent identity configured",
+                OutputFormat::Text => {
                     "No agent identity configured.\n\n\
-                         To set your identity:\n  \
-                         export BOTBUS_AGENT=$(botbus generate-name)\n\n\
-                         Or choose your own name (kebab-case preferred):\n  \
-                         {}\n\n\
-                         Or use --agent flag with commands.",
-                    format_export("my-agent-name")
-                );
-            }
-        },
+                     To set your identity:\n  \
+                     export BOTBUS_AGENT=$(botbus generate-name)\n\n\
+                     Or choose your own name (kebab-case preferred):\n  \
+                     export BOTBUS_AGENT=my-agent-name\n\n\
+                     Or use --agent flag with commands."
+                }
+            };
+            bail!("{}", error_msg);
+        }
     };
 
     // Check where identity came from

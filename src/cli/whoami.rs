@@ -14,6 +14,8 @@ pub struct WhoamiOutput {
     pub agent: String,
     pub source: String,
     pub data_dir: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub warning: Option<String>,
 }
 
 /// Display current agent identity.
@@ -46,19 +48,35 @@ pub fn run(format: OutputFormat, agent: Option<&str>) -> Result<()> {
     };
 
     // Check where identity came from
-    let from_env = std::env::var(AGENT_ENV_VAR).ok().as_deref() == Some(&agent_name);
-    let source = if agent.is_some() {
-        "--agent flag".to_string()
-    } else if from_env {
+    let env_value = std::env::var(AGENT_ENV_VAR).ok();
+    let from_env = env_value.as_deref() == Some(&agent_name);
+
+    // Determine if --agent was explicitly used (different from env or env not set)
+    let from_explicit_flag = match (agent, env_value.as_deref()) {
+        (Some(arg), Some(env)) => arg != env,  // --agent differs from env
+        (Some(_), None) => true,                // --agent used, no env set
+        (None, _) => false,                     // No --agent flag
+    };
+
+    let source = if from_env && !from_explicit_flag {
         format!("${}", AGENT_ENV_VAR)
+    } else if from_explicit_flag {
+        "--agent flag".to_string()
     } else {
         "unknown".to_string()
+    };
+
+    let warning = if from_explicit_flag {
+        Some("whoami is intended to check environment identity. Using --agent flag defeats this purpose.".to_string())
+    } else {
+        None
     };
 
     let output = WhoamiOutput {
         agent: agent_name.clone(),
         source,
         data_dir: data_dir().display().to_string(),
+        warning: warning.clone(),
     };
 
     match format {
@@ -72,6 +90,11 @@ pub fn run(format: OutputFormat, agent: Option<&str>) -> Result<()> {
             println!("{}: {}", "Agent".bold(), agent_name.cyan());
             println!("{}: {}", "Source".bold(), output.source);
             println!("{}: {}", "Data".bold(), data_dir().display());
+
+            if let Some(warn) = warning {
+                println!();
+                println!("{} {}", "Warning:".yellow().bold(), warn.yellow());
+            }
         }
     }
 

@@ -24,12 +24,12 @@ pub mod whoami;
 /// Output format for structured data.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
 pub enum OutputFormat {
-    /// Human-readable text (default)
-    #[default]
+    /// Human-readable text
     Text,
     /// JSON - standard machine-readable format
     Json,
-    /// TOON - Text-Only Object Notation, optimized for AI agents
+    /// TOON - Text-Only Object Notation, optimized for AI agents (default)
+    #[default]
     Toon,
 }
 
@@ -53,8 +53,8 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
-    /// Output format: text (default), json, or toon
-    #[arg(long, global = true, value_enum, default_value = "text")]
+    /// Output format: toon (default), json, or text
+    #[arg(long, global = true, value_enum, default_value = "toon")]
     pub format: OutputFormat,
 
     #[command(subcommand)]

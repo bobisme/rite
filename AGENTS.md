@@ -133,7 +133,9 @@ jj log --limit 3
 
 # 4. Push to GitHub
 jj git push
-# Or: git push
+# IMPORTANT: Despite the output saying "Changes to push to origin:",
+# the push ALREADY HAPPENED. Do NOT run git push afterwards.
+# Verify with: git log origin/main --oneline -1
 ```
 
 #### If You Forget to Move the Bookmark
@@ -147,8 +149,8 @@ jj log
 # Move main to it (use the change ID like 'opzoplvm' or revision like '6e2a5dff')
 jj bookmark set main -r <change-id>
 
-# If git HEAD is detached, also run:
-git checkout main
+# Then push
+jj git push
 ```
 
 #### Quick Reference
@@ -158,7 +160,8 @@ git checkout main
 | See current state | `jj log --limit 5` |
 | Commit changes | `jj commit -m "message"` |
 | Move main to last commit | `jj bookmark set main -r @-` |
-| Push to GitHub | `jj git push` |
+| Push to GitHub | `jj git push` (output looks like preview but actually pushes!) |
+| Verify push succeeded | `git log origin/main --oneline -1` |
 | Sync from GitHub | `jj git fetch` then `jj rebase -d main@origin` |
 
 ### Commit Conventions

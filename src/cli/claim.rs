@@ -150,8 +150,8 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
     // Append to claims.jsonl
     append_record(&claims_path(), &claim).with_context(|| "Failed to record claim")?;
 
-    // Post message to #general (use original patterns for readability)
-    let display_patterns: Vec<String> = options.patterns.clone();
+    // Post message to #general (use absolute patterns for clarity)
+    let display_patterns: Vec<String> = expanded_patterns.clone();
     let body = if let Some(msg) = &options.message {
         format!("Claimed {} ({})", display_patterns.join(", "), msg)
     } else {
@@ -165,7 +165,7 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
 
     append_record(&channel_path("general"), &claim_msg)?;
 
-    // Output (use original patterns for readability)
+    // Output (use absolute patterns for clarity)
     println!(
         "{} Claimed {} pattern(s) for {}",
         "Success:".green(),
@@ -219,12 +219,14 @@ fn extend_claims(pattern: &str, ttl: u64, agent_name: &str) -> Result<()> {
             extended_count += 1;
 
             // Post message
+            let display_patterns: Vec<String> =
+                claim.patterns.iter().map(|p| display_pattern(p)).collect();
             let msg = Message::new(
                 agent_name,
                 "general",
                 format!(
                     "Extended claim {} for {}",
-                    claim.patterns.join(", "),
+                    display_patterns.join(", "),
                     format_duration(ttl)
                 ),
             );
@@ -452,7 +454,7 @@ pub fn release(patterns: Vec<String>, release_all: bool, agent: Option<&str>) ->
             append_record(&claims_path(), &release_record)?;
             released_count += 1;
 
-            // Post release message (use display patterns for readability)
+            // Post release message (use absolute patterns for clarity)
             let display_patterns: Vec<String> =
                 claim.patterns.iter().map(|p| display_pattern(p)).collect();
             let msg = Message::new(

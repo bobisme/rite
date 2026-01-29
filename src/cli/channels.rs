@@ -5,6 +5,8 @@ use chrono::{DateTime, Utc};
 use colored::Colorize;
 use serde::Serialize;
 
+use super::format::to_toon;
+use super::OutputFormat;
 use crate::core::channel::{dm_agents, is_dm_channel};
 use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
@@ -26,18 +28,24 @@ pub struct ChannelsOutput {
 
 /// List all channels.
 /// If `mine_only` is true, only show channels where the agent has participated.
-pub fn run(json: bool, mine_only: bool, agent: Option<&str>) -> Result<()> {
+pub fn run(format: OutputFormat, mine_only: bool, agent: Option<&str>) -> Result<()> {
     let current_agent = resolve_agent(agent);
     let channels_path = channels_dir();
 
     if !channels_path.exists() {
-        if json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&ChannelsOutput { channels: vec![] })?
-            );
-        } else {
-            println!("No channels yet.");
+        match format {
+            OutputFormat::Json => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&ChannelsOutput { channels: vec![] })?
+                );
+            }
+            OutputFormat::Toon => {
+                println!("channels: []");
+            }
+            OutputFormat::Text => {
+                println!("No channels yet.");
+            }
         }
         return Ok(());
     }
@@ -49,13 +57,19 @@ pub fn run(json: bool, mine_only: bool, agent: Option<&str>) -> Result<()> {
         .collect();
 
     if entries.is_empty() {
-        if json {
-            println!(
-                "{}",
-                serde_json::to_string_pretty(&ChannelsOutput { channels: vec![] })?
-            );
-        } else {
-            println!("No channels yet.");
+        match format {
+            OutputFormat::Json => {
+                println!(
+                    "{}",
+                    serde_json::to_string_pretty(&ChannelsOutput { channels: vec![] })?
+                );
+            }
+            OutputFormat::Toon => {
+                println!("channels: []");
+            }
+            OutputFormat::Text => {
+                println!("No channels yet.");
+            }
         }
         return Ok(());
     }
@@ -100,31 +114,37 @@ pub fn run(json: bool, mine_only: bool, agent: Option<&str>) -> Result<()> {
         });
     }
 
-    if json {
-        let output = ChannelsOutput {
-            channels: channel_infos,
-        };
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        return Ok(());
-    }
+    let output = ChannelsOutput {
+        channels: channel_infos,
+    };
 
-    println!("{}", "Channels:".bold());
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Toon => {
+            println!("{}", to_toon(&output));
+        }
+        OutputFormat::Text => {
+            println!("{}", "Channels:".bold());
 
-    for info in &channel_infos {
-        let time_ago = info
-            .last_activity
-            .map(format_time_ago)
-            .unwrap_or_else(|| "never".to_string());
+            for info in &output.channels {
+                let time_ago = info
+                    .last_activity
+                    .map(format_time_ago)
+                    .unwrap_or_else(|| "never".to_string());
 
-        let prefix = if info.is_dm { "" } else { "#" };
+                let prefix = if info.is_dm { "" } else { "#" };
 
-        println!(
-            "  {}{:<20} {:>4} messages, last: {}",
-            prefix,
-            info.name.cyan(),
-            info.message_count,
-            time_ago
-        );
+                println!(
+                    "  {}{:<20} {:>4} messages, last: {}",
+                    prefix,
+                    info.name.cyan(),
+                    info.message_count,
+                    time_ago
+                );
+            }
+        }
     }
 
     Ok(())
@@ -216,7 +236,7 @@ mod tests {
         .unwrap();
 
         // Show all channels (default)
-        run(false, false, None).unwrap();
+        run(OutputFormat::Text, false, None).unwrap();
     }
 
     #[test]
@@ -224,7 +244,7 @@ mod tests {
     fn test_list_channels_json() {
         let _env = TestEnv::new();
 
-        run(true, false, None).unwrap();
+        run(OutputFormat::Json, false, None).unwrap();
     }
 
     #[test]
@@ -239,6 +259,6 @@ mod tests {
         .unwrap();
 
         // With --mine filter, should only show channels where agent participated
-        run(false, true, Some("test-agent")).unwrap();
+        run(OutputFormat::Text, true, Some("test-agent")).unwrap();
     }
 }

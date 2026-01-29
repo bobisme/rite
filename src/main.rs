@@ -33,7 +33,7 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::Whoami => cli::whoami::run(cli.json, cli.agent.as_deref()),
+        Commands::Whoami => cli::whoami::run(format, cli.agent.as_deref()),
 
         Commands::Send {
             target,
@@ -82,9 +82,9 @@ fn main() -> Result<()> {
 
         Commands::Watch { channel, all } => cli::watch::run(channel, all),
 
-        Commands::Channels { mine } => cli::channels::run(cli.json, mine, cli.agent.as_deref()),
+        Commands::Channels { mine } => cli::channels::run(format, mine, cli.agent.as_deref()),
 
-        Commands::Agents { active } => cli::agents::run(cli.json, active),
+        Commands::Agents { active } => cli::agents::run(format, active),
 
         Commands::Search {
             query,

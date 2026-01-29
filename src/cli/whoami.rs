@@ -4,6 +4,8 @@ use anyhow::{Result, bail};
 use colored::Colorize;
 use serde::Serialize;
 
+use super::format::to_toon;
+use super::OutputFormat;
 use crate::core::identity::{AGENT_ENV_VAR, format_export, resolve_agent};
 use crate::core::project::data_dir;
 
@@ -15,23 +17,31 @@ pub struct WhoamiOutput {
 }
 
 /// Display current agent identity.
-pub fn run(json: bool, agent: Option<&str>) -> Result<()> {
+pub fn run(format: OutputFormat, agent: Option<&str>) -> Result<()> {
     let agent_name = match resolve_agent(agent) {
         Some(name) => name,
         None => {
-            if json {
-                println!("{{\"error\": \"No agent identity configured\"}}");
-                return Ok(());
+            match format {
+                OutputFormat::Json => {
+                    println!("{{\"error\": \"No agent identity configured\"}}");
+                    return Ok(());
+                }
+                OutputFormat::Toon => {
+                    println!("error: No agent identity configured");
+                    return Ok(());
+                }
+                OutputFormat::Text => {
+                    bail!(
+                        "No agent identity configured.\n\n\
+                         To set your identity:\n  \
+                         export BOTBUS_AGENT=$(botbus generate-name)\n\n\
+                         Or choose your own name (kebab-case preferred):\n  \
+                         {}\n\n\
+                         Or use --agent flag with commands.",
+                        format_export("my-agent-name")
+                    );
+                }
             }
-            bail!(
-                "No agent identity configured.\n\n\
-                 To set your identity:\n  \
-                 export BOTBUS_AGENT=$(botbus generate-name)\n\n\
-                 Or choose your own name (kebab-case preferred):\n  \
-                 {}\n\n\
-                 Or use --agent flag with commands.",
-                format_export("my-agent-name")
-            );
         }
     };
 
@@ -45,19 +55,25 @@ pub fn run(json: bool, agent: Option<&str>) -> Result<()> {
         "unknown".to_string()
     };
 
-    if json {
-        let output = WhoamiOutput {
-            agent: agent_name,
-            source,
-            data_dir: data_dir().display().to_string(),
-        };
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        return Ok(());
-    }
+    let output = WhoamiOutput {
+        agent: agent_name.clone(),
+        source,
+        data_dir: data_dir().display().to_string(),
+    };
 
-    println!("{}: {}", "Agent".bold(), agent_name.cyan());
-    println!("{}: {}", "Source".bold(), source);
-    println!("{}: {}", "Data".bold(), data_dir().display());
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Toon => {
+            println!("{}", to_toon(&output));
+        }
+        OutputFormat::Text => {
+            println!("{}: {}", "Agent".bold(), agent_name.cyan());
+            println!("{}: {}", "Source".bold(), output.source);
+            println!("{}: {}", "Data".bold(), data_dir().display());
+        }
+    }
 
     Ok(())
 }
@@ -76,7 +92,7 @@ mod tests {
             env::set_var(AGENT_ENV_VAR, "test-agent");
         }
 
-        run(false, None).unwrap();
+        run(OutputFormat::Text, None).unwrap();
 
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
@@ -85,7 +101,7 @@ mod tests {
 
     #[test]
     fn test_whoami_json() {
-        run(true, Some("test-agent")).unwrap();
+        run(OutputFormat::Json, Some("test-agent")).unwrap();
     }
 
     #[test]
@@ -96,7 +112,7 @@ mod tests {
             env::remove_var(AGENT_ENV_VAR);
         }
 
-        let result = run(false, None);
+        let result = run(OutputFormat::Text, None);
         assert!(result.is_err());
     }
 }

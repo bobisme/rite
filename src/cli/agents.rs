@@ -6,6 +6,8 @@ use colored::Colorize;
 use serde::Serialize;
 use std::collections::HashMap;
 
+use super::format::to_toon;
+use super::OutputFormat;
 use crate::core::message::Message;
 use crate::core::project::channels_dir;
 use crate::storage::jsonl::read_records;
@@ -24,7 +26,7 @@ pub struct AgentsOutput {
 }
 
 /// List agents derived from message history.
-pub fn run(json: bool, _active_only: bool) -> Result<()> {
+pub fn run(format: OutputFormat, _active_only: bool) -> Result<()> {
     let agent_stats = get_agent_stats();
     let now = Utc::now();
 
@@ -44,37 +46,43 @@ pub fn run(json: bool, _active_only: bool) -> Result<()> {
     // Sort by last seen (most recent first)
     agent_infos.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
 
-    if json {
-        let output = AgentsOutput {
-            agents: agent_infos,
-        };
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        return Ok(());
-    }
+    let output = AgentsOutput {
+        agents: agent_infos,
+    };
 
-    if agent_infos.is_empty() {
-        println!("No agents found in message history.");
-        return Ok(());
-    }
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Toon => {
+            println!("{}", to_toon(&output));
+        }
+        OutputFormat::Text => {
+            if output.agents.is_empty() {
+                println!("No agents found in message history.");
+                return Ok(());
+            }
 
-    println!("{}", "Agents (from message history):".bold());
+            println!("{}", "Agents (from message history):".bold());
 
-    for info in &agent_infos {
-        let last_seen_str = format_time_ago(info.last_seen);
+            for info in &output.agents {
+                let last_seen_str = format_time_ago(info.last_seen);
 
-        let indicator = if info.active {
-            "●".green()
-        } else {
-            "○".dimmed()
-        };
+                let indicator = if info.active {
+                    "●".green()
+                } else {
+                    "○".dimmed()
+                };
 
-        println!(
-            "  {} {:<24} last seen {}, {} messages",
-            indicator,
-            info.name.cyan(),
-            last_seen_str,
-            info.message_count
-        );
+                println!(
+                    "  {} {:<24} last seen {}, {} messages",
+                    indicator,
+                    info.name.cyan(),
+                    last_seen_str,
+                    info.message_count
+                );
+            }
+        }
     }
 
     Ok(())
@@ -169,7 +177,7 @@ mod tests {
         )
         .unwrap();
 
-        run(false, false).unwrap();
+        run(OutputFormat::Text, false).unwrap();
     }
 
     #[test]
@@ -177,6 +185,6 @@ mod tests {
     fn test_list_agents_json() {
         let _env = TestEnv::new();
 
-        run(true, false).unwrap();
+        run(OutputFormat::Json, false).unwrap();
     }
 }

@@ -29,6 +29,15 @@ pub fn run(
     // Strip # prefix if present (common user pattern)
     let target = target.strip_prefix('#').unwrap_or(&target);
 
+    // Block sending to reserved channels
+    if target == "claims" {
+        bail!(
+            "Cannot send messages to #claims - this is a system channel.\n\n\
+             The #claims channel is reserved for claim/release announcements.\n\
+             Claim actions automatically post to this channel."
+        );
+    }
+
     // Determine channel name
     let channel = if target.starts_with('@') {
         // DM to another agent
@@ -265,5 +274,35 @@ mod tests {
         let messages: Vec<Message> = read_records(&channel_path("test-labeled")).unwrap();
         assert!(!messages.is_empty());
         assert_eq!(messages.last().unwrap().labels, vec!["bug", "ready"]);
+    }
+
+    #[test]
+    #[serial]
+    fn test_send_to_claims_channel_blocked() {
+        let _env = TestEnv::new();
+
+        // Try to send to #claims (with # prefix)
+        let result = run(
+            "#claims".to_string(),
+            "test message".to_string(),
+            None,
+            vec![],
+            vec![],
+            Some("test-sender"),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("system channel"));
+
+        // Try without # prefix
+        let result = run(
+            "claims".to_string(),
+            "test message".to_string(),
+            None,
+            vec![],
+            vec![],
+            Some("test-sender"),
+        );
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("system channel"));
     }
 }

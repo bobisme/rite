@@ -150,7 +150,7 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
     // Append to claims.jsonl
     append_record(&claims_path(), &claim).with_context(|| "Failed to record claim")?;
 
-    // Post message to #general (use absolute patterns for clarity)
+    // Post message to #claims (use absolute patterns for clarity)
     let display_patterns: Vec<String> = expanded_patterns.clone();
     let body = if let Some(msg) = &options.message {
         format!("Claimed {} ({})", display_patterns.join(", "), msg)
@@ -158,12 +158,12 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
         format!("Claimed {}", display_patterns.join(", "))
     };
 
-    let claim_msg = Message::new(&agent_name, "general", &body).with_meta(MessageMeta::Claim {
+    let claim_msg = Message::new(&agent_name, "claims", &body).with_meta(MessageMeta::Claim {
         patterns: display_patterns.clone(),
         ttl_secs: options.ttl,
     });
 
-    append_record(&channel_path("general"), &claim_msg)?;
+    append_record(&channel_path("claims"), &claim_msg)?;
 
     // Output (use absolute patterns for clarity)
     println!(
@@ -532,13 +532,13 @@ pub fn release(patterns: Vec<String>, release_all: bool, agent: Option<&str>) ->
                 claim.patterns.iter().map(|p| display_pattern(p)).collect();
             let msg = Message::new(
                 &agent_name,
-                "general",
+                "claims",
                 format!("Released {}", display_patterns.join(", ")),
             )
             .with_meta(MessageMeta::Release {
                 patterns: display_patterns,
             });
-            append_record(&channel_path("general"), &msg)?;
+            append_record(&channel_path("claims"), &msg)?;
         }
     }
 

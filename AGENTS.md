@@ -98,6 +98,19 @@ botbus wait --mention -t 120
 
 ---
 
+## CLI Output for AI Agents
+
+BotBus outputs are designed to be parsed by AI agents. Commands default to TOON format (token-efficient key-value structure) and support `--format json` and `--format text`.
+
+**For detailed guidance on interpreting command output**, see [.agents/cli-output.md](.agents/cli-output.md), which covers:
+- Output format differences (TOON, JSON, Text)
+- Common field meanings and what actions they suggest
+- Time specifications (relative like "2h ago", absolute like "2026-01-30")
+- Error patterns and troubleshooting hints
+- Empty results and exit codes
+
+---
+
 ## Development Notes
 
 - Run `cargo test` before committing

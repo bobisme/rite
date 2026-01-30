@@ -15,15 +15,17 @@ use crate::storage::agent_state::AgentStateManager;
 use crate::storage::jsonl::read_records;
 
 pub struct InboxOptions {
-    /// Specific channels to check (if empty, checks general + DMs)
+    /// Specific channels to check (if empty, checks DMs only)
     pub channels: Vec<String>,
-    /// Maximum messages to show per channel
+    /// Maximum total messages to show across all channels
     pub count: usize,
+    /// Maximum messages to show per channel
+    pub limit_per_channel: Option<usize>,
     /// Auto-mark as read after displaying
     pub mark_read: bool,
     /// Output format
     pub format: OutputFormat,
-    /// Include all channels (not just general + DMs)
+    /// Include all channels
     pub all: bool,
     /// Check all channels for @mentions of current agent
     pub mentions: bool,
@@ -83,10 +85,8 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
         // Get all channels
         get_all_channels()?
     } else {
-        // Default: general + DM channels for this agent
-        let mut channels = vec!["general".to_string()];
-        channels.extend(get_dm_channels_for_agent(&agent)?);
-        channels
+        // Default: only DM channels for this agent
+        get_dm_channels_for_agent(&agent)?
     };
 
     // Collect inbox data for each channel
@@ -130,6 +130,13 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
         let unread_count = filtered_messages.len();
         total_unread += unread_count;
 
+        // Apply per-channel limit if specified
+        let displayed_messages = if let Some(limit) = options.limit_per_channel {
+            filtered_messages.into_iter().take(limit).collect()
+        } else {
+            filtered_messages
+        };
+
         // Mark as read if requested
         let marked_read = if options.mark_read {
             manager.mark_read(&channel, output.next_offset, output.last_id.as_deref())?;
@@ -142,7 +149,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
             channel: channel.clone(),
             is_dm: is_dm_channel(&channel),
             unread_count,
-            messages: filtered_messages,
+            messages: displayed_messages,
             next_offset: output.next_offset,
             marked_read,
         });

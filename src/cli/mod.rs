@@ -265,17 +265,21 @@ pub enum Commands {
 
     /// Show unread messages (uses stored read cursor)
     Inbox {
-        /// Specific channel(s) to check (default: general + DMs)
+        /// Specific channel(s) to check (default: DMs only)
         #[arg(short, long, action = clap::ArgAction::Append)]
         channels: Vec<String>,
 
-        /// Check all channels (not just general + DMs)
+        /// Check all channels
         #[arg(long)]
         all: bool,
 
-        /// Maximum messages to show per channel
+        /// Maximum total messages to show across all channels
         #[arg(short = 'n', long, default_value = "50")]
         count: usize,
+
+        /// Maximum messages to show per channel
+        #[arg(long)]
+        limit_per_channel: Option<usize>,
 
         /// Mark as read after displaying
         #[arg(long)]

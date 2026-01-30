@@ -150,6 +150,7 @@ fn main() -> Result<()> {
             channels,
             all,
             count,
+            limit_per_channel,
             mark_read,
             mentions,
             count_only,
@@ -157,6 +158,7 @@ fn main() -> Result<()> {
             cli::inbox::InboxOptions {
                 channels,
                 count,
+                limit_per_channel,
                 mark_read,
                 format,
                 all,

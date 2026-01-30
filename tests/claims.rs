@@ -144,15 +144,15 @@ fn test_claim_posts_message() {
     let agent = project.agent("Announcer");
 
     // Clear existing messages by noting the count
-    let before = project.channel_messages("general").len();
+    let before = project.channel_messages("claims").len();
 
     // Make a claim with a message
     agent
         .claim_with_message(&["config/**"], "Updating configuration")
         .assert_success();
 
-    // Should have posted a message
-    let messages = project.channel_messages("general");
+    // Should have posted a message to #claims
+    let messages = project.channel_messages("claims");
     assert!(messages.len() > before);
 
     // Last message should mention the claim
@@ -161,7 +161,7 @@ fn test_claim_posts_message() {
     assert!(body.contains("config") || body.contains("Claimed"));
 }
 
-/// Test release notification message is posted to general.
+/// Test release notification message is posted to #claims.
 #[test]
 fn test_release_posts_message() {
     let mut project = TestProject::with_name("release-message");
@@ -170,11 +170,11 @@ fn test_release_posts_message() {
 
     agent.claim(&["files/**"]).assert_success();
 
-    let before = project.channel_messages("general").len();
+    let before = project.channel_messages("claims").len();
 
     agent.release_all().assert_success();
 
-    let messages = project.channel_messages("general");
+    let messages = project.channel_messages("claims");
     assert!(messages.len() > before);
 
     // Last message should mention release

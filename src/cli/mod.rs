@@ -76,6 +76,7 @@ pub enum Commands {
     Whoami,
 
     /// Send a message to a channel or agent
+    #[command(alias = "post")]
     Send {
         /// Channel name or @agent for DM
         target: String,
@@ -97,6 +98,7 @@ pub enum Commands {
     },
 
     /// View message history
+    #[command(aliases = &["read", "show"])]
     History {
         /// Channel to view (default: general)
         channel: Option<String>,
@@ -157,6 +159,7 @@ pub enum Commands {
     },
 
     /// List all channels
+    #[command(aliases = &["list-channels", "ls"])]
     Channels {
         /// Only show channels you've participated in (sent or mentioned)
         #[arg(long)]
@@ -164,6 +167,7 @@ pub enum Commands {
     },
 
     /// List agents (derived from message history)
+    #[command(alias = "list-agents")]
     Agents {
         /// Only show recently active agents
         #[arg(long)]
@@ -208,6 +212,7 @@ pub enum Commands {
     },
 
     /// List active file claims
+    #[command(alias = "list-claims")]
     Claims {
         /// Include expired claims
         #[arg(long)]

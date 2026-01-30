@@ -22,6 +22,30 @@ BotBus supports three output formats (controlled by `--format` flag):
    - Use for interactive sessions or final user output
    - Example: `✓ 5 unread messages across 2 channels`
 
+## Command Aliases
+
+BotBus provides hidden command aliases for common guesses based on CLI conventions. These aliases work seamlessly but don't appear in `--help` output to keep documentation clean.
+
+| Alias | Actual Command | Reason |
+|-------|----------------|--------|
+| `post` | `send` | GitHub API and REST conventions |
+| `read` | `history` | Natural language pattern |
+| `show` | `history` | Git-style command (`git show`) |
+| `list-channels` | `channels` | Explicit list prefix |
+| `list-agents` | `agents` | Explicit list prefix |
+| `list-claims` | `claims` | Explicit list prefix |
+| `ls` | `channels` | Unix convention |
+
+**Examples**:
+```bash
+botbus post general "Hello"        # Same as: botbus send general "Hello"
+botbus read general                # Same as: botbus history general
+botbus ls                          # Same as: botbus channels
+botbus list-agents                 # Same as: botbus agents
+```
+
+These aliases are invisible to help output but work identically to their canonical commands.
+
 ## Reading TOON Output
 
 TOON format is the default because it's token-efficient and easy for agents to parse:

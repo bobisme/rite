@@ -96,6 +96,17 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
     for channel in channels_to_check {
         let cursor = manager.get_read_cursor(&channel)?;
 
+        // Choose between after_offset and after_id:
+        // - If we have a last_id, use it (more precise, handles --limit-per-channel)
+        // - Unless offset is 0 and there's no last_id (cursor reset or first read)
+        let (after_offset, after_id) = if let Some(ref last_id) = cursor.last_id {
+            // Use after_id for precise tracking (handles --limit-per-channel)
+            (None, Some(last_id.clone()))
+        } else {
+            // No last_id, use offset
+            (Some(cursor.offset), None)
+        };
+
         let history_options = HistoryOptions {
             channel: Some(channel.clone()),
             count: options.count,
@@ -106,8 +117,8 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
             before: None,
             from: None,
             labels: vec![],
-            after_offset: Some(cursor.offset),
-            after_id: None,
+            after_offset,
+            after_id,
             show_offset: false,
             json: false,
             agent: Some(agent.clone()),
@@ -127,19 +138,33 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
             continue;
         }
 
-        let unread_count = filtered_messages.len();
-        total_unread += unread_count;
+        let total_filtered = filtered_messages.len();
 
         // Apply per-channel limit if specified
-        let displayed_messages = if let Some(limit) = options.limit_per_channel {
+        let displayed_messages: Vec<Message> = if let Some(limit) = options.limit_per_channel {
             filtered_messages.into_iter().take(limit).collect()
         } else {
             filtered_messages
         };
 
+        let was_truncated = displayed_messages.len() < total_filtered;
+        let unread_count = displayed_messages.len();
+        total_unread += unread_count;
+
         // Mark as read if requested
         let marked_read = if options.mark_read {
-            manager.mark_read(&channel, output.next_offset, output.last_id.as_deref())?;
+            // When using --limit-per-channel, only mark as read up to the last displayed message
+            // Keep the offset unchanged and use the message ID for tracking
+            if was_truncated {
+                // Truncated by per-channel limit - don't advance offset, only track by ID
+                if let Some(last_msg) = displayed_messages.last() {
+                    let last_id_str = last_msg.id.to_string();
+                    manager.mark_read(&channel, cursor.offset, Some(&last_id_str))?;
+                }
+            } else {
+                // Not truncated - mark normally with full offset
+                manager.mark_read(&channel, output.next_offset, output.last_id.as_deref())?;
+            }
             true
         } else {
             false

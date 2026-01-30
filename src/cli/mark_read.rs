@@ -45,6 +45,10 @@ pub fn run(options: MarkReadOptions, explicit_agent: Option<&str>) -> Result<()>
     // Get the last message ID if not explicitly provided
     let last_id = if options.last_id.is_some() {
         options.last_id.clone()
+    } else if options.offset.is_some() {
+        // Explicit offset provided - don't set last_id
+        // This allows offset 0 to reset read position completely
+        None
     } else if channel_file.exists() {
         // Read last message to get its ID
         use crate::core::message::Message;

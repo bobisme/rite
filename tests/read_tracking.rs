@@ -250,3 +250,47 @@ fn test_inbox_nonexistent_channel_ok() {
     output.assert_success();
     output.assert_stdout_contains("No unread messages");
 }
+
+#[test]
+fn test_inbox_limit_per_channel_with_mark_read() {
+    let mut project = TestProject::new();
+    let alice = project.agent("Alice");
+    let bob = project.agent("Bob");
+
+    // Bob sends 10 messages to general
+    for i in 1..=10 {
+        bob.send("general", &format!("Message {}", i))
+            .assert_success();
+    }
+
+    // Alice reads with --limit-per-channel 3 and --mark-read
+    let output = alice.run(&[
+        "inbox",
+        "-c",
+        "general",
+        "--limit-per-channel",
+        "3",
+        "--mark-read",
+        "--format",
+        "text",
+    ]);
+    output.assert_success();
+    output.assert_stdout_contains("3 unread"); // Shows only 3 messages
+    output.assert_stdout_contains("Message 1");
+    output.assert_stdout_contains("Message 2");
+    output.assert_stdout_contains("Message 3");
+
+    // Next inbox check should show remaining 7 messages (4-10)
+    let output = alice.inbox("general");
+    output.assert_success();
+    output.assert_stdout_contains("7 unread"); // Should see 7 remaining
+    output.assert_stdout_contains("Message 4");
+    output.assert_stdout_contains("Message 10");
+
+    // Should NOT see messages 1-3 (already marked as read)
+    // Note: Must check for ": Message N" to avoid false positives from "Message 10" containing "1"
+    let stdout = output.stdout_str();
+    assert!(!stdout.contains(": Message 1\n"));
+    assert!(!stdout.contains(": Message 2\n"));
+    assert!(!stdout.contains(": Message 3\n"));
+}

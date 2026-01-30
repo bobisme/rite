@@ -7,6 +7,7 @@ use serde::Serialize;
 use super::OutputFormat;
 use super::format::to_toon;
 use crate::core::identity::{AGENT_ENV_VAR, resolve_agent};
+use crate::core::names::generate_name;
 use crate::core::project::data_dir;
 
 #[derive(Debug, Serialize)]
@@ -23,17 +24,35 @@ pub fn run(format: OutputFormat, agent: Option<&str>) -> Result<()> {
     let agent_name = match resolve_agent(agent) {
         Some(name) => name,
         None => {
-            // Always return an error when no identity is configured
-            // Format determines the error message style
+            // No identity configured - suggest a random name
+            let suggested_name = generate_name();
+
             let error_msg = match format {
-                OutputFormat::Json | OutputFormat::Toon => "No agent identity configured",
+                OutputFormat::Json | OutputFormat::Toon => {
+                    format!(
+                        "No agent identity configured. Suggested: {}",
+                        suggested_name
+                    )
+                }
                 OutputFormat::Text => {
-                    "No agent identity configured.\n\n\
-                     To set your identity:\n  \
-                     export BOTBUS_AGENT=$(botbus generate-name)\n\n\
-                     Or choose your own name (kebab-case preferred):\n  \
-                     export BOTBUS_AGENT=my-agent-name\n\n\
-                     Or use --agent flag with commands."
+                    format!(
+                        "{}\n\n\
+                         {} Here is a random identity you could use:\n\n  \
+                         {}\n\n\
+                         To use it with --agent flag (recommended for agents/scripts):\n  \
+                         botbus --agent {} <command>\n\n\
+                         Or set in environment (for interactive shells):\n  \
+                         export BOTBUS_AGENT={}\n\n\
+                         Or generate a different name:\n  \
+                         botbus generate-name\n\n\
+                         Note: Environment variables don't persist in sandboxed environments.\n  \
+                         Use --agent flag for reliable identity across commands.",
+                        "Error: No agent identity detected.".red().bold(),
+                        "→".cyan().bold(),
+                        suggested_name.green().bold(),
+                        suggested_name,
+                        suggested_name
+                    )
                 }
             };
             bail!("{}", error_msg);

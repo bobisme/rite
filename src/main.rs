@@ -112,9 +112,12 @@ fn main() -> Result<()> {
             agent: cli.agent,
         }),
 
-        Commands::Claims { all, mine } => {
-            cli::claim::claims(format, all, mine, cli.agent.as_deref())
-        }
+        Commands::Claims {
+            all,
+            mine,
+            limit,
+            since,
+        } => cli::claim::claims(format, all, mine, limit, since, cli.agent.as_deref()),
 
         Commands::Release { patterns, all } => {
             cli::claim::release(patterns, all, cli.agent.as_deref())

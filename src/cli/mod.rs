@@ -216,6 +216,14 @@ pub enum Commands {
         /// Only show my claims
         #[arg(long)]
         mine: bool,
+
+        /// Limit output to N most recent claims
+        #[arg(short = 'n', long)]
+        limit: Option<usize>,
+
+        /// Show claims created after this time (e.g., "2h ago", "2026-01-28")
+        #[arg(long)]
+        since: Option<String>,
     },
 
     /// Release file claims

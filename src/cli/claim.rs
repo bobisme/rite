@@ -263,11 +263,60 @@ pub struct ClaimInfo {
     pub expires_in_secs: i64,
 }
 
+/// Parse a time specification (absolute or relative).
+/// Supports:
+/// - Relative: "2h", "30m", "1d", "2h ago"
+/// - Absolute: "2026-01-28", "2026-01-28T12:00:00Z", "2026-01-28 12:00:00"
+fn parse_time_spec(s: &str) -> Result<DateTime<Utc>> {
+    // Remove " ago" suffix if present
+    let s = s.trim().strip_suffix(" ago").unwrap_or(s).trim();
+
+    // Try parsing as relative time (e.g., "2h", "30m", "1d")
+    if s.len() >= 2 {
+        let unit = s.chars().last().unwrap();
+        let number_part = &s[..s.len() - 1];
+
+        if let Ok(amount) = number_part.parse::<i64>() {
+            let duration = match unit {
+                's' => Some(chrono::Duration::seconds(amount)),
+                'm' => Some(chrono::Duration::minutes(amount)),
+                'h' => Some(chrono::Duration::hours(amount)),
+                'd' => Some(chrono::Duration::days(amount)),
+                _ => None,
+            };
+
+            if let Some(dur) = duration {
+                return Ok(Utc::now() - dur);
+            }
+        }
+    }
+
+    // Try parsing as RFC3339
+    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+        return Ok(dt.with_timezone(&Utc));
+    }
+
+    // Try parsing as just a date
+    if let Ok(date) = chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d") {
+        let dt = date.and_hms_opt(0, 0, 0).unwrap();
+        return Ok(DateTime::from_naive_utc_and_offset(dt, Utc));
+    }
+
+    // Try parsing as date + time
+    if let Ok(dt) = chrono::NaiveDateTime::parse_from_str(s, "%Y-%m-%d %H:%M:%S") {
+        return Ok(DateTime::from_naive_utc_and_offset(dt, Utc));
+    }
+
+    anyhow::bail!("Could not parse time: {}", s)
+}
+
 /// List active file claims.
 pub fn claims(
     format: OutputFormat,
     show_all: bool,
     mine_only: bool,
+    limit: Option<usize>,
+    since: Option<String>,
     agent: Option<&str>,
 ) -> Result<()> {
     let current_agent = resolve_agent(agent).unwrap_or_default();
@@ -281,6 +330,13 @@ pub fn claims(
         active.insert(claim.id, claim);
     }
 
+    // Parse --since time if provided
+    let since_time = if let Some(ref since_str) = since {
+        Some(parse_time_spec(since_str)?)
+    } else {
+        None
+    };
+
     // Filter and sort
     let now = Utc::now();
     let mut claims_list: Vec<_> = active
@@ -292,11 +348,28 @@ pub fn claims(
             if !show_all && (!c.active || c.expires_at < now) {
                 return false;
             }
+            // Filter by --since if provided
+            if let Some(since_dt) = since_time
+                && c.ts < since_dt
+            {
+                return false;
+            }
             true
         })
         .collect();
 
-    claims_list.sort_by(|a, b| a.expires_at.cmp(&b.expires_at));
+    // Sort by creation time (most recent first) when using --since or --limit
+    // Otherwise sort by expiration time
+    if since.is_some() || limit.is_some() {
+        claims_list.sort_by(|a, b| b.ts.cmp(&a.ts));
+    } else {
+        claims_list.sort_by(|a, b| a.expires_at.cmp(&b.expires_at));
+    }
+
+    // Apply limit if provided
+    if let Some(n) = limit {
+        claims_list.truncate(n);
+    }
 
     // Prepare structured output
     let claim_infos: Vec<ClaimInfo> = claims_list

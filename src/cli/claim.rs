@@ -118,22 +118,48 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
     // Check for conflicts - deny overlapping claims (using expanded patterns)
     let conflicts = check_conflicts(&expanded_patterns, &claims, &agent_name);
     if !conflicts.is_empty() {
+        let now = Utc::now();
         eprintln!("{}", "Error: Conflict with existing claim(s)".red().bold());
-        for (pattern, holder, expires) in &conflicts {
-            let remaining = (*expires - Utc::now()).num_minutes();
-            eprintln!(
-                "  {} owns {} (expires in {}m)",
-                holder.yellow(),
-                pattern.cyan(),
-                remaining
-            );
-        }
         eprintln!();
-        eprintln!("Ask them to release or narrow their claim:");
-        // Get the first conflicting agent for the example
+
+        for (pattern, holder, expires) in &conflicts {
+            let remaining_secs = (*expires - now).num_seconds().max(0);
+            let remaining_mins = (remaining_secs / 60).max(0);
+
+            eprintln!("  Pattern: {}", pattern.cyan());
+            eprintln!("  Claimed by: {}", holder.yellow());
+            eprintln!("  Expires at: {}", expires.to_rfc3339().dimmed());
+            eprintln!(
+                "  Time remaining: {}s ({}m)",
+                remaining_secs, remaining_mins
+            );
+            eprintln!();
+        }
+
+        // Get the first conflicting agent for suggestions
         let first_holder = &conflicts[0].1;
+        let first_expires = &conflicts[0].2;
+        let wait_secs = (*first_expires - now).num_seconds().max(0);
+
+        eprintln!("{}", "Options:".bold());
+        eprintln!();
+        eprintln!("1. {} Wait for claim to expire:", "Wait:".green());
         eprintln!(
-            "  {}",
+            "   {}",
+            format!(
+                "sleep {} && botbus claim {}",
+                wait_secs + 5,
+                options.patterns.join(" ")
+            )
+            .dimmed()
+        );
+        eprintln!();
+        eprintln!(
+            "2. {} Ask holder to release or narrow their claim:",
+            "Communicate:".green()
+        );
+        eprintln!(
+            "   {}",
             format!(
                 "botbus send @{} \"Can you release {}? I need to work on it\"",
                 first_holder,
@@ -141,6 +167,7 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
             )
             .dimmed()
         );
+
         anyhow::bail!("Cannot claim - conflicts with existing claims");
     }
 

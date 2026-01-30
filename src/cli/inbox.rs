@@ -115,12 +115,19 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
 
         let output: HistoryOutput = history::run_with_output(history_options)?;
 
+        // Filter out the current agent's own messages
+        let filtered_messages: Vec<_> = output
+            .messages
+            .into_iter()
+            .filter(|msg| msg.agent != agent)
+            .collect();
+
         // Skip channels with no unread messages
-        if output.messages.is_empty() {
+        if filtered_messages.is_empty() {
             continue;
         }
 
-        let unread_count = output.messages.len();
+        let unread_count = filtered_messages.len();
         total_unread += unread_count;
 
         // Mark as read if requested
@@ -135,7 +142,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
             channel: channel.clone(),
             is_dm: is_dm_channel(&channel),
             unread_count,
-            messages: output.messages,
+            messages: filtered_messages,
             next_offset: output.next_offset,
             marked_read,
         });

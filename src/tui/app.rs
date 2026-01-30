@@ -590,18 +590,18 @@ fn list_channels() -> Result<(Vec<String>, Vec<String>)> {
         }
     }
 
-    // Sort by most recent activity first
-    public_channels.sort_by(|a, b| b.1.cmp(&a.1));
-    dm_channels.sort_by(|a, b| b.1.cmp(&a.1));
-
-    // But keep #general at the top of public channels
+    // Sort alphabetically
     let mut public: Vec<String> = public_channels.into_iter().map(|(n, _)| n).collect();
+    let mut dms: Vec<String> = dm_channels.into_iter().map(|(n, _)| n).collect();
+
+    public.sort();
+    dms.sort();
+
+    // Keep #general at the top of public channels
     if let Some(pos) = public.iter().position(|c| c == "general") {
         let general = public.remove(pos);
         public.insert(0, general);
     }
-
-    let dms: Vec<String> = dm_channels.into_iter().map(|(n, _)| n).collect();
 
     Ok((public, dms))
 }

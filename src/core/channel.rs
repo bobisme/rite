@@ -70,9 +70,13 @@ pub fn is_dm_target(target: &str) -> bool {
 
 /// Resolve a channel argument to the actual channel name.
 /// - `@agent` → resolved to DM channel name using current agent
+/// - `#general` → strip # prefix and return as `general`
 /// - `general` → returned as-is
 /// - `_dm_a_b` → returned as-is
 pub fn resolve_channel(channel: &str, current_agent: Option<&str>) -> Option<String> {
+    // Strip # prefix if present (common user pattern)
+    let channel = channel.strip_prefix('#').unwrap_or(channel);
+
     if channel.starts_with('@') {
         // DM target - need current agent to resolve
         let other = channel.strip_prefix('@')?;
@@ -138,6 +142,17 @@ mod tests {
         assert_eq!(
             resolve_channel("general", Some("alice")),
             Some("general".to_string())
+        );
+
+        // Channel with # prefix - strip it
+        assert_eq!(
+            resolve_channel("#general", Some("alice")),
+            Some("general".to_string())
+        );
+
+        assert_eq!(
+            resolve_channel("#backend", Some("alice")),
+            Some("backend".to_string())
         );
 
         // DM target resolves to canonical DM channel name

@@ -12,7 +12,10 @@ pub fn subscribe(channel: String, explicit_agent: Option<&str>) -> Result<()> {
     let agent = require_agent(explicit_agent)?;
     let manager = AgentStateManager::new(&data_dir(), &agent);
 
-    let added = manager.subscribe(&channel)?;
+    // Strip # prefix if present (common user pattern)
+    let channel = channel.strip_prefix('#').unwrap_or(&channel);
+
+    let added = manager.subscribe(channel)?;
 
     if added {
         println!("{} Subscribed to #{}", "✓".green(), channel.cyan());
@@ -28,7 +31,10 @@ pub fn unsubscribe(channel: String, explicit_agent: Option<&str>) -> Result<()> 
     let agent = require_agent(explicit_agent)?;
     let manager = AgentStateManager::new(&data_dir(), &agent);
 
-    let removed = manager.unsubscribe(&channel)?;
+    // Strip # prefix if present (common user pattern)
+    let channel = channel.strip_prefix('#').unwrap_or(&channel);
+
+    let removed = manager.unsubscribe(channel)?;
 
     if removed {
         println!("{} Unsubscribed from #{}", "✓".green(), channel.cyan());

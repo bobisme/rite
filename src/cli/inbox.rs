@@ -73,8 +73,12 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
 
     // Determine which channels to check
     let channels_to_check = if !options.channels.is_empty() {
-        // User specified explicit channels
-        options.channels.clone()
+        // User specified explicit channels - strip # prefix if present
+        options
+            .channels
+            .iter()
+            .map(|c| c.strip_prefix('#').unwrap_or(c).to_string())
+            .collect()
     } else if options.all {
         // Get all channels
         get_all_channels()?

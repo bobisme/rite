@@ -20,7 +20,13 @@ pub struct MarkReadOptions {
 pub fn run(options: MarkReadOptions, explicit_agent: Option<&str>) -> Result<()> {
     let agent = require_agent(explicit_agent)?;
 
-    let channel_file = channel_path(&options.channel);
+    // Strip # prefix if present (common user pattern)
+    let channel = options
+        .channel
+        .strip_prefix('#')
+        .unwrap_or(&options.channel);
+
+    let channel_file = channel_path(channel);
 
     // Get the offset to use
     let offset = if let Some(o) = options.offset {
@@ -32,7 +38,7 @@ pub fn run(options: MarkReadOptions, explicit_agent: Option<&str>) -> Result<()>
     } else {
         bail!(
             "Channel #{} does not exist. Nothing to mark as read.",
-            options.channel
+            channel
         );
     };
 
@@ -52,12 +58,12 @@ pub fn run(options: MarkReadOptions, explicit_agent: Option<&str>) -> Result<()>
 
     // Save read state
     let manager = AgentStateManager::new(&data_dir(), &agent);
-    manager.mark_read(&options.channel, offset, last_id.as_deref())?;
+    manager.mark_read(channel, offset, last_id.as_deref())?;
 
     println!(
         "{} marked #{} as read at offset {}{}",
         "✓".green(),
-        options.channel.cyan(),
+        channel.cyan(),
         offset,
         if let Some(id) = &last_id {
             format!(" (last_id: {})", id)

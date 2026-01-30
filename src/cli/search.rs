@@ -22,7 +22,12 @@ pub struct SearchOutput {
 }
 
 /// Full-text search messages.
-pub fn run(options: SearchOptions) -> Result<()> {
+pub fn run(mut options: SearchOptions) -> Result<()> {
+    // Strip # prefix from channel if present (common user pattern)
+    if let Some(ref ch) = options.channel {
+        options.channel = Some(ch.strip_prefix('#').unwrap_or(ch).to_string());
+    }
+
     // Sync index first to include recent messages
     let mut syncer = IndexSyncer::new().with_context(|| "Failed to open search index")?;
 

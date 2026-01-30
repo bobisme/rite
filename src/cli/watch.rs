@@ -19,6 +19,9 @@ pub fn run(channel: Option<String>, watch_all: bool) -> Result<()> {
         return Ok(());
     }
 
+    // Strip # prefix if present (common user pattern)
+    let channel = channel.map(|ch| ch.strip_prefix('#').unwrap_or(&ch).to_string());
+
     // Determine which channels to watch
     let watching: Vec<String> = if let Some(ch) = channel {
         vec![ch]

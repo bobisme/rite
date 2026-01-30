@@ -39,12 +39,17 @@ pub struct WaitOutput {
 }
 
 /// Wait for a relevant message to arrive.
-pub fn run(options: WaitOptions, explicit_agent: Option<&str>) -> Result<()> {
+pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()> {
     let agent = resolve_agent(explicit_agent);
 
     // For --mention, we need an agent identity
     if options.mention && agent.is_none() {
         anyhow::bail!("--mention requires agent identity. Set BOTBUS_AGENT or use --agent flag.");
+    }
+
+    // Strip # prefix from channel if present (common user pattern)
+    if let Some(ref ch) = options.channel {
+        options.channel = Some(ch.strip_prefix('#').unwrap_or(ch).to_string());
     }
 
     let channels_path = channels_dir();

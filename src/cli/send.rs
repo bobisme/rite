@@ -26,6 +26,9 @@ pub fn run(
     // Get current agent from env var or explicit flag
     let agent_name = require_agent(agent)?;
 
+    // Strip # prefix if present (common user pattern)
+    let target = target.strip_prefix('#').unwrap_or(&target);
+
     // Determine channel name
     let channel = if target.starts_with('@') {
         // DM to another agent
@@ -36,7 +39,7 @@ pub fn run(
         dm_channel_name(&agent_name, other_agent)
     } else {
         // Regular channel
-        if !is_valid_channel_name(&target) {
+        if !is_valid_channel_name(target) {
             bail!(
                 "Invalid channel name: '{}'\n\n\
                  Channel names must be lowercase alphanumeric with hyphens.\n\
@@ -44,7 +47,7 @@ pub fn run(
                 target
             );
         }
-        target.clone()
+        target.to_string()
     };
 
     // Parse attachments (format: "name:path" or just "path")

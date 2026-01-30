@@ -15,6 +15,9 @@ use std::io;
 
 /// Run the TUI application.
 pub fn run(initial_channel: Option<String>) -> Result<()> {
+    // Strip # prefix from channel if present (common user pattern)
+    let initial_channel = initial_channel.map(|ch| ch.strip_prefix('#').unwrap_or(&ch).to_string());
+
     // Setup terminal
     enable_raw_mode()?;
     let mut stdout = io::stdout();

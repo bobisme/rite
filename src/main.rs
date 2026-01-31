@@ -82,7 +82,18 @@ fn main() -> Result<()> {
 
         Commands::Watch { channel, all } => cli::watch::run(channel, all),
 
-        Commands::Channels { mine } => cli::channels::run(format, mine, cli.agent.as_deref()),
+        Commands::Channels { command } => {
+            use cli::ChannelsCommands;
+            // Default to List if no subcommand provided (backward compatibility)
+            match command
+                .as_ref()
+                .unwrap_or(&ChannelsCommands::List { mine: false })
+            {
+                ChannelsCommands::List { mine } => {
+                    cli::channels::run(format, *mine, cli.agent.as_deref())
+                }
+            }
+        }
 
         Commands::Agents { active } => cli::agents::run(format, active),
 

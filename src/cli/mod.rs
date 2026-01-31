@@ -158,12 +158,11 @@ pub enum Commands {
         all: bool,
     },
 
-    /// List all channels
+    /// Manage channels
     #[command(aliases = &["list-channels", "ls"])]
     Channels {
-        /// Only show channels you've participated in (sent or mentioned)
-        #[arg(long)]
-        mine: bool,
+        #[command(subcommand)]
+        command: Option<ChannelsCommands>,
     },
 
     /// List agents (derived from message history)
@@ -342,6 +341,16 @@ pub enum Commands {
 
     /// List subscribed channels
     Subscriptions,
+}
+
+#[derive(Subcommand)]
+pub enum ChannelsCommands {
+    /// List all channels
+    List {
+        /// Only show channels you've participated in (sent or mentioned)
+        #[arg(long)]
+        mine: bool,
+    },
 }
 
 #[derive(Subcommand)]

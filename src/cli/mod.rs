@@ -373,6 +373,14 @@ pub enum ChannelsCommands {
         /// Channel to delete
         channel: String,
     },
+
+    /// Rename a channel (admin only)
+    Rename {
+        /// Current channel name
+        old_name: String,
+        /// New channel name
+        new_name: String,
+    },
 }
 
 #[derive(Subcommand)]

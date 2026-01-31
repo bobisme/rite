@@ -312,6 +312,108 @@ pub fn delete(channel: &str) -> Result<()> {
     Ok(())
 }
 
+/// Rename a channel (admin only).
+///
+/// IMPORTANT: This command is for administrators only. It renames a channel
+/// and updates all references in state and index.
+/// Agents should not use this command as it requires interactive confirmation.
+pub fn rename(old_name: &str, new_name: &str) -> Result<()> {
+    use std::io::{self, Write};
+
+    // Print admin warning
+    eprintln!("\n{}", "⚠️  WARNING".bold().red());
+    eprintln!("This command is for administrators only.");
+    eprintln!("It renames a channel and updates all references.\n");
+
+    // Check if old channel exists
+    let old_file = channel_path(old_name);
+    if !old_file.exists() {
+        anyhow::bail!("Channel '{}' does not exist", old_name);
+    }
+
+    // Check if new channel already exists
+    let new_file = channel_path(new_name);
+    if new_file.exists() {
+        anyhow::bail!("Channel '{}' already exists", new_name);
+    }
+
+    // Interactive confirmation prompt (will block if no stdin available)
+    eprint!(
+        "Type {} to confirm: ",
+        format!("rename {} {}", old_name, new_name).bold()
+    );
+    io::stderr().flush()?;
+
+    let mut confirmation = String::new();
+    io::stdin()
+        .read_line(&mut confirmation)
+        .context("Failed to read confirmation")?;
+
+    let expected = format!("rename {} {}", old_name, new_name);
+    if confirmation.trim() != expected {
+        anyhow::bail!("Confirmation did not match. Rename aborted.");
+    }
+
+    // Perform rename in order: state → index → file
+
+    // 1. Update state (rename keys in maps and closed_channels list)
+    let state_file = ProjectState::new(state_path());
+    let mut state = state_file.load()?;
+
+    // Rename in channel_offsets
+    if let Some(offset) = state.channel_offsets.remove(old_name) {
+        state.channel_offsets.insert(new_name.to_string(), offset);
+    }
+
+    // Rename in last_seen
+    if let Some(last_seen) = state.last_seen.remove(old_name) {
+        state.last_seen.insert(new_name.to_string(), last_seen);
+    }
+
+    // Rename in index_offsets
+    if let Some(index_offset) = state.index_offsets.remove(old_name) {
+        state
+            .index_offsets
+            .insert(new_name.to_string(), index_offset);
+    }
+
+    // Rename in closed_channels
+    if let Some(pos) = state.closed_channels.iter().position(|c| c == old_name) {
+        state.closed_channels[pos] = new_name.to_string();
+    }
+
+    state_file.save(&state)?;
+    eprintln!("✓ Updated state");
+
+    // 2. Update FTS index
+    let index = index_path();
+    if index.exists() {
+        use rusqlite::Connection;
+        let conn = Connection::open(&index)?;
+        conn.execute(
+            "UPDATE messages SET channel = ?1 WHERE channel = ?2",
+            [new_name, old_name],
+        )?;
+        eprintln!("✓ Updated search index");
+    }
+
+    // 3. Rename the channel file
+    std::fs::rename(&old_file, &new_file).with_context(|| {
+        format!(
+            "Failed to rename channel file from {} to {}",
+            old_file.display(),
+            new_file.display()
+        )
+    })?;
+    eprintln!("✓ Renamed channel file");
+
+    eprintln!(
+        "\n{}",
+        format!("Channel renamed: {} → {}", old_name, new_name).green()
+    );
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

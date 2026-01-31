@@ -95,6 +95,9 @@ fn main() -> Result<()> {
                 ChannelsCommands::Close { channel } => cli::channels::close(channel),
                 ChannelsCommands::Reopen { channel } => cli::channels::reopen(channel),
                 ChannelsCommands::Delete { channel } => cli::channels::delete(channel),
+                ChannelsCommands::Rename { old_name, new_name } => {
+                    cli::channels::rename(old_name, new_name)
+                }
             }
         }
 

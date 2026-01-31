@@ -265,7 +265,19 @@ fn parse_datetime(s: &str) -> Result<DateTime<Utc>> {
 
 fn print_message(msg: &Message) {
     let local_time: DateTime<Local> = msg.ts.with_timezone(&Local);
-    let time_str = local_time.format("%H:%M").to_string();
+    let now = Local::now();
+
+    // Format timestamp with relative dates for recent messages
+    let time_str = if local_time.date_naive() == now.date_naive() {
+        // Today: just show time
+        format!("Today {}", local_time.format("%H:%M"))
+    } else if local_time.date_naive() == now.date_naive() - chrono::Days::new(1) {
+        // Yesterday
+        format!("Yesterday {}", local_time.format("%H:%M"))
+    } else {
+        // Older: show full date and time
+        local_time.format("%Y-%m-%d %H:%M").to_string()
+    };
 
     // Color the agent name consistently
     let agent_colored = colorize_agent(&msg.agent);

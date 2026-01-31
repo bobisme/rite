@@ -76,7 +76,7 @@ fn main() -> Result<()> {
             after_offset,
             after_id,
             show_offset,
-            json: cli.json,
+            format,
             agent: cli.agent.clone(),
         }),
 

@@ -120,7 +120,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
             after_offset,
             after_id,
             show_offset: false,
-            json: false,
+            format: OutputFormat::Text,
             agent: Some(agent.clone()),
         };
 

@@ -6,6 +6,8 @@ use colored::Colorize;
 use serde::Serialize;
 use std::path::Path;
 
+use super::OutputFormat;
+use super::format::to_toon;
 use crate::core::channel::resolve_channel;
 use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
@@ -32,8 +34,8 @@ pub struct HistoryOptions {
     pub after_id: Option<String>,
     /// Show the offset info for next read
     pub show_offset: bool,
-    /// Output as JSON
-    pub json: bool,
+    /// Output format
+    pub format: OutputFormat,
     /// Agent identity (for resolving @mentions in channel names)
     pub agent: Option<String>,
 }
@@ -70,9 +72,18 @@ pub fn run(options: HistoryOptions) -> Result<()> {
     };
     let output = run_with_output(resolved_options)?;
 
-    if options.json {
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        return Ok(());
+    match options.format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&output)?);
+            return Ok(());
+        }
+        OutputFormat::Toon => {
+            println!("{}", to_toon(&output));
+            return Ok(());
+        }
+        OutputFormat::Text => {
+            // Continue with text formatting below
+        }
     }
 
     if output.messages.is_empty() {
@@ -441,7 +452,7 @@ mod tests {
             after_offset: None,
             after_id: None,
             show_offset: false,
-            json: false,
+            format: OutputFormat::Text,
             agent: None,
         };
 
@@ -466,7 +477,7 @@ mod tests {
             after_offset: None,
             after_id: None,
             show_offset: false,
-            json: false,
+            format: OutputFormat::Text,
             agent: None,
         };
 

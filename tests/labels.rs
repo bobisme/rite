@@ -131,7 +131,7 @@ fn test_labels_in_text_output() {
         .send_with_labels("general", "Important update", &["urgent"])
         .assert_success();
 
-    let output = agent.history("general");
+    let output = agent.run(&["history", "general", "--format", "text"]);
     output.assert_success();
 
     // Should show the label in output

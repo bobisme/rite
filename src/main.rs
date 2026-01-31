@@ -85,13 +85,15 @@ fn main() -> Result<()> {
         Commands::Channels { command } => {
             use cli::ChannelsCommands;
             // Default to List if no subcommand provided (backward compatibility)
-            match command
-                .as_ref()
-                .unwrap_or(&ChannelsCommands::List { mine: false })
-            {
-                ChannelsCommands::List { mine } => {
-                    cli::channels::run(format, *mine, cli.agent.as_deref())
+            match command.as_ref().unwrap_or(&ChannelsCommands::List {
+                mine: false,
+                all: false,
+            }) {
+                ChannelsCommands::List { mine, all } => {
+                    cli::channels::list(format, *mine, *all, cli.agent.as_deref())
                 }
+                ChannelsCommands::Close { channel } => cli::channels::close(channel),
+                ChannelsCommands::Reopen { channel } => cli::channels::reopen(channel),
             }
         }
 

@@ -10,8 +10,9 @@ use super::format::to_toon;
 use crate::core::channel::{dm_agents, is_dm_channel};
 use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
-use crate::core::project::channels_dir;
+use crate::core::project::{channels_dir, state_path};
 use crate::storage::jsonl::{count_records, read_last_n, read_records};
+use crate::storage::state::ProjectState;
 
 #[derive(Debug, Serialize)]
 pub struct ChannelInfo {
@@ -19,6 +20,8 @@ pub struct ChannelInfo {
     pub is_dm: bool,
     pub message_count: usize,
     pub last_activity: Option<DateTime<Utc>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub closed: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -28,9 +31,20 @@ pub struct ChannelsOutput {
 
 /// List all channels.
 /// If `mine_only` is true, only show channels where the agent has participated.
-pub fn run(format: OutputFormat, mine_only: bool, agent: Option<&str>) -> Result<()> {
+/// If `show_all` is true, include closed channels.
+pub fn list(
+    format: OutputFormat,
+    mine_only: bool,
+    show_all: bool,
+    agent: Option<&str>,
+) -> Result<()> {
     let current_agent = resolve_agent(agent);
     let channels_path = channels_dir();
+
+    // Load closed channels list from state
+    let state_file = ProjectState::new(state_path());
+    let state = state_file.load()?;
+    let closed_channels = &state.closed_channels;
 
     if !channels_path.exists() {
         match format {
@@ -92,6 +106,12 @@ pub fn run(format: OutputFormat, mine_only: bool, agent: Option<&str>) -> Result
             .to_string();
 
         let is_dm = is_dm_channel(&channel_name);
+        let is_closed = closed_channels.contains(&channel_name);
+
+        // Filter out closed channels unless --all is specified
+        if is_closed && !show_all {
+            continue;
+        }
 
         // If --mine, filter to channels where agent participated
         if mine_only
@@ -111,6 +131,7 @@ pub fn run(format: OutputFormat, mine_only: bool, agent: Option<&str>) -> Result
             is_dm,
             message_count,
             last_activity: last_msg.map(|m| m.ts),
+            closed: if is_closed { Some(true) } else { None },
         });
     }
 
@@ -192,6 +213,42 @@ fn format_time_ago(ts: DateTime<Utc>) -> String {
     }
 }
 
+/// Close a channel (hide from listings, preserves history).
+pub fn close(channel: &str) -> Result<()> {
+    let state_file = ProjectState::new(state_path());
+    let mut state = state_file.load()?;
+
+    // Check if already closed
+    if state.closed_channels.contains(&channel.to_string()) {
+        anyhow::bail!("Channel '{}' is already closed", channel);
+    }
+
+    // Add to closed list
+    state.closed_channels.push(channel.to_string());
+    state_file.save(&state)?;
+
+    println!("Closed channel '{}'", channel);
+    Ok(())
+}
+
+/// Reopen a closed channel.
+pub fn reopen(channel: &str) -> Result<()> {
+    let state_file = ProjectState::new(state_path());
+    let mut state = state_file.load()?;
+
+    // Check if actually closed
+    if !state.closed_channels.contains(&channel.to_string()) {
+        anyhow::bail!("Channel '{}' is not closed", channel);
+    }
+
+    // Remove from closed list
+    state.closed_channels.retain(|c| c != channel);
+    state_file.save(&state)?;
+
+    println!("Reopened channel '{}'", channel);
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -236,7 +293,7 @@ mod tests {
         .unwrap();
 
         // Show all channels (default)
-        run(OutputFormat::Text, false, None).unwrap();
+        list(OutputFormat::Text, false, false, None).unwrap();
     }
 
     #[test]
@@ -244,7 +301,7 @@ mod tests {
     fn test_list_channels_json() {
         let _env = TestEnv::new();
 
-        run(OutputFormat::Json, false, None).unwrap();
+        list(OutputFormat::Json, false, false, None).unwrap();
     }
 
     #[test]
@@ -259,6 +316,6 @@ mod tests {
         .unwrap();
 
         // With --mine filter, should only show channels where agent participated
-        run(OutputFormat::Text, true, Some("test-agent")).unwrap();
+        list(OutputFormat::Text, true, false, Some("test-agent")).unwrap();
     }
 }

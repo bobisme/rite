@@ -27,6 +27,10 @@ pub struct State {
     /// Index sync offset per channel
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub index_offsets: HashMap<String, u64>,
+
+    /// Closed channels (hidden from default listings)
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub closed_channels: Vec<String>,
 }
 
 impl State {

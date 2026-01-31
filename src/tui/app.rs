@@ -10,8 +10,9 @@ use std::time::Duration;
 
 use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
-use crate::core::project::{channel_path, channels_dir};
+use crate::core::project::{channel_path, channels_dir, state_path};
 use crate::storage::jsonl::{read_last_n, read_records_from_offset};
+use crate::storage::state::ProjectState;
 use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
 
 use super::ui;
@@ -569,6 +570,11 @@ fn list_channels() -> Result<(Vec<String>, Vec<String>)> {
     let mut public_channels: Vec<(String, std::time::SystemTime)> = Vec::new();
     let mut dm_channels: Vec<(String, std::time::SystemTime)> = Vec::new();
 
+    // Load closed channels list from state
+    let state_file = ProjectState::new(state_path());
+    let state = state_file.load()?;
+    let closed_channels = &state.closed_channels;
+
     if channels.exists() {
         for entry in std::fs::read_dir(&channels)? {
             let entry = entry?;
@@ -576,6 +582,11 @@ fn list_channels() -> Result<(Vec<String>, Vec<String>)> {
             if path.extension().is_some_and(|ext| ext == "jsonl")
                 && let Some(name) = path.file_stem().and_then(|s| s.to_str())
             {
+                // Skip closed channels
+                if closed_channels.contains(&name.to_string()) {
+                    continue;
+                }
+
                 let modified = std::fs::metadata(&path)
                     .and_then(|m| m.modified())
                     .unwrap_or(std::time::SystemTime::UNIX_EPOCH);

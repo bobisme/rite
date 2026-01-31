@@ -350,6 +350,22 @@ pub enum ChannelsCommands {
         /// Only show channels you've participated in (sent or mentioned)
         #[arg(long)]
         mine: bool,
+
+        /// Show all channels including closed ones
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// Close a channel (hide from listings, preserves history)
+    Close {
+        /// Channel to close
+        channel: String,
+    },
+
+    /// Reopen a closed channel
+    Reopen {
+        /// Channel to reopen
+        channel: String,
     },
 }
 

@@ -151,6 +151,7 @@ pub enum Commands {
     /// Stream new messages in real-time
     Watch {
         /// Channel to watch (default: all)
+        #[arg(short, long)]
         channel: Option<String>,
 
         /// Watch all channels

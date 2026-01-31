@@ -367,6 +367,12 @@ pub enum ChannelsCommands {
         /// Channel to reopen
         channel: String,
     },
+
+    /// Delete a channel permanently (admin only)
+    Delete {
+        /// Channel to delete
+        channel: String,
+    },
 }
 
 #[derive(Subcommand)]

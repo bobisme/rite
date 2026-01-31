@@ -10,7 +10,7 @@ use super::format::to_toon;
 use crate::core::channel::{dm_agents, is_dm_channel};
 use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
-use crate::core::project::{channels_dir, state_path};
+use crate::core::project::{channel_path, channels_dir, index_path, state_path};
 use crate::storage::jsonl::{count_records, read_last_n, read_records};
 use crate::storage::state::ProjectState;
 
@@ -246,6 +246,69 @@ pub fn reopen(channel: &str) -> Result<()> {
     state_file.save(&state)?;
 
     println!("Reopened channel '{}'", channel);
+    Ok(())
+}
+
+/// Delete a channel permanently (admin only).
+///
+/// IMPORTANT: This command is for administrators only. It permanently deletes
+/// all channel data including messages, read cursors, and index entries.
+/// Agents should not use this command as it requires interactive confirmation.
+pub fn delete(channel: &str) -> Result<()> {
+    use std::io::{self, Write};
+
+    // Print admin warning
+    eprintln!("\n{}", "⚠️  WARNING".bold().red());
+    eprintln!("This command is for administrators only.");
+    eprintln!("It permanently deletes all channel data.\n");
+
+    // Check if channel exists
+    let channel_file = channel_path(channel);
+    if !channel_file.exists() {
+        anyhow::bail!("Channel '{}' does not exist", channel);
+    }
+
+    // Interactive confirmation prompt (will block if no stdin available)
+    eprint!("Type {} to confirm: ", format!("delete {}", channel).bold());
+    io::stderr().flush()?;
+
+    let mut confirmation = String::new();
+    io::stdin()
+        .read_line(&mut confirmation)
+        .context("Failed to read confirmation")?;
+
+    let expected = format!("delete {}", channel);
+    if confirmation.trim() != expected {
+        anyhow::bail!("Confirmation did not match. Deletion aborted.");
+    }
+
+    // Perform deletion in order: state → index → file
+
+    // 1. Remove from state (read cursors, closed channels list)
+    let state_file = ProjectState::new(state_path());
+    let mut state = state_file.load()?;
+    state.channel_offsets.remove(channel);
+    state.last_seen.remove(channel);
+    state.index_offsets.remove(channel);
+    state.closed_channels.retain(|c| c != channel);
+    state_file.save(&state)?;
+    eprintln!("✓ Removed from state");
+
+    // 2. Remove from FTS index
+    let index = index_path();
+    if index.exists() {
+        use rusqlite::Connection;
+        let conn = Connection::open(&index)?;
+        conn.execute("DELETE FROM messages WHERE channel = ?1", [channel])?;
+        eprintln!("✓ Removed from search index");
+    }
+
+    // 3. Delete the channel file
+    std::fs::remove_file(&channel_file)
+        .with_context(|| format!("Failed to delete channel file: {}", channel_file.display()))?;
+    eprintln!("✓ Deleted channel file");
+
+    eprintln!("\n{}", "Channel deleted successfully.".green());
     Ok(())
 }
 

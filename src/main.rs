@@ -1,10 +1,22 @@
 use anyhow::Result;
 use clap::Parser;
+use std::path::Path;
 
 use botbus::cli::{self, Cli, Commands, OutputFormat};
 use botbus::core::project::ensure_data_dir;
 
 fn main() -> Result<()> {
+    // Detect which binary name was used to invoke this program
+    let _program_name = std::env::args()
+        .next()
+        .and_then(|arg0| {
+            Path::new(&arg0)
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|s| s.to_string())
+        })
+        .unwrap_or_else(|| "bus".to_string());
+
     let cli = Cli::parse();
 
     // Resolve effective output format (--json flag overrides --format for backwards compatibility)

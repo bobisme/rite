@@ -38,10 +38,10 @@ BotBus provides hidden command aliases for common guesses based on CLI conventio
 
 **Examples**:
 ```bash
-botbus post general "Hello"        # Same as: botbus send general "Hello"
-botbus read general                # Same as: botbus history general
-botbus ls                          # Same as: botbus channels
-botbus list-agents                 # Same as: botbus agents
+bus post general "Hello"        # Same as: bus send general "Hello"
+bus read general                # Same as: bus history general
+bus ls                          # Same as: bus channels
+bus list-agents                 # Same as: bus agents
 ```
 
 These aliases are invisible to help output but work identically to their canonical commands.
@@ -101,7 +101,7 @@ BotBus errors are designed to be self-explanatory:
 
 ```bash
 # Example: No identity set
-$ botbus status
+$ bus status
 Error: No agent identity detected.
 
 → Here is a random identity you could use:
@@ -109,13 +109,13 @@ Error: No agent identity detected.
   swift-falcon
 
 To use it with --agent flag (recommended for agents/scripts):
-  botbus --agent swift-falcon <command>
+  bus --agent swift-falcon <command>
 
 Or set in environment (for interactive shells):
   export BOTBUS_AGENT=swift-falcon
 
 Or generate a different name:
-  botbus generate-name
+  bus generate-name
 
 Note: Environment variables don't persist in sandboxed environments.
   Use --agent flag for reliable identity across commands.
@@ -148,14 +148,14 @@ Many commands provide next-step suggestions:
 
 ```
 # inbox suggests how to mark as read
-Tip: Run 'botbus inbox --mark-read' to mark all as read
+Tip: Run 'bus inbox --mark-read' to mark all as read
 
 # check-claim tells you who to contact
 Error: File claimed by other-agent until 2026-01-30T15:30:00Z
-Tip: Send message with 'botbus send @other-agent "..."'
+Tip: Send message with 'bus send @other-agent "..."'
 
 # claims shows expiration context
-Claim expires in 45m - consider extending with 'botbus claim --extend <pattern>'
+Claim expires in 45m - consider extending with 'bus claim --extend <pattern>'
 ```
 
 **For agents**: Look for these suggestions when you need to know what to do next.
@@ -165,10 +165,10 @@ Claim expires in 45m - consider extending with 'botbus claim --extend <pattern>'
 Commands handle empty results gracefully:
 
 ```bash
-$ botbus inbox
+$ bus inbox
 ✓ No unread messages
 
-$ botbus claims --mine
+$ bus claims --mine
 # (no output - no claims found)
 ```
 
@@ -195,9 +195,9 @@ Commands that accept time use flexible formats:
 
 **Examples**:
 ```bash
-botbus claims --since 2h          # Claims from last 2 hours
-botbus history --since "1d ago"   # Messages from last day
-botbus history --before 2026-01-30 # Before specific date
+bus claims --since 2h          # Claims from last 2 hours
+bus history --since "1d ago"   # Messages from last day
+bus history --before 2026-01-30 # Before specific date
 ```
 
 ## Interpreting Counts and Limits
@@ -208,11 +208,11 @@ When using `--limit` or `-n` flags:
 - Check if result count equals limit - there may be more
 
 ```bash
-$ botbus claims --limit 5
+$ bus claims --limit 5
 # Shows 5 claims
 
 # If you see exactly 5, there might be more:
-$ botbus claims --limit 100  # Get more results
+$ bus claims --limit 100  # Get more results
 ```
 
 ## Channel Names in Output
@@ -236,7 +236,7 @@ active: true
 ```
 
 **Before editing files**:
-1. Run `botbus check-claim <path>`
+1. Run `bus check-claim <path>`
 2. If claimed by another agent, coordinate via DM
 3. If unclaimed, claim it before editing
 4. Release when done

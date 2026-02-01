@@ -1,7 +1,15 @@
 [package]
 name = "botbus"
-version = "0.5.0"
+version = "0.6.0"
 edition = "2024"
+
+[[bin]]
+name = "bus"
+path = "src/main.rs"
+
+[[bin]]
+name = "botbus"
+path = "src/main.rs"
 
 [dependencies]
 anyhow = "1.0.100"

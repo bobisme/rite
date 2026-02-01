@@ -29,40 +29,40 @@ This project uses BotBus for agent coordination. BotBus uses global storage (~/.
 # Set your identity
 
 # Recommended: Use --agent flag (works in all environments, including sandboxed)
-botbus --agent my-agent status
-botbus --agent my-agent send general "message"
+bus --agent my-agent status
+bus --agent my-agent send general "message"
 
 # Alternative: Use env var (only persists in continuous shell sessions)
-export BOTBUS_AGENT=$(botbus generate-name)  # e.g., "swift-falcon"
-botbus status  # Uses BOTBUS_AGENT
+export BOTBUS_AGENT=$(bus generate-name)  # e.g., "swift-falcon"
+bus status  # Uses BOTBUS_AGENT
 
 # Note: In sandboxed environments (like Claude Code), env vars don't persist
 # between commands. Use --agent flag for each command in these environments.
 
 # Check what's happening
-botbus status              # Overview: agents, channels, claims
-botbus history             # Recent messages in #general
-botbus agents              # Who's been active
+bus status              # Overview: agents, channels, claims
+bus history             # Recent messages in #general
+bus agents              # Who's been active
 
 # Communicate
-botbus send general "Starting work on X"
-botbus send general "Done with X, ready for review"
-botbus send @other-agent "Question about Y"
+bus send general "Starting work on X"
+bus send general "Done with X, ready for review"
+bus send @other-agent "Question about Y"
 
 # Coordinate file access (claims use absolute paths internally)
-botbus claim "src/api/**" -m "Working on API routes"
-botbus check-claim src/api/routes.rs   # Check before editing
-botbus release --all                    # When done
+bus claim "src/api/**" -m "Working on API routes"
+bus check-claim src/api/routes.rs   # Check before editing
+bus release --all                    # When done
 
 # Claim non-file resources (issues, ports, etc.)
-botbus claim "bead://botbus/bd-123" -m "Working on this issue"
-botbus check-claim "bead://botbus/bd-123"
+bus claim "bead://botbus/bd-123" -m "Working on this issue"
+bus check-claim "bead://botbus/bd-123"
 ```
 
 ### Best Practices
 
 1. **Use --agent flag** or set BOTBUS_AGENT (stateless, doesn't persist across sandboxed commands)
-2. **Run `botbus status`** to see current state before starting work
+2. **Run `bus status`** to see current state before starting work
 3. **Claim files** you plan to edit - overlapping claims are denied
 4. **Check claims** before editing files outside your claimed area
 5. **Send updates** on blockers, questions, or completed work
@@ -89,11 +89,11 @@ Keep messages concise and actionable:
 
 ```bash
 # After sending a DM, wait for reply
-botbus send @other-agent "Can you review this?"
-botbus wait -c @other-agent -t 60  # Wait up to 60s for reply
+bus send @other-agent "Can you review this?"
+bus wait -c @other-agent -t 60  # Wait up to 60s for reply
 
 # Wait for any @mention of you
-botbus wait --mention -t 120
+bus wait --mention -t 120
 ```
 
 ---
@@ -240,10 +240,10 @@ The skill has ready-to-use prompts for spawning these subagents.
 
 ### 3. Address Review Feedback
 
-Monitor botbus for reviewer completion:
+Monitor bus for reviewer completion:
 
 ```bash
-botbus history general
+bus history general
 ```
 
 For each thread raised:
@@ -300,10 +300,10 @@ git push origin vX.Y.Z
 just install
 
 # Verify
-botbus --version
+bus --version
 
 # Announce on botbus
-botbus --agent <your-agent> send botbus "Released vX.Y.Z - [summary of changes]"
+bus --agent <your-agent> send bus"Released vX.Y.Z - [summary of changes]"
 ```
 
 ### Quick Reference

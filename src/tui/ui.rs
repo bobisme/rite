@@ -169,6 +169,25 @@ fn format_channel_line_dm(
 }
 
 fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
+    // Calculate input height based on content (min 1 line, max 10 lines)
+    let num_lines = app.input.lines().len().clamp(1, 10);
+    let input_height = (num_lines as u16) + 2; // +2 for borders
+
+    // Split area: messages on top, input bar at bottom
+    let chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(5),               // Messages need at least 5 lines
+            Constraint::Length(input_height), // Input bar: dynamic based on content
+        ])
+        .split(area);
+
+    let messages_area = chunks[0];
+    let input_area = chunks[1];
+
+    // Update cached input area for mouse detection
+    app.set_input_area(input_area);
+
     let raw_channel_name = app
         .current_channel()
         .unwrap_or_else(|| "general".to_string());
@@ -191,8 +210,8 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
     };
 
     // Calculate dimensions first
-    let inner_width = area.width.saturating_sub(2) as usize; // Account for borders
-    let inner_height = area.height.saturating_sub(2) as usize;
+    let inner_width = messages_area.width.saturating_sub(2) as usize; // Account for borders
+    let inner_height = messages_area.height.saturating_sub(2) as usize;
 
     // Convert all messages to lines, inserting separator if needed
     let messages = app.messages();
@@ -239,7 +258,39 @@ fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {
         // Wrapping is done manually in format_message to maintain 4-space indent
         .scroll((scroll_from_top as u16, 0));
 
-    f.render_widget(paragraph, area);
+    f.render_widget(paragraph, messages_area);
+
+    // Draw input bar
+    draw_input_bar(f, app, input_area);
+}
+
+fn draw_input_bar(f: &mut Frame, app: &mut App, area: Rect) {
+    let is_focused = app.focus() == Focus::Input;
+
+    let (border_style, title_style) = if is_focused {
+        (
+            Style::default().fg(ACTIVE_BORDER),
+            Style::default().fg(ACTIVE_BORDER),
+        )
+    } else {
+        (Style::default(), Style::default().fg(INACTIVE_TITLE))
+    };
+
+    // Clone textarea and set block styling
+    let mut textarea = app.input.clone();
+
+    // Remove cursor line highlighting
+    textarea.set_cursor_line_style(Style::default());
+
+    textarea.set_block(
+        Block::default()
+            .title(Span::styled(" chat - ctrl+s to send ", title_style))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(border_style),
+    );
+
+    f.render_widget(&textarea, area);
 }
 
 fn create_separator_line(width: usize) -> Line<'static> {
@@ -473,19 +524,33 @@ fn agent_color(name: &str) -> Color {
     colors[hash % colors.len()]
 }
 
-fn draw_status(f: &mut Frame, _app: &App, area: Rect) {
-    let status = Line::from(vec![
-        Span::styled(" [Tab] ", Style::default().fg(HELP_KEY)),
-        Span::raw("pane  "),
-        Span::styled("[j/k] ", Style::default().fg(HELP_KEY)),
-        Span::raw("scroll  "),
-        Span::styled("[u/d] ", Style::default().fg(HELP_KEY)),
-        Span::raw("½page  "),
-        Span::styled("[?] ", Style::default().fg(HELP_KEY)),
-        Span::raw("help  "),
-        Span::styled("[q] ", Style::default().fg(HELP_KEY)),
-        Span::raw("quit"),
-    ]);
+fn draw_status(f: &mut Frame, app: &App, area: Rect) {
+    // Show different key hints based on focus
+    let status = if app.focus() == Focus::Input {
+        Line::from(vec![
+            Span::styled(" [ctrl+s] ", Style::default().fg(HELP_KEY)),
+            Span::raw("send  "),
+            Span::styled("[enter] ", Style::default().fg(HELP_KEY)),
+            Span::raw("newline  "),
+            Span::styled("[esc] ", Style::default().fg(HELP_KEY)),
+            Span::raw("clear  "),
+            Span::styled("[ctrl+q] ", Style::default().fg(HELP_KEY)),
+            Span::raw("quit"),
+        ])
+    } else {
+        Line::from(vec![
+            Span::styled(" [Tab] ", Style::default().fg(HELP_KEY)),
+            Span::raw("pane  "),
+            Span::styled("[j/k] ", Style::default().fg(HELP_KEY)),
+            Span::raw("scroll  "),
+            Span::styled("[u/d] ", Style::default().fg(HELP_KEY)),
+            Span::raw("½page  "),
+            Span::styled("[?] ", Style::default().fg(HELP_KEY)),
+            Span::raw("help  "),
+            Span::styled("[q] ", Style::default().fg(HELP_KEY)),
+            Span::raw("quit"),
+        ])
+    };
 
     let paragraph = Paragraph::new(status);
     f.render_widget(paragraph, area);
@@ -495,8 +560,8 @@ fn draw_help_overlay(f: &mut Frame) {
     let area = f.area();
 
     // Center a box in the middle of the screen
-    let width = 50.min(area.width.saturating_sub(4));
-    let height = 18.min(area.height.saturating_sub(4));
+    let width = 60.min(area.width.saturating_sub(4));
+    let height = 24.min(area.height.saturating_sub(4));
     let x = (area.width.saturating_sub(width)) / 2;
     let y = (area.height.saturating_sub(height)) / 2;
     let popup_area = Rect::new(x, y, width, height);
@@ -541,6 +606,32 @@ fn draw_help_overlay(f: &mut Frame) {
         Line::from(vec![
             Span::styled("  Enter     ", Style::default().fg(HELP_KEY)),
             Span::raw("Select channel"),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Input",
+            Style::default().add_modifier(Modifier::BOLD),
+        )]),
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("  Tab       ", Style::default().fg(HELP_KEY)),
+            Span::raw("Focus input bar"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl-S    ", Style::default().fg(HELP_KEY)),
+            Span::raw("Send message (when input focused)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Ctrl-Q    ", Style::default().fg(HELP_KEY)),
+            Span::raw("Quit (works from input)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Enter     ", Style::default().fg(HELP_KEY)),
+            Span::raw("Newline (when input focused)"),
+        ]),
+        Line::from(vec![
+            Span::styled("  Esc       ", Style::default().fg(HELP_KEY)),
+            Span::raw("Clear input (when input focused)"),
         ]),
         Line::from(""),
         Line::from(vec![Span::styled(

@@ -4,6 +4,7 @@ use crossterm::event::{
     MouseButton, MouseEventKind,
 };
 use ratatui::prelude::*;
+use tui_textarea::TextArea;
 
 use std::path::Path;
 use std::time::Duration;
@@ -41,12 +42,17 @@ pub struct App {
     channel_focused_at: Option<std::time::Instant>,
     /// Which channels have visible separators
     separator_visible: std::collections::HashSet<String>,
+    /// Input textarea for composing messages
+    pub input: TextArea<'static>,
+    /// Cached input area for mouse click detection
+    input_area: Rect,
 }
 
 #[derive(Clone, Copy, PartialEq)]
 pub enum Focus {
     Channels,
     Messages,
+    Input,
 }
 
 impl App {
@@ -93,6 +99,8 @@ impl App {
             new_message_counts: std::collections::HashMap::new(),
             channel_focused_at: None,
             separator_visible: std::collections::HashSet::new(),
+            input: TextArea::default(),
+            input_area: Rect::default(),
         };
 
         app.update_new_message_counts();
@@ -101,10 +109,7 @@ impl App {
         Ok(app)
     }
 
-    pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()>
-    where
-        B::Error: Send + Sync + 'static,
-    {
+    pub fn run<B: Backend>(&mut self, terminal: &mut Terminal<B>) -> Result<()> {
         // Enable mouse capture
         crossterm::execute!(std::io::stdout(), EnableMouseCapture)?;
 
@@ -124,10 +129,7 @@ impl App {
         &mut self,
         terminal: &mut Terminal<B>,
         rx: &std::sync::mpsc::Receiver<notify::Result<notify::Event>>,
-    ) -> Result<()>
-    where
-        B::Error: Send + Sync + 'static,
-    {
+    ) -> Result<()> {
         loop {
             terminal.draw(|f| ui::draw(f, self))?;
 
@@ -186,28 +188,44 @@ impl App {
             return Ok(());
         }
 
-        // Global keys
+        let ctrl = modifiers.contains(KeyModifiers::CONTROL);
+
+        // Global keys (with ctrl modifier check)
+        if let KeyCode::Char('q') = key
+            && (ctrl || self.focus != Focus::Input)
+        {
+            // Ctrl+Q quits from anywhere, plain 'q' quits when not in input
+            self.should_quit = true;
+            return Ok(());
+        }
+
         match key {
-            KeyCode::Char('q') | KeyCode::Esc => {
-                self.should_quit = true;
+            KeyCode::Esc => {
+                // Esc clears input if focused, otherwise quits
+                if self.focus == Focus::Input {
+                    self.input = TextArea::default();
+                } else {
+                    self.should_quit = true;
+                }
                 return Ok(());
             }
             KeyCode::Tab => {
                 self.focus = match self.focus {
                     Focus::Channels => Focus::Messages,
-                    Focus::Messages => Focus::Channels,
+                    Focus::Messages => Focus::Input,
+                    Focus::Input => Focus::Channels,
                 };
                 return Ok(());
             }
-            KeyCode::Char('h') => {
+            KeyCode::Char('h') if self.focus != Focus::Input => {
                 self.focus = Focus::Channels;
                 return Ok(());
             }
-            KeyCode::Char('l') => {
+            KeyCode::Char('l') if self.focus != Focus::Input => {
                 self.focus = Focus::Messages;
                 return Ok(());
             }
-            KeyCode::Char('?') => {
+            KeyCode::Char('?') if self.focus != Focus::Input => {
                 self.show_help = true;
                 return Ok(());
             }
@@ -277,6 +295,26 @@ impl App {
                 }
                 _ => {}
             },
+            Focus::Input => {
+                let ctrl = modifiers.contains(KeyModifiers::CONTROL);
+
+                match key {
+                    // Ctrl+S sends the message
+                    KeyCode::Char('s') if ctrl => {
+                        self.send_input_message()?;
+                    }
+                    // Forward all other keys to tui-textarea (including Enter for newlines)
+                    _ => {
+                        use tui_textarea::Input;
+                        self.input.input(Input {
+                            key: key.into(),
+                            ctrl: modifiers.contains(KeyModifiers::CONTROL),
+                            alt: modifiers.contains(KeyModifiers::ALT),
+                            shift: modifiers.contains(KeyModifiers::SHIFT),
+                        });
+                    }
+                }
+            }
         }
         Ok(())
     }
@@ -531,6 +569,44 @@ impl App {
         self.channels.len() + self.dm_channels.len()
     }
 
+    fn send_input_message(&mut self) -> Result<()> {
+        use crate::core::identity::require_agent;
+        use crate::core::message::Message;
+        use crate::core::project::channel_path;
+        use crate::storage::jsonl::append_record;
+
+        // Get message text from input (join lines and trim)
+        let text = self.input.lines().join("\n").trim().to_string();
+
+        // Don't send empty messages
+        if text.is_empty() {
+            return Ok(());
+        }
+
+        // Get current channel
+        let channel = match self.current_channel() {
+            Some(ch) => ch,
+            None => return Ok(()), // No channel selected
+        };
+
+        // Get user from $USER environment variable
+        let user = std::env::var("USER").unwrap_or_else(|_| "unknown".to_string());
+        let agent_name = require_agent(Some(&user))?;
+
+        // Create and send message directly (without CLI output)
+        let msg = Message::new(&agent_name, &channel, &text).with_labels(vec!["human".to_string()]);
+        let path = channel_path(&channel);
+        append_record(&path, &msg)?;
+
+        // Clear input after sending
+        self.input = TextArea::default();
+
+        // Refresh messages to show the new message
+        self.refresh_messages()?;
+
+        Ok(())
+    }
+
     pub fn messages(&self) -> &[Message] {
         &self.messages
     }
@@ -562,6 +638,11 @@ impl App {
     pub fn set_layout_areas(&mut self, channels: Rect, messages: Rect) {
         self.channels_area = channels;
         self.messages_area = messages;
+    }
+
+    /// Update cached input area for mouse click detection
+    pub fn set_input_area(&mut self, input: Rect) {
+        self.input_area = input;
     }
 }
 

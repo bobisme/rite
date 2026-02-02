@@ -126,11 +126,17 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
 
         let output: HistoryOutput = history::run_with_output(history_options)?;
 
-        // Filter out the current agent's own messages
+        // Filter out the current agent's own messages and system messages
         let filtered_messages: Vec<_> = output
             .messages
             .into_iter()
-            .filter(|msg| msg.agent != agent)
+            .filter(|msg| {
+                msg.agent != agent
+                    && !matches!(
+                        &msg.meta,
+                        Some(crate::core::message::MessageMeta::System { .. })
+                    )
+            })
             .collect();
 
         // Skip channels with no unread messages
@@ -395,7 +401,16 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
 
         // Filter for messages mentioning this agent (case-sensitive)
         // and only include messages after the read cursor
+        // Skip system messages (e.g., hook firings)
         for (idx, msg) in messages.iter().enumerate() {
+            // Skip system messages
+            if matches!(
+                &msg.meta,
+                Some(crate::core::message::MessageMeta::System { .. })
+            ) {
+                continue;
+            }
+
             // Check if agent is in the mentions field
             if msg.mentions.iter().any(|m| m == agent) {
                 // Check if this message is after the read cursor
@@ -454,7 +469,11 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
                 let messages: Vec<Message> = read_records(&channel_path).unwrap_or_default();
 
                 // Find the position of the latest mention
-                if let Some((offset, _)) = messages.iter().enumerate().find(|(_, msg)| msg.id == latest_mention.message.id) {
+                if let Some((offset, _)) = messages
+                    .iter()
+                    .enumerate()
+                    .find(|(_, msg)| msg.id == latest_mention.message.id)
+                {
                     let new_offset = (offset + 1) as u64; // Mark as read *after* this message
                     let last_id = latest_mention.message.id.to_string();
                     manager.mark_read(&channel, new_offset, Some(&last_id))?;

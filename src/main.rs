@@ -241,7 +241,9 @@ fn main() -> Result<()> {
                 SubscriptionsCommands::Remove { channel } => {
                     cli::subscribe::unsubscribe(channel, cli.agent.as_deref())
                 }
-                SubscriptionsCommands::List => cli::subscribe::list_subscriptions(cli.agent.as_deref()),
+                SubscriptionsCommands::List => {
+                    cli::subscribe::list_subscriptions(cli.agent.as_deref())
+                }
             }
         }
 

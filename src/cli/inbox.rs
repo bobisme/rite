@@ -49,7 +49,7 @@ pub struct InboxOutput {
     pub channels: Vec<ChannelInbox>,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 pub struct MentionedMessage {
     pub message: Message,
     pub channel: String,
@@ -373,6 +373,9 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
         .collect();
 
+    // Get agent state manager to check read cursors
+    let manager = AgentStateManager::new(&data_dir(), agent);
+
     // Collect all messages that mention this agent
     let mut all_mentions: Vec<MentionedMessage> = Vec::new();
 
@@ -384,17 +387,32 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
             .unwrap_or("unknown")
             .to_string();
 
+        // Get read cursor for this channel
+        let cursor = manager.get_read_cursor(&channel_name)?;
+
         // Read all messages from this channel
         let messages: Vec<Message> = read_records(&path).unwrap_or_default();
 
         // Filter for messages mentioning this agent (case-sensitive)
-        for msg in messages {
+        // and only include messages after the read cursor
+        for (idx, msg) in messages.iter().enumerate() {
             // Check if agent is in the mentions field
             if msg.mentions.iter().any(|m| m == agent) {
-                all_mentions.push(MentionedMessage {
-                    message: msg,
-                    channel: channel_name.clone(),
-                });
+                // Check if this message is after the read cursor
+                let is_unread = if let Some(ref last_id) = cursor.last_id {
+                    // Use ID-based tracking if available
+                    msg.id.to_string() > *last_id
+                } else {
+                    // Fall back to offset-based tracking
+                    (idx as u64) >= cursor.offset
+                };
+
+                if is_unread {
+                    all_mentions.push(MentionedMessage {
+                        message: msg.clone(),
+                        channel: channel_name.clone(),
+                    });
+                }
             }
         }
     }
@@ -413,11 +431,43 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
         return Ok(());
     }
 
+    // Handle mark-read if requested (before output to avoid borrow issues)
+    if options.mark_read && !limited_mentions.is_empty() {
+        // Group mentions by channel to find the latest message in each
+        let mut channel_latest: HashMap<String, &MentionedMessage> = HashMap::new();
+        for mention in &limited_mentions {
+            channel_latest
+                .entry(mention.channel.clone())
+                .and_modify(|existing| {
+                    if mention.message.ts > existing.message.ts {
+                        *existing = mention;
+                    }
+                })
+                .or_insert(mention);
+        }
+
+        // Mark each channel as read up to the latest mention
+        for (channel, latest_mention) in channel_latest {
+            // Read the channel to find the offset of this message
+            let channel_path = channels_dir().join(format!("{}.jsonl", channel));
+            if channel_path.exists() {
+                let messages: Vec<Message> = read_records(&channel_path).unwrap_or_default();
+
+                // Find the position of the latest mention
+                if let Some((offset, _)) = messages.iter().enumerate().find(|(_, msg)| msg.id == latest_mention.message.id) {
+                    let new_offset = (offset + 1) as u64; // Mark as read *after* this message
+                    let last_id = latest_mention.message.id.to_string();
+                    manager.mark_read(&channel, new_offset, Some(&last_id))?;
+                }
+            }
+        }
+    }
+
     // Handle output format
     match options.format {
         OutputFormat::Json => {
             let output = MentionsOutput {
-                mentions: limited_mentions,
+                mentions: limited_mentions.clone(),
                 total_count,
             };
             println!("{}", serde_json::to_string_pretty(&output)?);

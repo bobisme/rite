@@ -130,36 +130,46 @@ fn main() -> Result<()> {
             json: cli.json,
         }),
 
-        Commands::Claim {
-            patterns,
-            ttl,
-            message,
-            extend,
-        } => cli::claim::claim(cli::claim::ClaimOptions {
-            patterns,
-            ttl,
-            message,
-            extend,
-            agent: cli.agent,
-        }),
-
-        Commands::Claims {
-            all,
-            mine,
-            limit,
-            since,
-        } => cli::claim::claims(format, all, mine, limit, since, cli.agent.as_deref()),
-
-        Commands::Release { patterns, all } => {
-            cli::claim::release(patterns, all, cli.agent.as_deref())
-        }
-
-        Commands::CheckClaim { path } => {
-            let safe = cli::claim::check_claim(path, format, cli.agent.as_deref())?;
-            if !safe {
-                std::process::exit(1);
+        Commands::Claims { command } => {
+            use cli::ClaimsCommands;
+            match command {
+                ClaimsCommands::Stake {
+                    patterns,
+                    ttl,
+                    message,
+                } => cli::claim::claim(cli::claim::ClaimOptions {
+                    patterns,
+                    ttl,
+                    message,
+                    extend: None,
+                    agent: cli.agent,
+                }),
+                ClaimsCommands::Refresh { patterns, ttl } => {
+                    cli::claim::claim(cli::claim::ClaimOptions {
+                        patterns: vec![],
+                        ttl,
+                        message: None,
+                        extend: Some(patterns.join(" ")),
+                        agent: cli.agent,
+                    })
+                }
+                ClaimsCommands::Release { patterns, all } => {
+                    cli::claim::release(patterns, all, cli.agent.as_deref())
+                }
+                ClaimsCommands::List {
+                    all,
+                    mine,
+                    limit,
+                    since,
+                } => cli::claim::claims(format, all, mine, limit, since, cli.agent.as_deref()),
+                ClaimsCommands::Check { path } => {
+                    let safe = cli::claim::check_claim(path, format, cli.agent.as_deref())?;
+                    if !safe {
+                        std::process::exit(1);
+                    }
+                    Ok(())
+                }
             }
-            Ok(())
         }
 
         Commands::Ui { channel } => cli::ui::run(channel),
@@ -222,13 +232,18 @@ fn main() -> Result<()> {
             cli::AgentsMdCommands::Show => cli::agentsmd::run_show(),
         },
 
-        Commands::Subscribe { channel } => cli::subscribe::subscribe(channel, cli.agent.as_deref()),
-
-        Commands::Unsubscribe { channel } => {
-            cli::subscribe::unsubscribe(channel, cli.agent.as_deref())
+        Commands::Subscriptions { command } => {
+            use cli::SubscriptionsCommands;
+            match command {
+                SubscriptionsCommands::Add { channel } => {
+                    cli::subscribe::subscribe(channel, cli.agent.as_deref())
+                }
+                SubscriptionsCommands::Remove { channel } => {
+                    cli::subscribe::unsubscribe(channel, cli.agent.as_deref())
+                }
+                SubscriptionsCommands::List => cli::subscribe::list_subscriptions(cli.agent.as_deref()),
+            }
         }
-
-        Commands::Subscriptions => cli::subscribe::list_subscriptions(cli.agent.as_deref()),
 
         Commands::Hooks { command } => {
             use cli::HooksCommands;

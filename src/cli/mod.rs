@@ -197,59 +197,10 @@ pub enum Commands {
         from: Option<String>,
     },
 
-    /// Claim files for editing (advisory lock)
-    Claim {
-        /// Glob patterns to claim (relative paths expanded to absolute)
-        #[arg(required_unless_present = "extend")]
-        patterns: Vec<String>,
-
-        /// Time-to-live in seconds (default: 3600)
-        #[arg(short, long, default_value = "3600")]
-        ttl: u64,
-
-        /// Optional message about the claim
-        #[arg(short, long)]
-        message: Option<String>,
-
-        /// Extend TTL on existing claims matching these patterns
-        #[arg(long, conflicts_with = "patterns")]
-        extend: Option<String>,
-    },
-
-    /// List active file claims
-    #[command(alias = "list-claims")]
+    /// Manage file claims (advisory locks)
     Claims {
-        /// Include expired claims
-        #[arg(long)]
-        all: bool,
-
-        /// Only show my claims
-        #[arg(long)]
-        mine: bool,
-
-        /// Limit output to N most recent claims
-        #[arg(short = 'n', long)]
-        limit: Option<usize>,
-
-        /// Show claims created after this time (e.g., "2h ago", "2026-01-28")
-        #[arg(long)]
-        since: Option<String>,
-    },
-
-    /// Release file claims
-    Release {
-        /// Patterns to release (default: all your claims)
-        patterns: Vec<String>,
-
-        /// Release all your claims
-        #[arg(long)]
-        all: bool,
-    },
-
-    /// Check if a file is claimed by another agent
-    CheckClaim {
-        /// File path or pattern to check
-        path: String,
+        #[command(subcommand)]
+        command: ClaimsCommands,
     },
 
     /// Launch the terminal UI
@@ -333,20 +284,11 @@ pub enum Commands {
         command: AgentsMdCommands,
     },
 
-    /// Subscribe to a channel
-    Subscribe {
-        /// Channel to subscribe to
-        channel: String,
+    /// Manage channel subscriptions
+    Subscriptions {
+        #[command(subcommand)]
+        command: SubscriptionsCommands,
     },
-
-    /// Unsubscribe from a channel
-    Unsubscribe {
-        /// Channel to unsubscribe from
-        channel: String,
-    },
-
-    /// List subscribed channels
-    Subscriptions,
 
     /// Manage channel hooks (trigger commands on messages)
     Hooks {
@@ -442,6 +384,86 @@ pub enum HooksCommands {
         /// Hook ID to test
         hook_id: String,
     },
+}
+
+#[derive(Subcommand)]
+pub enum ClaimsCommands {
+    /// Claim files for editing (advisory lock)
+    Stake {
+        /// Glob patterns to claim (relative paths expanded to absolute)
+        patterns: Vec<String>,
+
+        /// Time-to-live in seconds (default: 3600)
+        #[arg(short, long, default_value = "3600")]
+        ttl: u64,
+
+        /// Optional message about the claim
+        #[arg(short, long)]
+        message: Option<String>,
+    },
+
+    /// Extend TTL on existing claims
+    Refresh {
+        /// Glob patterns to refresh (matches existing claims)
+        patterns: Vec<String>,
+
+        /// New time-to-live in seconds (default: 3600)
+        #[arg(short, long, default_value = "3600")]
+        ttl: u64,
+    },
+
+    /// Release file claims
+    Release {
+        /// Patterns to release (default: all your claims)
+        patterns: Vec<String>,
+
+        /// Release all your claims
+        #[arg(long)]
+        all: bool,
+    },
+
+    /// List active file claims
+    List {
+        /// Include expired claims
+        #[arg(long)]
+        all: bool,
+
+        /// Only show my claims
+        #[arg(long)]
+        mine: bool,
+
+        /// Limit output to N most recent claims
+        #[arg(short = 'n', long)]
+        limit: Option<usize>,
+
+        /// Show claims created after this time (e.g., "2h ago", "2026-01-28")
+        #[arg(long)]
+        since: Option<String>,
+    },
+
+    /// Check if a file is claimed by another agent
+    Check {
+        /// File path or pattern to check
+        path: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum SubscriptionsCommands {
+    /// Subscribe to a channel
+    Add {
+        /// Channel to subscribe to
+        channel: String,
+    },
+
+    /// Unsubscribe from a channel
+    Remove {
+        /// Channel to unsubscribe from
+        channel: String,
+    },
+
+    /// List subscribed channels
+    List,
 }
 
 #[derive(Subcommand)]

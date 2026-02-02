@@ -38,6 +38,8 @@ pub struct App {
     initial_sizes: std::collections::HashMap<String, u64>,
     /// Current new message counts per channel
     new_message_counts: std::collections::HashMap<String, usize>,
+    /// Previous new message counts (for detecting changes to trigger notifications)
+    previous_message_counts: std::collections::HashMap<String, usize>,
     /// Timestamp when current channel was focused (for auto-clear timer)
     channel_focused_at: Option<std::time::Instant>,
     /// Which channels have visible separators
@@ -97,6 +99,7 @@ impl App {
             messages_area: Rect::default(),
             initial_sizes,
             new_message_counts: std::collections::HashMap::new(),
+            previous_message_counts: std::collections::HashMap::new(),
             channel_focused_at: None,
             separator_visible: std::collections::HashSet::new(),
             input: TextArea::default(),
@@ -162,6 +165,11 @@ impl App {
             if has_new_channels {
                 // Refresh channel list to pick up new channels
                 self.refresh_channels()?;
+            }
+
+            // Update unread counts for all channels when any channel changes
+            if !channel_changes.is_empty() {
+                self.update_new_message_counts();
             }
 
             if let Some(current) = self.current_channel() {
@@ -480,6 +488,7 @@ impl App {
         // Clear the separator and counters
         self.separator_visible.remove(channel);
         self.new_message_counts.remove(channel);
+        self.previous_message_counts.remove(channel);
         self.channel_focused_at = None;
     }
 
@@ -491,19 +500,81 @@ impl App {
             .cloned()
             .collect();
 
+        let current_channel = self.current_channel();
+
         for channel in all_channels {
             let path = channel_path(&channel);
             let current_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             let initial_size = self.initial_sizes.get(&channel).copied().unwrap_or(0);
 
+            let previous_count = self
+                .previous_message_counts
+                .get(&channel)
+                .copied()
+                .unwrap_or(0);
+
             if current_size > initial_size {
                 // Count newlines (messages) in the new portion
                 let count = count_new_messages(&path, initial_size, current_size);
                 if count > 0 {
-                    self.new_message_counts.insert(channel, count);
+                    self.new_message_counts.insert(channel.clone(), count);
+
+                    // Send notification if this is a background channel with new messages
+                    if Some(&channel) != current_channel.as_ref() && count > previous_count {
+                        if let Err(e) = self.send_notification(&channel, count - previous_count) {
+                            eprintln!("Failed to send notification for #{}: {}", channel, e);
+                        }
+                    }
                 }
             } else {
                 self.new_message_counts.remove(&channel);
+            }
+        }
+
+        // Update previous counts for next iteration
+        self.previous_message_counts = self.new_message_counts.clone();
+    }
+
+    fn send_notification(&self, channel: &str, new_count: usize) -> Result<()> {
+        use notify_rust::Notification;
+
+        // Read the latest message to show in notification (best effort)
+        let path = channel_path(channel);
+        let messages: Vec<Message> = read_last_n(&path, 1).unwrap_or_default();
+
+        let (summary, body) = if let Some(msg) = messages.last() {
+            let summary = format!("#{}", channel);
+            let body = if msg.body.len() > 100 {
+                format!("{}: {}...", msg.agent, &msg.body[..97])
+            } else {
+                format!("{}: {}", msg.agent, msg.body)
+            };
+            (summary, body)
+        } else {
+            let summary = format!("#{}", channel);
+            let body = format!(
+                "{} new message{}",
+                new_count,
+                if new_count == 1 { "" } else { "s" }
+            );
+            (summary, body)
+        };
+
+        // Try to send notification, ignore errors (notifications are best-effort)
+        match Notification::new()
+            .summary(&summary)
+            .body(&body)
+            .timeout(10000)
+            .show()
+        {
+            Ok(_) => Ok(()),
+            Err(e) => {
+                // Log but don't fail - notifications might not be available
+                eprintln!(
+                    "Notification failed (this is normal on some systems): {}",
+                    e
+                );
+                Ok(())
             }
         }
     }

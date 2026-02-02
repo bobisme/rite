@@ -282,6 +282,11 @@ fn draw_input_bar(f: &mut Frame, app: &mut App, area: Rect) {
     // Remove cursor line highlighting
     textarea.set_cursor_line_style(Style::default());
 
+    // Hide cursor when not focused
+    if !is_focused {
+        textarea.set_cursor_style(Style::default());
+    }
+
     textarea.set_block(
         Block::default()
             .title(Span::styled(" chat - ctrl+s to send ", title_style))

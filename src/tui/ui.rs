@@ -339,7 +339,10 @@ fn format_message(msg: &crate::core::message::Message, max_width: usize) -> Vec<
     let local_time: DateTime<Local> = msg.ts.with_timezone(&Local);
     let datetime_str = local_time.format("%Y-%m-%d %H:%M").to_string();
 
-    let is_system = matches!(&msg.meta, Some(MessageMeta::System { .. }));
+    let is_system = matches!(
+        &msg.meta,
+        Some(MessageMeta::System { .. } | MessageMeta::Claim { .. } | MessageMeta::Release { .. })
+    );
 
     if is_system {
         return format_system_message(msg, &datetime_str, max_width);

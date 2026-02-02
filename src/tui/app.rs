@@ -364,6 +364,14 @@ impl App {
                 {
                     self.focus = Focus::Messages;
                 }
+                // Check if click is in input area
+                else if x >= self.input_area.x
+                    && x < self.input_area.x + self.input_area.width
+                    && y >= self.input_area.y
+                    && y < self.input_area.y + self.input_area.height
+                {
+                    self.focus = Focus::Input;
+                }
             }
             MouseEventKind::ScrollUp => {
                 if self.focus == Focus::Messages {

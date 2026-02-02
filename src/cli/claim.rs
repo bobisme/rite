@@ -250,14 +250,14 @@ fn extend_claims(pattern: &str, ttl: u64, agent_name: &str) -> Result<()> {
                 claim.patterns.iter().map(|p| display_pattern(p)).collect();
             let msg = Message::new(
                 agent_name,
-                "general",
+                "claims",
                 format!(
                     "Extended claim {} for {}",
                     display_patterns.join(", "),
                     format_duration(ttl)
                 ),
             );
-            append_record(&channel_path("general"), &msg)?;
+            append_record(&channel_path("claims"), &msg)?;
         }
     }
 

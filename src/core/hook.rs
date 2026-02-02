@@ -39,6 +39,11 @@ pub struct Hook {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claim_release: Option<ClaimRelease>,
 
+    /// Agent that should own the claim (default: message sender).
+    /// Useful when spawning an agent that needs to refresh its own claim.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_owner: Option<String>,
+
     /// Whether this hook is active
     pub active: bool,
 }
@@ -166,6 +171,7 @@ mod tests {
             created_at: Utc::now(),
             created_by: Some("test-agent".to_string()),
             claim_release: Some(ClaimRelease::OnExit),
+            claim_owner: None,
             active: true,
         };
 

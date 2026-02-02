@@ -365,6 +365,10 @@ pub enum HooksCommands {
         #[arg(long, conflicts_with = "ttl")]
         release_on_exit: bool,
 
+        /// Agent that should own the claim (default: message sender)
+        #[arg(long)]
+        claim_owner: Option<String>,
+
         /// Command to execute (place after --)
         #[arg(last = true, required = true)]
         command: Vec<String>,

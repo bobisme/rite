@@ -50,6 +50,7 @@ pub fn add(
     command: Vec<String>,
     ttl: Option<u64>,
     release_on_exit: bool,
+    claim_owner: Option<String>,
     agent: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
@@ -101,6 +102,7 @@ pub fn add(
         created_at: Utc::now(),
         created_by: agent.map(|s| s.to_string()),
         claim_release,
+        claim_owner,
         active: true,
     };
 
@@ -193,6 +195,9 @@ pub fn list(format: OutputFormat) -> Result<()> {
                         HookCondition::ClaimAvailable { pattern } => {
                             println!("    if-claim-available: {}", pattern);
                         }
+                    }
+                    if let Some(ref owner) = h.claim_owner {
+                        println!("    claim-owner: {}", owner);
                     }
                 }
             }
@@ -465,15 +470,18 @@ fn evaluate_hooks_inner(
             HookCondition::ClaimAvailable { pattern } => pattern.clone(),
         };
 
+        // Use claim_owner if specified, otherwise use message sender
+        let claim_agent = hook.claim_owner.as_deref().unwrap_or(agent);
+
         let (claim, claim_ttl) = match &hook.claim_release {
             Some(ClaimRelease::Ttl { secs }) => {
-                let c = FileClaim::new(agent, vec![claim_pattern.clone()], *secs);
+                let c = FileClaim::new(claim_agent, vec![claim_pattern.clone()], *secs);
                 let _ = append_record(&claims_path(), &c);
                 (Some(c), Some(*secs))
             }
             Some(ClaimRelease::OnExit) => {
                 // Use large sentinel TTL; released explicitly after command exits
-                let c = FileClaim::new(agent, vec![claim_pattern.clone()], 86400);
+                let c = FileClaim::new(claim_agent, vec![claim_pattern.clone()], 86400);
                 let _ = append_record(&claims_path(), &c);
                 (Some(c), None)
             }
@@ -595,6 +603,7 @@ mod tests {
                 created_at: Utc::now(),
                 created_by: None,
                 claim_release: Some(ClaimRelease::OnExit),
+                claim_owner: None,
                 active: true,
             },
             Hook {
@@ -610,6 +619,7 @@ mod tests {
                 created_at: Utc::now(),
                 created_by: None,
                 claim_release: Some(ClaimRelease::OnExit),
+                claim_owner: None,
                 active: false, // Deactivated
             },
         ];

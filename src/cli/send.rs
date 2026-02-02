@@ -77,6 +77,9 @@ pub fn run(
     append_record(&path, &msg)
         .with_context(|| format!("Failed to send message to #{}", channel))?;
 
+    // Evaluate channel hooks (fire-and-forget — errors don't affect send)
+    super::hooks::evaluate_hooks(&channel, &msg.id.to_string());
+
     // Output confirmation
     if target.starts_with('@') {
         println!("{} Message sent to {}", "Sent:".green(), target.cyan());

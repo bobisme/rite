@@ -136,6 +136,16 @@ pub fn index_path() -> PathBuf {
     data_dir().join("index.sqlite")
 }
 
+/// Get the hooks.jsonl path (hook definitions).
+pub fn hooks_path() -> PathBuf {
+    data_dir().join("hooks.jsonl")
+}
+
+/// Get the hooks_audit.jsonl path (hook firing audit log).
+pub fn hooks_audit_path() -> PathBuf {
+    data_dir().join("hooks_audit.jsonl")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

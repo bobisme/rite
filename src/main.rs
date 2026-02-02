@@ -229,5 +229,29 @@ fn main() -> Result<()> {
         }
 
         Commands::Subscriptions => cli::subscribe::list_subscriptions(cli.agent.as_deref()),
+
+        Commands::Hooks { command } => {
+            use cli::HooksCommands;
+            match command {
+                HooksCommands::Add {
+                    channel,
+                    if_claim_available,
+                    cwd,
+                    cooldown,
+                    command,
+                } => cli::hooks::add(
+                    channel,
+                    if_claim_available,
+                    cwd,
+                    cooldown,
+                    command,
+                    cli.agent.as_deref(),
+                    format,
+                ),
+                HooksCommands::List => cli::hooks::list(format),
+                HooksCommands::Remove { hook_id } => cli::hooks::remove(hook_id, format),
+                HooksCommands::Test { hook_id } => cli::hooks::test(hook_id, format),
+            }
+        }
     }
 }

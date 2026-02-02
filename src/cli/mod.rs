@@ -8,6 +8,7 @@ pub mod claim;
 pub mod doctor;
 pub mod format;
 pub mod history;
+pub mod hooks;
 pub mod inbox;
 pub mod init;
 pub mod mark_read;
@@ -346,6 +347,12 @@ pub enum Commands {
 
     /// List subscribed channels
     Subscriptions,
+
+    /// Manage channel hooks (trigger commands on messages)
+    Hooks {
+        #[command(subcommand)]
+        command: HooksCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -385,6 +392,47 @@ pub enum ChannelsCommands {
         old_name: String,
         /// New channel name
         new_name: String,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum HooksCommands {
+    /// Add a new channel hook
+    Add {
+        /// Channel that triggers this hook
+        #[arg(long)]
+        channel: String,
+
+        /// Fire when this claim pattern is available (no one holds it)
+        #[arg(long)]
+        if_claim_available: String,
+
+        /// Working directory for the command
+        #[arg(long)]
+        cwd: PathBuf,
+
+        /// Cooldown between firings (e.g., "30s", "5m", "1h"; default: 30s)
+        #[arg(long)]
+        cooldown: Option<String>,
+
+        /// Command to execute (place after --)
+        #[arg(last = true, required = true)]
+        command: Vec<String>,
+    },
+
+    /// List all active hooks
+    List,
+
+    /// Remove (deactivate) a hook
+    Remove {
+        /// Hook ID to remove (e.g., "hk-abc")
+        hook_id: String,
+    },
+
+    /// Dry-run test a hook (evaluate condition without executing)
+    Test {
+        /// Hook ID to test
+        hook_id: String,
     },
 }
 

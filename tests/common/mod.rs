@@ -104,6 +104,9 @@ impl TestProject {
 
         if let Some(agent_name) = agent {
             cmd.env("BOTBUS_AGENT", agent_name);
+        } else {
+            // Explicitly remove BOTBUS_AGENT to prevent env var leakage
+            cmd.env_remove("BOTBUS_AGENT");
         }
 
         let output = cmd.output().expect("Failed to execute botbus");

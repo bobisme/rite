@@ -407,6 +407,12 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
 
     let total_count = limited_mentions.len();
 
+    // Handle count-only mode
+    if options.count_only {
+        println!("{}", total_count);
+        return Ok(());
+    }
+
     // Handle output format
     match options.format {
         OutputFormat::Json => {

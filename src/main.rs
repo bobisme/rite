@@ -45,7 +45,9 @@ fn main() -> Result<()> {
             Ok(())
         }
 
-        Commands::Whoami => cli::whoami::run(format, cli.agent.as_deref()),
+        Commands::Whoami {
+            suggest_project_suffix,
+        } => cli::whoami::run(format, cli.agent.as_deref(), suggest_project_suffix),
 
         Commands::Send {
             target,

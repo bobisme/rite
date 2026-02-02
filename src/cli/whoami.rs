@@ -3,12 +3,37 @@
 use anyhow::{Result, bail};
 use colored::Colorize;
 use serde::Serialize;
+use std::path::{Path, PathBuf};
 
 use super::OutputFormat;
 use super::format::to_toon;
 use crate::core::identity::{AGENT_ENV_VAR, resolve_agent};
 use crate::core::names::generate_name;
 use crate::core::project::data_dir;
+
+/// Find the project root directory by walking up from current directory
+/// looking for .git or .jj directories.
+fn find_project_root() -> Option<PathBuf> {
+    let current_dir = std::env::current_dir().ok()?;
+    let mut path = current_dir.as_path();
+
+    loop {
+        // Check for .git or .jj directories
+        if path.join(".git").exists() || path.join(".jj").exists() {
+            return Some(path.to_path_buf());
+        }
+
+        // Move up to parent directory
+        path = path.parent()?;
+    }
+}
+
+/// Extract the project name from a path (the last component)
+fn get_project_name(path: &Path) -> Option<String> {
+    path.file_name()
+        .and_then(|name| name.to_str())
+        .map(|s| s.to_string())
+}
 
 #[derive(Debug, Serialize)]
 pub struct WhoamiOutput {
@@ -20,12 +45,29 @@ pub struct WhoamiOutput {
 }
 
 /// Display current agent identity.
-pub fn run(format: OutputFormat, agent: Option<&str>) -> Result<()> {
+pub fn run(
+    format: OutputFormat,
+    agent: Option<&str>,
+    suggest_project_suffix: Option<String>,
+) -> Result<()> {
     let agent_name = match resolve_agent(agent) {
         Some(name) => name,
         None => {
-            // No identity configured - suggest a random name
-            let suggested_name = generate_name();
+            // No identity configured - suggest a name
+            let suggested_name = if let Some(suffix) = suggest_project_suffix {
+                // Try to detect project and suggest <project>-<suffix>
+                if let Some(root) = find_project_root() {
+                    if let Some(project_name) = get_project_name(&root) {
+                        format!("{}-{}", project_name, suffix)
+                    } else {
+                        generate_name()
+                    }
+                } else {
+                    generate_name()
+                }
+            } else {
+                generate_name()
+            };
 
             let error_msg = match format {
                 OutputFormat::Json | OutputFormat::Toon => {
@@ -127,7 +169,7 @@ mod tests {
             env::set_var(AGENT_ENV_VAR, "test-agent");
         }
 
-        run(OutputFormat::Text, None).unwrap();
+        run(OutputFormat::Text, None, None).unwrap();
 
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
@@ -136,7 +178,7 @@ mod tests {
 
     #[test]
     fn test_whoami_json() {
-        run(OutputFormat::Json, Some("test-agent")).unwrap();
+        run(OutputFormat::Json, Some("test-agent"), None).unwrap();
     }
 
     #[test]
@@ -147,7 +189,50 @@ mod tests {
             env::remove_var(AGENT_ENV_VAR);
         }
 
-        let result = run(OutputFormat::Text, None);
+        let result = run(OutputFormat::Text, None, None);
         assert!(result.is_err());
+    }
+
+    #[test]
+    #[serial]
+    fn test_whoami_suggest_project_suffix() {
+        // SAFETY: Test isolation
+        unsafe {
+            env::remove_var(AGENT_ENV_VAR);
+        }
+
+        // If we're in a git/jj project, the error message should contain the project name
+        let result = run(OutputFormat::Text, None, Some("dev".to_string()));
+        assert!(result.is_err());
+
+        // Check that the error message contains a suggested name and "botbus-dev"
+        let err_msg = result.unwrap_err().to_string();
+        eprintln!("Error message: {}", err_msg);
+        assert!(err_msg.contains("botbus-dev") || err_msg.contains("suggested"));
+    }
+
+    #[test]
+    fn test_find_project_root() {
+        // Should find the botbus project root
+        let root = find_project_root();
+        assert!(root.is_some());
+
+        if let Some(root) = root {
+            assert!(root.join(".git").exists() || root.join(".jj").exists());
+        }
+    }
+
+    #[test]
+    fn test_get_project_name() {
+        use std::path::PathBuf;
+
+        let path = PathBuf::from("/home/user/projects/my-project");
+        let name = get_project_name(&path);
+        assert_eq!(name, Some("my-project".to_string()));
+
+        let path = PathBuf::from("/");
+        let name = get_project_name(&path);
+        // Root should have no file name component in most cases
+        assert!(name.is_none() || name == Some("".to_string()));
     }
 }

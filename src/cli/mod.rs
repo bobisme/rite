@@ -73,7 +73,11 @@ pub enum Commands {
     GenerateName,
 
     /// Display current agent identity
-    Whoami,
+    Whoami {
+        /// Suggest agent name as <project>-<suffix>
+        #[arg(long)]
+        suggest_project_suffix: Option<String>,
+    },
 
     /// Send a message to a channel or agent
     #[command(alias = "post")]

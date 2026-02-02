@@ -34,8 +34,23 @@ pub struct Hook {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub created_by: Option<String>,
 
+    /// How to release the claim after hook fires.
+    /// None for hooks created before this field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub claim_release: Option<ClaimRelease>,
+
     /// Whether this hook is active
     pub active: bool,
+}
+
+/// How to release the claim acquired when a hook fires.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+pub enum ClaimRelease {
+    /// Hold claim for a fixed duration (seconds).
+    Ttl { secs: u64 },
+    /// Release claim when the spawned command exits.
+    OnExit,
 }
 
 /// Condition that must be met for a hook to fire.
@@ -70,6 +85,26 @@ pub struct HookFiring {
     /// Reason the hook was skipped (cooldown, condition failed, etc.)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub reason: Option<String>,
+}
+
+/// Format a command as a shell would display it, quoting args that need it.
+pub fn shell_display(cmd: &[String]) -> String {
+    cmd.iter()
+        .map(|arg| {
+            if arg.is_empty() {
+                "''".to_string()
+            } else if arg
+                .chars()
+                .any(|c| " \t\n\"'\\$`!#&|;(){}[]<>?*~".contains(c))
+            {
+                // Wrap in single quotes, escaping embedded single quotes
+                format!("'{}'", arg.replace('\'', "'\\''"))
+            } else {
+                arg.clone()
+            }
+        })
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 impl Hook {
@@ -130,6 +165,7 @@ mod tests {
             last_fired: None,
             created_at: Utc::now(),
             created_by: Some("test-agent".to_string()),
+            claim_release: Some(ClaimRelease::OnExit),
             active: true,
         };
 
@@ -138,6 +174,7 @@ mod tests {
         assert_eq!(parsed.id, "hk-abc");
         assert_eq!(parsed.channel, "deploy");
         assert!(parsed.active);
+        assert!(parsed.claim_release.is_some());
     }
 
     #[test]
@@ -156,6 +193,53 @@ mod tests {
         let parsed: HookFiring = serde_json::from_str(&json).unwrap();
         assert_eq!(parsed.hook_id, "hk-abc");
         assert!(parsed.executed);
+    }
+
+    #[test]
+    fn test_shell_display() {
+        // Simple command
+        assert_eq!(
+            shell_display(&["echo".into(), "hello".into()]),
+            "echo hello"
+        );
+        // Arg with spaces gets quoted
+        assert_eq!(
+            shell_display(&["echo".into(), "hello world".into()]),
+            "echo 'hello world'"
+        );
+        // Arg with single quote gets escaped
+        assert_eq!(
+            shell_display(&["echo".into(), "it's".into()]),
+            "echo 'it'\\''s'"
+        );
+        // Empty arg
+        assert_eq!(shell_display(&["echo".into(), "".into()]), "echo ''");
+        // No args
+        assert_eq!(shell_display(&[]), "");
+    }
+
+    #[test]
+    fn test_claim_release_serde() {
+        let ttl = ClaimRelease::Ttl { secs: 300 };
+        let json = serde_json::to_string(&ttl).unwrap();
+        assert!(json.contains("\"type\":\"ttl\""));
+        let parsed: ClaimRelease = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, ClaimRelease::Ttl { secs: 300 }));
+
+        let on_exit = ClaimRelease::OnExit;
+        let json = serde_json::to_string(&on_exit).unwrap();
+        assert!(json.contains("\"type\":\"on_exit\""));
+        let parsed: ClaimRelease = serde_json::from_str(&json).unwrap();
+        assert!(matches!(parsed, ClaimRelease::OnExit));
+    }
+
+    #[test]
+    fn test_hook_backward_compat_no_claim_release() {
+        // Simulate old hook JSON without claim_release or created_by fields
+        let json = r#"{"id":"hk-old","channel":"test","condition":{"type":"claim_available","pattern":"x"},"command":["echo"],"cwd":"/tmp","cooldown_secs":30,"created_at":"2025-01-01T00:00:00Z","active":true}"#;
+        let hook: Hook = serde_json::from_str(json).unwrap();
+        assert!(hook.claim_release.is_none());
+        assert!(hook.created_by.is_none());
     }
 
     #[test]

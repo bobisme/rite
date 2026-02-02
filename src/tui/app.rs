@@ -598,6 +598,18 @@ impl App {
         let path = channel_path(&channel);
         append_record(&path, &msg)?;
 
+        // Evaluate channel hooks in a background thread so OnExit hooks
+        // don't freeze the TUI event loop.
+        {
+            let ch = channel.clone();
+            let mid = msg.id.to_string();
+            let meta = msg.meta.clone();
+            let agent = agent_name.clone();
+            std::thread::spawn(move || {
+                crate::cli::hooks::evaluate_hooks(&ch, &mid, meta.as_ref(), &agent);
+            });
+        }
+
         // Clear input after sending
         self.input = TextArea::default();
 

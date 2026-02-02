@@ -28,9 +28,10 @@ $BUS init >/dev/null 2>&1 || true
 echo "1. Add hook"
 OUTPUT=$($BUS hooks add \
     --channel test-hook \
-    --if-claim-available "agent://test-dev" \
+    --claim "agent://test-dev" \
     --cwd /tmp \
     --cooldown 2s \
+    --release-on-exit \
     -- echo "hook fired")
 echo "$OUTPUT"
 HOOK_ID=$(echo "$OUTPUT" | grep '^id:' | awk '{print $2}')

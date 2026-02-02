@@ -173,8 +173,16 @@ pub enum MessageMeta {
 #[serde(rename_all = "snake_case")]
 pub enum SystemEvent {
     AgentRegistered,
-    AgentRenamed { old_name: String },
-    ClaimExpired { patterns: Vec<String> },
+    AgentRenamed {
+        old_name: String,
+    },
+    ClaimExpired {
+        patterns: Vec<String>,
+    },
+    HookFired {
+        hook_id: String,
+        command: Vec<String>,
+    },
 }
 
 /// Extract @mentions from message body.

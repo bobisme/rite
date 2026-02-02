@@ -10,8 +10,9 @@ use std::path::PathBuf;
 use super::OutputFormat;
 use super::format::{to_toon, to_toon_list};
 use crate::core::claim::FileClaim;
-use crate::core::hook::{Hook, HookCondition, HookFiring};
-use crate::core::project::{claims_path, hooks_audit_path, hooks_path};
+use crate::core::hook::{ClaimRelease, Hook, HookCondition, HookFiring, shell_display};
+use crate::core::message::{Message, MessageMeta, SystemEvent};
+use crate::core::project::{channel_path, claims_path, hooks_audit_path, hooks_path};
 use crate::storage::jsonl::{append_record, read_records};
 
 /// Parse a cooldown duration string (e.g., "30s", "5m", "1h").
@@ -40,19 +41,27 @@ fn parse_cooldown(s: &str) -> Result<u64> {
 }
 
 /// Add a new hook.
+#[allow(clippy::too_many_arguments)]
 pub fn add(
     channel: String,
-    if_claim_available: String,
+    claim: String,
     cwd: PathBuf,
     cooldown: Option<String>,
     command: Vec<String>,
+    ttl: Option<u64>,
+    release_on_exit: bool,
     agent: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
     if command.is_empty() {
         bail!(
-            "Command is required. Use -- before the command, e.g.:\n  bus hooks add --channel ch --if-claim-available pattern --cwd /tmp -- echo hello"
+            "Command is required. Use -- before the command, e.g.:\n  bus hooks add --channel ch --claim pattern --cwd /tmp --release-on-exit -- echo hello"
         );
+    }
+
+    // Validate claim release strategy
+    if ttl.is_none() && !release_on_exit {
+        bail!("Must specify either --ttl <seconds> or --release-on-exit for claim acquisition");
     }
 
     // Validate cwd exists and is a directory
@@ -75,18 +84,23 @@ pub fn add(
         .map(|h| h.id.clone())
         .collect();
 
+    let claim_release = if let Some(secs) = ttl {
+        Some(ClaimRelease::Ttl { secs })
+    } else {
+        Some(ClaimRelease::OnExit)
+    };
+
     let hook = Hook {
         id: Hook::generate_id(&existing_ids),
         channel: channel.clone(),
-        condition: HookCondition::ClaimAvailable {
-            pattern: if_claim_available,
-        },
+        condition: HookCondition::ClaimAvailable { pattern: claim },
         command,
         cwd,
         cooldown_secs,
         last_fired: None,
         created_at: Utc::now(),
         created_by: agent.map(|s| s.to_string()),
+        claim_release,
         active: true,
     };
 
@@ -359,23 +373,50 @@ fn evaluate_condition(condition: &HookCondition) -> Result<bool> {
     }
 }
 
+/// Result of a hook that fired during evaluation.
+pub struct HookFireResult {
+    pub hook_id: String,
+    pub command_display: String,
+    pub claim_pattern: Option<String>,
+    pub claim_ttl: Option<u64>,
+}
+
 /// Evaluate all hooks for a channel after a message is sent.
-/// Called from send.rs. Hooks are fire-and-forget — errors are logged to audit, not propagated.
-pub fn evaluate_hooks(channel: &str, message_id: &str) {
-    if let Err(e) = evaluate_hooks_inner(channel, message_id) {
-        // Silently log to stderr in verbose scenarios; hooks should not break send
-        eprintln!("Warning: hook evaluation failed: {}", e);
+/// Returns info about hooks that fired (for caller to display).
+pub fn evaluate_hooks(
+    channel: &str,
+    message_id: &str,
+    meta: Option<&MessageMeta>,
+    agent: &str,
+) -> Vec<HookFireResult> {
+    match evaluate_hooks_inner(channel, message_id, meta, agent) {
+        Ok(results) => results,
+        Err(e) => {
+            eprintln!("Warning: hook evaluation failed: {}", e);
+            vec![]
+        }
     }
 }
 
-fn evaluate_hooks_inner(channel: &str, message_id: &str) -> Result<()> {
+fn evaluate_hooks_inner(
+    channel: &str,
+    message_id: &str,
+    meta: Option<&MessageMeta>,
+    agent: &str,
+) -> Result<Vec<HookFireResult>> {
+    // Skip hook evaluation for system messages to prevent recursive loops
+    if matches!(meta, Some(MessageMeta::System { .. })) {
+        return Ok(vec![]);
+    }
+
     let all_hooks: Vec<Hook> = read_records(&hooks_path()).unwrap_or_default();
     if all_hooks.is_empty() {
-        return Ok(());
+        return Ok(vec![]);
     }
 
     let active = build_active_hooks(&all_hooks);
     let now = Utc::now();
+    let mut results = Vec::new();
 
     for hook in active.values() {
         if hook.channel != channel {
@@ -389,7 +430,6 @@ fn evaluate_hooks_inner(channel: &str, message_id: &str) -> Result<()> {
         };
 
         if !cooldown_ok {
-            // Log skipped due to cooldown
             let firing = HookFiring {
                 ts: now,
                 hook_id: hook.id.clone(),
@@ -420,21 +460,87 @@ fn evaluate_hooks_inner(channel: &str, message_id: &str) -> Result<()> {
             continue;
         }
 
-        // Fire the hook — spawn command (fire-and-forget)
+        // Acquire claim before spawning
+        let claim_pattern = match &hook.condition {
+            HookCondition::ClaimAvailable { pattern } => pattern.clone(),
+        };
+
+        let (claim, claim_ttl) = match &hook.claim_release {
+            Some(ClaimRelease::Ttl { secs }) => {
+                let c = FileClaim::new(agent, vec![claim_pattern.clone()], *secs);
+                let _ = append_record(&claims_path(), &c);
+                (Some(c), Some(*secs))
+            }
+            Some(ClaimRelease::OnExit) => {
+                // Use large sentinel TTL; released explicitly after command exits
+                let c = FileClaim::new(agent, vec![claim_pattern.clone()], 86400);
+                let _ = append_record(&claims_path(), &c);
+                (Some(c), None)
+            }
+            None => (None, None),
+        };
+
+        let is_on_exit = matches!(hook.claim_release, Some(ClaimRelease::OnExit));
+        let cmd_display = shell_display(&hook.command);
+
+        // Spawn the command
         let executed = if hook.command.is_empty() {
+            if let Some(c) = &claim {
+                let _ = append_record(&claims_path(), &c.release());
+            }
             false
         } else {
-            std::process::Command::new(&hook.command[0])
+            match std::process::Command::new(&hook.command[0])
                 .args(&hook.command[1..])
                 .current_dir(&hook.cwd)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
                 .spawn()
-                .is_ok()
+            {
+                Ok(mut child) => {
+                    if is_on_exit {
+                        // Block until command exits, then release claim
+                        let _ = child.wait();
+                        if let Some(c) = &claim {
+                            let _ = append_record(&claims_path(), &c.release());
+                        }
+                    }
+                    true
+                }
+                Err(_) => {
+                    if let Some(c) = &claim {
+                        let _ = append_record(&claims_path(), &c.release());
+                    }
+                    false
+                }
+            }
         };
 
-        // Update last_fired — append updated hook record
+        // Post system message to channel
+        if executed {
+            let sys_msg = Message::new(
+                "system",
+                channel,
+                format!("Hook {} fired: {}", hook.id, cmd_display),
+            )
+            .with_meta(MessageMeta::System {
+                event: SystemEvent::HookFired {
+                    hook_id: hook.id.clone(),
+                    command: hook.command.clone(),
+                },
+            });
+            let _ = append_record(&channel_path(channel), &sys_msg);
+
+            results.push(HookFireResult {
+                hook_id: hook.id.clone(),
+                command_display: cmd_display,
+                claim_pattern: claim.as_ref().map(|_| claim_pattern.clone()),
+                claim_ttl,
+            });
+        }
+
+        // Update last_fired
         let mut updated = hook.clone();
         updated.last_fired = Some(now);
         let _ = append_record(&hooks_path(), &updated);
@@ -456,7 +562,7 @@ fn evaluate_hooks_inner(channel: &str, message_id: &str) -> Result<()> {
         let _ = append_record(&hooks_audit_path(), &firing);
     }
 
-    Ok(())
+    Ok(results)
 }
 
 #[cfg(test)]
@@ -488,6 +594,7 @@ mod tests {
                 last_fired: None,
                 created_at: Utc::now(),
                 created_by: None,
+                claim_release: Some(ClaimRelease::OnExit),
                 active: true,
             },
             Hook {
@@ -502,6 +609,7 @@ mod tests {
                 last_fired: None,
                 created_at: Utc::now(),
                 created_by: None,
+                claim_release: Some(ClaimRelease::OnExit),
                 active: false, // Deactivated
             },
         ];

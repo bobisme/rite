@@ -235,16 +235,20 @@ fn main() -> Result<()> {
             match command {
                 HooksCommands::Add {
                     channel,
-                    if_claim_available,
+                    claim,
                     cwd,
                     cooldown,
                     command,
+                    ttl,
+                    release_on_exit,
                 } => cli::hooks::add(
                     channel,
-                    if_claim_available,
+                    claim,
                     cwd,
                     cooldown,
                     command,
+                    ttl,
+                    release_on_exit,
                     cli.agent.as_deref(),
                     format,
                 ),

@@ -77,8 +77,13 @@ pub fn run(
     append_record(&path, &msg)
         .with_context(|| format!("Failed to send message to #{}", channel))?;
 
-    // Evaluate channel hooks (fire-and-forget — errors don't affect send)
-    super::hooks::evaluate_hooks(&channel, &msg.id.to_string());
+    // Evaluate channel hooks (may block briefly for --release-on-exit hooks)
+    let hook_results = super::hooks::evaluate_hooks(
+        &channel,
+        &msg.id.to_string(),
+        msg.meta.as_ref(),
+        &agent_name,
+    );
 
     // Output confirmation
     if target.starts_with('@') {
@@ -90,6 +95,28 @@ pub fn run(
         );
     } else {
         println!("{} Message sent to #{}", "Sent:".green(), channel.cyan());
+    }
+
+    // Show hook results
+    for result in &hook_results {
+        println!(
+            "{} Hook {} fired: {}",
+            "⚡".dimmed(),
+            result.hook_id.cyan(),
+            result.command_display.dimmed()
+        );
+        if let Some(pattern) = &result.claim_pattern {
+            if let Some(ttl) = result.claim_ttl {
+                println!("  {} {} (TTL: {}s)", "Claimed:".green(), pattern, ttl);
+            } else {
+                println!(
+                    "  {} {} (released on command exit)",
+                    "Claimed:".green(),
+                    pattern
+                );
+            }
+            println!("  {}", format!("Release: bus release {}", pattern).dimmed());
+        }
     }
 
     Ok(())

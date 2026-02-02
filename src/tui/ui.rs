@@ -329,8 +329,16 @@ fn create_separator_line(width: usize) -> Line<'static> {
 }
 
 fn format_message(msg: &crate::core::message::Message, max_width: usize) -> Vec<Line<'static>> {
+    use crate::core::message::MessageMeta;
+
     let local_time: DateTime<Local> = msg.ts.with_timezone(&Local);
     let datetime_str = local_time.format("%Y-%m-%d %H:%M").to_string();
+
+    let is_system = matches!(&msg.meta, Some(MessageMeta::System { .. }));
+
+    if is_system {
+        return format_system_message(msg, &datetime_str, max_width);
+    }
 
     let agent_color = agent_color(&msg.agent);
 
@@ -387,6 +395,44 @@ fn format_message(msg: &crate::core::message::Message, max_width: usize) -> Vec<
     }
 
     // Add blank line after message
+    result_lines.push(Line::from(""));
+
+    result_lines
+}
+
+/// Format a system message with lightning bolt glyph and dim italic styling.
+fn format_system_message(
+    msg: &crate::core::message::Message,
+    datetime_str: &str,
+    max_width: usize,
+) -> Vec<Line<'static>> {
+    let dim_italic = Style::default()
+        .fg(Color::DarkGray)
+        .add_modifier(Modifier::ITALIC);
+
+    let mut result_lines = Vec::new();
+
+    // Header: 󱐌 system [timestamp]
+    let header_spans = vec![
+        Span::styled("\u{F140C} ", dim_italic),
+        Span::styled(msg.agent.clone(), dim_italic),
+        Span::styled(format!(" [{}]", datetime_str), dim_italic),
+    ];
+    result_lines.push(Line::from(header_spans));
+
+    // Body lines in dim italic
+    let body_lines: Vec<&str> = msg.body.lines().collect();
+    for body_line in body_lines {
+        let wrapped = wrap_text(body_line, max_width.saturating_sub(4));
+        for wrapped_line in wrapped {
+            result_lines.push(Line::from(vec![
+                Span::raw("  "),
+                Span::styled(wrapped_line, dim_italic),
+            ]));
+        }
+    }
+
+    // Blank line after message
     result_lines.push(Line::from(""));
 
     result_lines

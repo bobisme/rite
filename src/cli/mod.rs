@@ -403,9 +403,9 @@ pub enum HooksCommands {
         #[arg(long)]
         channel: String,
 
-        /// Fire when this claim pattern is available (no one holds it)
+        /// Claim pattern — fire when available, then acquire it
         #[arg(long)]
-        if_claim_available: String,
+        claim: String,
 
         /// Working directory for the command
         #[arg(long)]
@@ -414,6 +414,14 @@ pub enum HooksCommands {
         /// Cooldown between firings (e.g., "30s", "5m", "1h"; default: 30s)
         #[arg(long)]
         cooldown: Option<String>,
+
+        /// Claim TTL in seconds (acquire claim when hook fires, hold for this duration)
+        #[arg(long, conflicts_with = "release_on_exit")]
+        ttl: Option<u64>,
+
+        /// Release the claim when the spawned command exits
+        #[arg(long, conflicts_with = "ttl")]
+        release_on_exit: bool,
 
         /// Command to execute (place after --)
         #[arg(last = true, required = true)]

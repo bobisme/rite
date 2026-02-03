@@ -162,6 +162,12 @@ pub enum MessageMeta {
         ttl_secs: u64,
     },
 
+    /// Agent extended an existing claim
+    ClaimExtended {
+        patterns: Vec<String>,
+        ttl_secs: u64,
+    },
+
     /// Agent released file claims
     Release { patterns: Vec<String> },
 

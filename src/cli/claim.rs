@@ -121,6 +121,24 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
         let extended = existing.extend(options.ttl);
         append_record(&claims_path(), &extended)?;
 
+        // Post system message for claim extension
+        let display_patterns: Vec<String> = expanded_patterns
+            .iter()
+            .map(|p| display_pattern(p))
+            .collect();
+        let body = format!(
+            "Claim extended: {} by {} (expires in {})",
+            display_patterns.join(", "),
+            agent_name,
+            format_duration(options.ttl)
+        );
+        let extend_msg =
+            Message::new(&agent_name, "claims", &body).with_meta(MessageMeta::ClaimExtended {
+                patterns: display_patterns.clone(),
+                ttl_secs: options.ttl,
+            });
+        append_record(&channel_path("claims"), &extend_msg)?;
+
         println!(
             "{} Extended existing claim for {}",
             "Success:".green(),
@@ -267,18 +285,20 @@ fn extend_claims(pattern: &str, ttl: u64, agent_name: &str) -> Result<()> {
             append_record(&claims_path(), &extended)?;
             extended_count += 1;
 
-            // Post message
+            // Post system message for claim extension
             let display_patterns: Vec<String> =
                 claim.patterns.iter().map(|p| display_pattern(p)).collect();
-            let msg = Message::new(
+            let body = format!(
+                "Claim extended: {} by {} (expires in {})",
+                display_patterns.join(", "),
                 agent_name,
-                "claims",
-                format!(
-                    "Extended claim {} for {}",
-                    display_patterns.join(", "),
-                    format_duration(ttl)
-                ),
+                format_duration(ttl)
             );
+            let msg =
+                Message::new(agent_name, "claims", &body).with_meta(MessageMeta::ClaimExtended {
+                    patterns: display_patterns,
+                    ttl_secs: ttl,
+                });
             append_record(&channel_path("claims"), &msg)?;
         }
     }

@@ -18,6 +18,7 @@ pub mod send;
 pub mod status;
 pub mod statuses;
 pub mod subscribe;
+pub mod telegram;
 pub mod ui;
 pub mod wait;
 pub mod watch;
@@ -302,6 +303,9 @@ pub enum Commands {
         #[command(subcommand)]
         command: StatusesCommands,
     },
+
+    /// Run the Telegram bridge (headless bot)
+    Telegram,
 }
 
 #[derive(Subcommand)]

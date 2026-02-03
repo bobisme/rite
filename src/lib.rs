@@ -2,6 +2,7 @@ pub mod cli;
 pub mod core;
 pub mod index;
 pub mod storage;
+pub mod telegram;
 pub mod tui;
 
 // Re-export commonly used types

@@ -289,5 +289,7 @@ fn main() -> Result<()> {
                 StatusesCommands::List => cli::statuses::list(format, cli.agent.as_deref()),
             }
         }
+
+        Commands::Telegram => cli::telegram::run(),
     }
 }

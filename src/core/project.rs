@@ -28,6 +28,9 @@ use std::os::unix::fs::PermissionsExt;
 /// Environment variable to override the data directory (for testing).
 pub const DATA_DIR_ENV_VAR: &str = "BOTBUS_DATA_DIR";
 
+/// Environment variable to override the cache directory (for testing).
+pub const CACHE_DIR_ENV_VAR: &str = "BOTBUS_CACHE_DIR";
+
 /// Get the BotBus data directory.
 ///
 /// Checks in order:
@@ -61,6 +64,48 @@ pub fn data_dir() -> PathBuf {
 
     // Last resort: current directory (not ideal, but won't panic)
     PathBuf::from(".botbus")
+}
+
+/// Get the BotBus cache directory.
+///
+/// Checks in order:
+/// 1. `BOTBUS_CACHE_DIR` environment variable (for testing)
+/// 2. XDG cache directory (`$XDG_CACHE_HOME/botbus/`)
+/// 3. Fallback: `~/.cache/botbus/`
+pub fn cache_dir() -> PathBuf {
+    if let Ok(dir) = env::var(CACHE_DIR_ENV_VAR)
+        && !dir.is_empty()
+    {
+        return PathBuf::from(dir);
+    }
+
+    if let Some(proj_dirs) = ProjectDirs::from("", "", "botbus") {
+        return proj_dirs.cache_dir().to_path_buf();
+    }
+
+    if let Some(user_dirs) = directories::UserDirs::new() {
+        return user_dirs.home_dir().join(".cache").join("botbus");
+    }
+
+    PathBuf::from(".botbus_cache")
+}
+
+/// Ensure the cache directory exists (owner-only permissions on Unix).
+pub fn ensure_cache_dir() -> Result<PathBuf> {
+    let dir = cache_dir();
+    let created = !dir.exists();
+
+    fs::create_dir_all(&dir)
+        .with_context(|| format!("Failed to create cache dir: {}", dir.display()))?;
+
+    #[cfg(unix)]
+    if created {
+        let permissions = fs::Permissions::from_mode(0o700);
+        fs::set_permissions(&dir, permissions)
+            .with_context(|| format!("Failed to set permissions on: {}", dir.display()))?;
+    }
+
+    Ok(dir)
 }
 
 /// Ensure the data directory and subdirectories exist.
@@ -151,6 +196,11 @@ pub fn hooks_audit_path() -> PathBuf {
     data_dir().join("hooks_audit.jsonl")
 }
 
+/// Get the Telegram config path in the cache directory.
+pub fn telegram_config_path() -> PathBuf {
+    cache_dir().join("telegram.json")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -180,6 +230,43 @@ mod tests {
         // Clean up
         unsafe {
             env::remove_var(DATA_DIR_ENV_VAR);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_cache_dir_override() {
+        let temp = TempDir::new().unwrap();
+        let temp_path = temp.path().to_str().unwrap();
+
+        unsafe {
+            env::set_var(CACHE_DIR_ENV_VAR, temp_path);
+        }
+
+        let dir = cache_dir();
+        assert_eq!(dir, temp.path());
+
+        unsafe {
+            env::remove_var(CACHE_DIR_ENV_VAR);
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn test_telegram_config_path() {
+        let temp = TempDir::new().unwrap();
+        let temp_path = temp.path().to_str().unwrap();
+
+        unsafe {
+            env::set_var(CACHE_DIR_ENV_VAR, temp_path);
+        }
+
+        let path = telegram_config_path();
+        assert!(path.ends_with("telegram.json"));
+        assert!(path.starts_with(temp.path()));
+
+        unsafe {
+            env::remove_var(CACHE_DIR_ENV_VAR);
         }
     }
 

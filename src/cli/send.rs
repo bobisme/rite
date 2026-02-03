@@ -83,6 +83,7 @@ pub fn run(
         &msg.id.to_string(),
         msg.meta.as_ref(),
         &agent_name,
+        &msg.mentions,
     );
 
     // Output confirmation

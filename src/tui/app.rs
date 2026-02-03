@@ -520,10 +520,11 @@ impl App {
                     self.new_message_counts.insert(channel.clone(), count);
 
                     // Send notification if this is a background channel with new messages
-                    if Some(&channel) != current_channel.as_ref() && count > previous_count {
-                        if let Err(e) = self.send_notification(&channel, count - previous_count) {
-                            eprintln!("Failed to send notification for #{}: {}", channel, e);
-                        }
+                    if Some(&channel) != current_channel.as_ref()
+                        && count > previous_count
+                        && let Err(e) = self.send_notification(&channel, count - previous_count)
+                    {
+                        eprintln!("Failed to send notification for #{}: {}", channel, e);
                     }
                 }
             } else {
@@ -684,8 +685,9 @@ impl App {
             let mid = msg.id.to_string();
             let meta = msg.meta.clone();
             let agent = agent_name.clone();
+            let mentions = msg.mentions.clone();
             std::thread::spawn(move || {
-                crate::cli::hooks::evaluate_hooks(&ch, &mid, meta.as_ref(), &agent);
+                crate::cli::hooks::evaluate_hooks(&ch, &mid, meta.as_ref(), &agent, &mentions);
             });
         }
 

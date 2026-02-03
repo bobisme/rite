@@ -253,6 +253,7 @@ fn main() -> Result<()> {
                 HooksCommands::Add {
                     channel,
                     claim,
+                    mention,
                     cwd,
                     cooldown,
                     command,
@@ -262,6 +263,7 @@ fn main() -> Result<()> {
                 } => cli::hooks::add(
                     channel,
                     claim,
+                    mention,
                     cwd,
                     cooldown,
                     command,

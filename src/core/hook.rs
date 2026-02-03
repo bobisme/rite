@@ -64,6 +64,8 @@ pub enum ClaimRelease {
 pub enum HookCondition {
     /// Fire when no active claim holds the given pattern.
     ClaimAvailable { pattern: String },
+    /// Fire when a message contains a specific @mention.
+    MentionReceived { agent: String },
 }
 
 /// Audit record for a hook evaluation.
@@ -259,6 +261,28 @@ mod tests {
         match parsed {
             HookCondition::ClaimAvailable { pattern } => {
                 assert_eq!(pattern, "agent://test");
+            }
+            HookCondition::MentionReceived { .. } => {
+                panic!("Expected ClaimAvailable, got MentionReceived");
+            }
+        }
+    }
+
+    #[test]
+    fn test_mention_condition_serde() {
+        let cond = HookCondition::MentionReceived {
+            agent: "security-reviewer".to_string(),
+        };
+        let json = serde_json::to_string(&cond).unwrap();
+        assert!(json.contains("mention_received"));
+        assert!(json.contains("security-reviewer"));
+        let parsed: HookCondition = serde_json::from_str(&json).unwrap();
+        match parsed {
+            HookCondition::MentionReceived { agent } => {
+                assert_eq!(agent, "security-reviewer");
+            }
+            HookCondition::ClaimAvailable { .. } => {
+                panic!("Expected MentionReceived, got ClaimAvailable");
             }
         }
     }

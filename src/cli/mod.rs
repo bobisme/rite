@@ -341,13 +341,17 @@ pub enum ChannelsCommands {
 pub enum HooksCommands {
     /// Add a new channel hook
     Add {
-        /// Channel that triggers this hook
+        /// Channel that triggers this hook (default: "*" for all non-DM channels)
         #[arg(long)]
-        channel: String,
+        channel: Option<String>,
 
         /// Claim pattern — fire when available, then acquire it
-        #[arg(long)]
-        claim: String,
+        #[arg(long, conflicts_with = "mention")]
+        claim: Option<String>,
+
+        /// Agent mention — fire when this agent is @mentioned
+        #[arg(long, conflicts_with = "claim")]
+        mention: Option<String>,
 
         /// Working directory for the command
         #[arg(long)]

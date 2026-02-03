@@ -43,8 +43,9 @@ fn parse_cooldown(s: &str) -> Result<u64> {
 /// Add a new hook.
 #[allow(clippy::too_many_arguments)]
 pub fn add(
-    channel: String,
-    claim: String,
+    channel: Option<String>,
+    claim: Option<String>,
+    mention: Option<String>,
     cwd: PathBuf,
     cooldown: Option<String>,
     command: Vec<String>,
@@ -60,8 +61,32 @@ pub fn add(
         );
     }
 
-    // Validate claim release strategy
-    if ttl.is_none() && !release_on_exit {
+    // Determine which condition type to use
+    let condition = match (claim.as_ref(), mention.as_ref()) {
+        (Some(pattern), None) => {
+            // Claim-based hooks require explicit channel
+            if channel.is_none() {
+                bail!("Claim-based hooks require --channel to be specified");
+            }
+            HookCondition::ClaimAvailable {
+                pattern: pattern.clone(),
+            }
+        }
+        (None, Some(agent_name)) => HookCondition::MentionReceived {
+            agent: agent_name.clone(),
+        },
+        (None, None) => bail!("Must specify either --claim or --mention"),
+        (Some(_), Some(_)) => bail!("Cannot specify both --claim and --mention"),
+    };
+
+    // Default channel to "*" (all non-DM channels) if not specified
+    let hook_channel = channel.unwrap_or_else(|| "*".to_string());
+
+    // Validate claim release strategy (only for ClaimAvailable hooks)
+    if matches!(condition, HookCondition::ClaimAvailable { .. })
+        && ttl.is_none()
+        && !release_on_exit
+    {
         bail!("Must specify either --ttl <seconds> or --release-on-exit for claim acquisition");
     }
 
@@ -85,16 +110,21 @@ pub fn add(
         .map(|h| h.id.clone())
         .collect();
 
-    let claim_release = if let Some(secs) = ttl {
-        Some(ClaimRelease::Ttl { secs })
+    // Only set claim_release for ClaimAvailable hooks
+    let claim_release = if matches!(condition, HookCondition::ClaimAvailable { .. }) {
+        if let Some(secs) = ttl {
+            Some(ClaimRelease::Ttl { secs })
+        } else {
+            Some(ClaimRelease::OnExit)
+        }
     } else {
-        Some(ClaimRelease::OnExit)
+        None
     };
 
     let hook = Hook {
         id: Hook::generate_id(&existing_ids),
-        channel: channel.clone(),
-        condition: HookCondition::ClaimAvailable { pattern: claim },
+        channel: hook_channel.clone(),
+        condition,
         command,
         cwd,
         cooldown_secs,
@@ -195,6 +225,9 @@ pub fn list(format: OutputFormat) -> Result<()> {
                         HookCondition::ClaimAvailable { pattern } => {
                             println!("    if-claim-available: {}", pattern);
                         }
+                        HookCondition::MentionReceived { agent } => {
+                            println!("    if-mention-received: @{}", agent);
+                        }
                     }
                     if let Some(ref owner) = h.claim_owner {
                         println!("    claim-owner: {}", owner);
@@ -259,8 +292,8 @@ pub fn test(hook_id: String, format: OutputFormat) -> Result<()> {
         None => true,
     };
 
-    // Evaluate condition
-    let condition_result = evaluate_condition(&hook.condition)?;
+    // Evaluate condition (MentionReceived hooks will always return false in test mode)
+    let condition_result = evaluate_condition(&hook.condition, &[])?;
 
     let would_execute = cooldown_ok && condition_result;
 
@@ -372,9 +405,10 @@ fn is_claim_available(pattern: &str) -> Result<bool> {
 }
 
 /// Evaluate a hook condition.
-fn evaluate_condition(condition: &HookCondition) -> Result<bool> {
+fn evaluate_condition(condition: &HookCondition, mentions: &[String]) -> Result<bool> {
     match condition {
         HookCondition::ClaimAvailable { pattern } => is_claim_available(pattern),
+        HookCondition::MentionReceived { agent } => Ok(mentions.iter().any(|m| m == agent)),
     }
 }
 
@@ -393,8 +427,9 @@ pub fn evaluate_hooks(
     message_id: &str,
     meta: Option<&MessageMeta>,
     agent: &str,
+    mentions: &[String],
 ) -> Vec<HookFireResult> {
-    match evaluate_hooks_inner(channel, message_id, meta, agent) {
+    match evaluate_hooks_inner(channel, message_id, meta, agent, mentions) {
         Ok(results) => results,
         Err(e) => {
             eprintln!("Warning: hook evaluation failed: {}", e);
@@ -408,6 +443,7 @@ fn evaluate_hooks_inner(
     message_id: &str,
     meta: Option<&MessageMeta>,
     agent: &str,
+    mentions: &[String],
 ) -> Result<Vec<HookFireResult>> {
     // Skip hook evaluation for system messages to prevent recursive loops
     if matches!(meta, Some(MessageMeta::System { .. })) {
@@ -424,7 +460,14 @@ fn evaluate_hooks_inner(
     let mut results = Vec::new();
 
     for hook in active.values() {
-        if hook.channel != channel {
+        // Match hook channel: exact match OR wildcard "*" (except DMs)
+        let channel_matches = if hook.channel == "*" {
+            !crate::core::channel::is_dm_channel(channel)
+        } else {
+            hook.channel == channel
+        };
+
+        if !channel_matches {
             continue;
         }
 
@@ -449,7 +492,7 @@ fn evaluate_hooks_inner(
         }
 
         // Evaluate condition
-        let condition_result = evaluate_condition(&hook.condition).unwrap_or(false);
+        let condition_result = evaluate_condition(&hook.condition, mentions).unwrap_or(false);
 
         if !condition_result {
             let firing = HookFiring {
@@ -465,27 +508,34 @@ fn evaluate_hooks_inner(
             continue;
         }
 
-        // Acquire claim before spawning
+        // Acquire claim before spawning (only for ClaimAvailable hooks)
         let claim_pattern = match &hook.condition {
-            HookCondition::ClaimAvailable { pattern } => pattern.clone(),
+            HookCondition::ClaimAvailable { pattern } => Some(pattern.clone()),
+            HookCondition::MentionReceived { agent: _ } => None,
         };
 
-        // Use claim_owner if specified, otherwise use message sender
-        let claim_agent = hook.claim_owner.as_deref().unwrap_or(agent);
+        // Acquire claim only if this is a ClaimAvailable hook
+        let (claim, claim_ttl) = if let Some(pattern) = &claim_pattern {
+            // Use claim_owner if specified, otherwise use message sender
+            let claim_agent = hook.claim_owner.as_deref().unwrap_or(agent);
 
-        let (claim, claim_ttl) = match &hook.claim_release {
-            Some(ClaimRelease::Ttl { secs }) => {
-                let c = FileClaim::new(claim_agent, vec![claim_pattern.clone()], *secs);
-                let _ = append_record(&claims_path(), &c);
-                (Some(c), Some(*secs))
+            match &hook.claim_release {
+                Some(ClaimRelease::Ttl { secs }) => {
+                    let c = FileClaim::new(claim_agent, vec![pattern.clone()], *secs);
+                    let _ = append_record(&claims_path(), &c);
+                    (Some(c), Some(*secs))
+                }
+                Some(ClaimRelease::OnExit) => {
+                    // Use large sentinel TTL; released explicitly after command exits
+                    let c = FileClaim::new(claim_agent, vec![pattern.clone()], 86400);
+                    let _ = append_record(&claims_path(), &c);
+                    (Some(c), None)
+                }
+                None => (None, None),
             }
-            Some(ClaimRelease::OnExit) => {
-                // Use large sentinel TTL; released explicitly after command exits
-                let c = FileClaim::new(claim_agent, vec![claim_pattern.clone()], 86400);
-                let _ = append_record(&claims_path(), &c);
-                (Some(c), None)
-            }
-            None => (None, None),
+        } else {
+            // MentionReceived hooks don't need claims
+            (None, None)
         };
 
         let is_on_exit = matches!(hook.claim_release, Some(ClaimRelease::OnExit));
@@ -501,6 +551,10 @@ fn evaluate_hooks_inner(
             match std::process::Command::new(&hook.command[0])
                 .args(&hook.command[1..])
                 .current_dir(&hook.cwd)
+                .env("BOTBUS_CHANNEL", channel)
+                .env("BOTBUS_MESSAGE_ID", message_id)
+                .env("BOTBUS_AGENT", agent)
+                .env("BOTBUS_HOOK_ID", &hook.id)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null())
@@ -543,7 +597,7 @@ fn evaluate_hooks_inner(
             results.push(HookFireResult {
                 hook_id: hook.id.clone(),
                 command_display: cmd_display,
-                claim_pattern: claim.as_ref().map(|_| claim_pattern.clone()),
+                claim_pattern,
                 claim_ttl,
             });
         }

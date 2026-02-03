@@ -633,17 +633,19 @@ impl App {
             sorted.sort_by_key(|c| c.ts);
 
             for claim in sorted {
-                if !claim.active {
-                    continue;
-                }
                 for pattern in &claim.patterns {
                     if let Some(agent_name) = pattern.strip_prefix("agent://") {
                         let time_remaining = (claim.expires_at - now).num_seconds();
-                        let status = if time_remaining >= 0 {
+                        let time_since_update = (now - claim.ts).num_seconds();
+
+                        let status = if claim.active && time_remaining >= 0 {
+                            // Active claim, not expired
                             AgentStatus::Online
-                        } else if time_remaining >= -86400 {
+                        } else if time_since_update < 86400 {
+                            // Released or expired within last 24 hours
                             AgentStatus::Afk
                         } else {
+                            // Too old, skip
                             continue;
                         };
                         // Newer claims override older ones (sorted oldest-first)

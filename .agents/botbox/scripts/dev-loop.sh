@@ -129,6 +129,7 @@ fi
 
 # --- Cleanup on exit ---
 cleanup() {
+	bus statuses clear --agent "$AGENT" >/dev/null 2>&1 || true
 	bus claims release --agent "$AGENT" "agent://$AGENT" >/dev/null 2>&1 || true
 	bus claims release --agent "$AGENT" --all >/dev/null 2>&1 || true
 	br sync --flush-only >/dev/null 2>&1 || true
@@ -178,10 +179,13 @@ has_work() {
 }
 
 # --- Main loop ---
+bus statuses set --agent "$AGENT" "Starting loop" --ttl 10m
+
 for ((i = 1; i <= MAX_LOOPS; i++)); do
 	echo "--- Dev loop $i/$MAX_LOOPS ---"
 
 	if ! has_work; then
+		bus statuses set --agent "$AGENT" "Idle"
 		echo "No work available. Exiting cleanly."
 		bus send --agent "$AGENT" "$PROJECT" \
 			"No work remaining. Dev agent $AGENT signing off." \
@@ -266,23 +270,25 @@ Same as the standard worker loop:
 3. maw ws create --random — note workspace NAME and absolute PATH
 4. bus claims stake --agent $AGENT "workspace://$PROJECT/\$WS" -m "<id>"
 5. br comments add --actor $AGENT --author $AGENT <id> "Started in workspace \$WS (\$WS_PATH)"
-6. Announce: bus send --agent $AGENT $PROJECT "Working on <id>: <title>" -L mesh -L task-claim
-7. Implement the task. All file operations use absolute WS_PATH.
+6. bus statuses set --agent $AGENT "Working: <id>" --ttl 30m
+7. Announce: bus send --agent $AGENT $PROJECT "Working on <id>: <title>" -L mesh -L task-claim
+8. Implement the task. All file operations use absolute WS_PATH.
    For jj: maw ws jj \$WS <args>. Do NOT cd into workspace and stay there.
-8. br comments add --actor $AGENT --author $AGENT <id> "Progress: ..."
-9. Describe: maw ws jj \$WS describe -m "<id>: <summary>"
+9. br comments add --actor $AGENT --author $AGENT <id> "Progress: ..."
+10. Describe: maw ws jj \$WS describe -m "<id>: <summary>"
 
 If REVIEW is true:
-  10. Create review: crit reviews create --agent $AGENT --title "<title>" --description "<summary>"
-  11. br comments add --actor $AGENT --author $AGENT <id> "Review requested: <review-id>, workspace: \$WS (\$WS_PATH)"
-  12. bus send --agent $AGENT $PROJECT "Review requested: <review-id> for <id>" -L mesh -L review-request
-  13. STOP this iteration — wait for reviewer.
+  11. Create review: crit reviews create --agent $AGENT --title "<title>" --description "<summary>"
+  12. br comments add --actor $AGENT --author $AGENT <id> "Review requested: <review-id>, workspace: \$WS (\$WS_PATH)"
+  13. bus statuses set --agent $AGENT "Review: <review-id>"
+  14. bus send --agent $AGENT $PROJECT "Review requested: <review-id> for <id>" -L mesh -L review-request
+  15. STOP this iteration — wait for reviewer.
 
 If REVIEW is false:
-  10. Merge: maw ws merge \$WS --destroy
-  11. br close --actor $AGENT <id> --reason="Completed"
-  12. bus claims release --agent $AGENT --all
-  13. br sync --flush-only$([ "$PUSH_MAIN" = "true" ] && echo '
+  11. Merge: maw ws merge \$WS --destroy
+  12. br close --actor $AGENT <id> --reason="Completed"
+  13. bus claims release --agent $AGENT --all
+  14. br sync --flush-only$([ "$PUSH_MAIN" = "true" ] && echo '
   14. Push to GitHub: jj bookmark set main -r @- && jj git push (if fails, announce issue)')
   $([ "$PUSH_MAIN" = "true" ] && echo "15" || echo "14"). bus send --agent $AGENT $PROJECT "Completed <id>: <title>" -L mesh -L task-done
 
@@ -304,9 +310,10 @@ Read each bead (br show <id>) and select a model based on complexity:
 4. bus claims stake --agent $AGENT "bead://$PROJECT/<id>" -m "dispatched to <worker-name>"
 5. bus claims stake --agent $AGENT "workspace://$PROJECT/\$WS" -m "<id>"
 6. br comments add --actor $AGENT --author $AGENT <id> "Dispatched worker <worker-name> (model: <model>) in workspace \$WS (\$WS_PATH)"
-7. bus send --agent $AGENT $PROJECT "Dispatching <worker-name> for <id>: <title>" -L mesh -L task-claim
+7. bus statuses set --agent $AGENT "Dispatch: <id>" --ttl 5m
+8. bus send --agent $AGENT $PROJECT "Dispatching <worker-name> for <id>: <title>" -L mesh -L task-claim
 
-8. Launch worker as a BACKGROUND process:
+9. Launch worker as a BACKGROUND process:
 
    claude --model <model> -p "<worker-prompt>" \\
      --dangerously-skip-permissions --allow-dangerously-skip-permissions \\
@@ -327,13 +334,15 @@ Use --agent <worker-name> on ALL bus commands. Use --actor <worker-name> on ALL 
 Your task: bead <id> — <title>
 Workspace: <ws-name> at <ws-path>
 
-1. Read the bead: br show <id>
-2. Implement the task. All file operations use absolute path <ws-path>.
+1. bus statuses set --agent <worker-name> 'Working: <id>' --ttl 30m
+2. Read the bead: br show <id>
+3. Implement the task. All file operations use absolute path <ws-path>.
    For jj: maw ws jj <ws-name> <args>.
-3. Post a progress comment: br comments add --actor <worker-name> --author <worker-name> <id> 'Progress: <what you did>'
-4. Verify your work (run tests, lints, or checks as appropriate for the project).
-5. Describe the change: maw ws jj <ws-name> describe -m '<id>: <summary>'
-6. Announce completion: bus send --agent <worker-name> $PROJECT 'Worker <worker-name> completed <id>: <title>' -L mesh -L task-done
+4. Post a progress comment: br comments add --actor <worker-name> --author <worker-name> <id> 'Progress: <what you did>'
+5. Verify your work (run tests, lints, or checks as appropriate for the project).
+6. Describe the change: maw ws jj <ws-name> describe -m '<id>: <summary>'
+7. bus statuses clear --agent <worker-name>
+8. Announce completion: bus send --agent <worker-name> $PROJECT 'Worker <worker-name> completed <id>: <title>' -L mesh -L task-done
 
 Do NOT close the bead, merge the workspace, or release claims. The lead dev handles that."
 

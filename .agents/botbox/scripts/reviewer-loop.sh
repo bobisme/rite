@@ -95,6 +95,7 @@ fi
 
 # --- Cleanup on exit ---
 cleanup() {
+	bus statuses clear --agent "$AGENT" >/dev/null 2>&1 || true
 	bus claims release --agent "$AGENT" "agent://$AGENT" >/dev/null 2>&1 || true
 	echo "Cleanup complete for $AGENT."
 }
@@ -138,10 +139,13 @@ has_work() {
 }
 
 # --- Main loop ---
+bus statuses set --agent "$AGENT" "Starting loop" --ttl 10m
+
 for ((i = 1; i <= MAX_LOOPS; i++)); do
 	echo "--- Review loop $i/$MAX_LOOPS ---"
 
 	if ! has_work; then
+		bus statuses set --agent "$AGENT" "Idle"
 		echo "No reviews pending. Exiting cleanly."
 		bus send --agent "$AGENT" "$PROJECT" \
 			"No reviews pending. Reviewer $AGENT signing off." \
@@ -165,6 +169,7 @@ Execute exactly ONE review cycle, then STOP. Do not process multiple reviews.
    Run: crit reviews list --format json
    Look for open reviews (status: "open"). Pick one to process.
    If no open reviews exist, say "NO_REVIEWS_PENDING" and stop.
+   bus statuses set --agent $AGENT "Review: <review-id>" --ttl 30m
 
 3. REVIEW (follow .agents/botbox/review-loop.md):
    a. Read the review and diff: crit review <id> and crit diff <id>

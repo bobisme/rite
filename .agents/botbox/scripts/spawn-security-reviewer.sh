@@ -36,13 +36,13 @@ fi
 declare -A SEEN_IDS=()
 
 collect_channels() {
-	BOTBUS_AGENT="$REVIEWER_NAME" botbus --json channels --mine | "$PYTHON_BIN" -c \
+	BOTBUS_AGENT="$REVIEWER_NAME" bus --json channels --mine | "$PYTHON_BIN" -c \
 		'import json,sys; data=json.load(sys.stdin); print("\n".join(c.get("name", "") for c in data.get("channels", [])))'
 }
 
 relevant_message_ids() {
 	local channel="$1"
-	BOTBUS_AGENT="$REVIEWER_NAME" botbus --json inbox --channel "$channel" -n "$INBOX_LIMIT" |
+	BOTBUS_AGENT="$REVIEWER_NAME" bus --json inbox --channel "$channel" -n "$INBOX_LIMIT" |
 		CHANNEL="$channel" REVIEWER_NAME="$REVIEWER_NAME" "$PYTHON_BIN" -c \
 			'import os,json,sys; channel=os.environ.get("CHANNEL",""); reviewer=os.environ.get("REVIEWER_NAME","security-reviewer"); data=json.load(sys.stdin); messages=data.get("messages", []);
 def is_review(msg):

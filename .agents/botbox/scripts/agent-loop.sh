@@ -95,6 +95,7 @@ fi
 
 # --- Cleanup on exit ---
 cleanup() {
+	bus statuses clear --agent "$AGENT" >/dev/null 2>&1 || true
 	bus claims release --agent "$AGENT" "agent://$AGENT" >/dev/null 2>&1 || true
 	bus claims release --agent "$AGENT" --all >/dev/null 2>&1 || true
 	br sync --flush-only >/dev/null 2>&1 || true
@@ -144,10 +145,13 @@ has_work() {
 }
 
 # --- Main loop ---
+bus statuses set --agent "$AGENT" "Starting loop" --ttl 10m
+
 for ((i = 1; i <= MAX_LOOPS; i++)); do
 	echo "--- Loop $i/$MAX_LOOPS ---"
 
 	if ! has_work; then
+		bus statuses set --agent "$AGENT" "Idle"
 		echo "No work available. Exiting cleanly."
 		bus send --agent "$AGENT" "$PROJECT" \
 			"No work remaining. Agent $AGENT signing off." \
@@ -208,6 +212,7 @@ then STOP. Do not start a second task — the outer loop handles iteration.
    Do NOT cd into the workspace and stay there — the workspace is destroyed during finish.
    bus claims stake --agent $AGENT "workspace://$PROJECT/\$WS" -m "<id>".
    br comments add --actor $AGENT --author $AGENT <id> "Started in workspace \$WS (\$WS_PATH)".
+   bus statuses set --agent $AGENT "Working: <id>" --ttl 30m.
    Announce: bus send --agent $AGENT $PROJECT "Working on <id>: <title>" -L mesh -L task-claim.
 
 4. WORK: br show <id>, then implement the task in the workspace.
@@ -215,6 +220,7 @@ then STOP. Do not start a second task — the outer loop handles iteration.
 
 5. STUCK CHECK: If same approach tried twice, info missing, or tool fails repeatedly — you are
    stuck. br comments add --actor $AGENT --author $AGENT <id> "Blocked: <details>".
+   bus statuses set --agent $AGENT "Blocked: <short reason>".
    bus send --agent $AGENT $PROJECT "Stuck on <id>: <reason>" -L mesh -L task-blocked.
    br update --actor $AGENT <id> --status=blocked.
    Release: bus claims release --agent $AGENT "bead://$PROJECT/<id>".
@@ -224,6 +230,7 @@ then STOP. Do not start a second task — the outer loop handles iteration.
    Describe the change: maw ws jj \$WS describe -m "<id>: <summary>".
    Create review: crit reviews create --agent $AGENT --title "<title>" --description "<summary>".
    Add bead comment: br comments add --actor $AGENT --author $AGENT <id> "Review requested: <review-id>, workspace: \$WS (\$WS_PATH)".
+   bus statuses set --agent $AGENT "Review: <review-id>".
    Announce: bus send --agent $AGENT $PROJECT "Review requested: <review-id> for <id>: <title>" -L mesh -L review-request.
    Do NOT close the bead. Do NOT merge the workspace. Do NOT release claims.
    STOP this iteration. The reviewer will process the review.

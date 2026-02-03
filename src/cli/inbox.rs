@@ -373,10 +373,25 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
         return Ok(());
     }
 
-    // Read all channel files
+    // Read all channel files, filtering by --channels if specified
+    let requested_channels: Vec<String> = options
+        .channels
+        .iter()
+        .map(|c| c.strip_prefix('#').unwrap_or(c).to_string())
+        .collect();
+
     let entries: Vec<_> = std::fs::read_dir(&channels_path)?
         .filter_map(|e| e.ok())
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
+        .filter(|e| {
+            if requested_channels.is_empty() {
+                return true;
+            }
+            e.path()
+                .file_stem()
+                .and_then(|s| s.to_str())
+                .is_some_and(|name| requested_channels.iter().any(|c| c == name))
+        })
         .collect();
 
     // Get agent state manager to check read cursors
@@ -440,13 +455,7 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
 
     let total_count = limited_mentions.len();
 
-    // Handle count-only mode
-    if options.count_only {
-        println!("{}", total_count);
-        return Ok(());
-    }
-
-    // Handle mark-read if requested (before output to avoid borrow issues)
+    // Handle mark-read if requested (before count-only check and output)
     if options.mark_read && !limited_mentions.is_empty() {
         // Group mentions by channel to find the latest message in each
         let mut channel_latest: HashMap<String, &MentionedMessage> = HashMap::new();
@@ -461,25 +470,24 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
                 .or_insert(mention);
         }
 
-        // Mark each channel as read up to the latest mention
+        // Mark each channel as read up to the latest mention.
+        // We use the file size as the byte offset since read_offsets stores byte
+        // positions, not line indices. The last_id (ULID) provides precise tracking
+        // for which messages have been read.
         for (channel, latest_mention) in channel_latest {
-            // Read the channel to find the offset of this message
             let channel_path = channels_dir().join(format!("{}.jsonl", channel));
             if channel_path.exists() {
-                let messages: Vec<Message> = read_records(&channel_path).unwrap_or_default();
-
-                // Find the position of the latest mention
-                if let Some((offset, _)) = messages
-                    .iter()
-                    .enumerate()
-                    .find(|(_, msg)| msg.id == latest_mention.message.id)
-                {
-                    let new_offset = (offset + 1) as u64; // Mark as read *after* this message
-                    let last_id = latest_mention.message.id.to_string();
-                    manager.mark_read(&channel, new_offset, Some(&last_id))?;
-                }
+                let file_size = std::fs::metadata(&channel_path)?.len();
+                let last_id = latest_mention.message.id.to_string();
+                manager.mark_read(&channel, file_size, Some(&last_id))?;
             }
         }
+    }
+
+    // Handle count-only mode
+    if options.count_only {
+        println!("{}", total_count);
+        return Ok(());
     }
 
     // Handle output format

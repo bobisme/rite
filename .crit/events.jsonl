@@ -1,0 +1,2 @@
+{"ts":"2026-02-03T14:08:54.771180696Z","author":"botbus-dev","event":"ReviewCreated","data":{"review_id":"cr-4qi1","jj_change_id":"oxrrqxklupnrwnzovnqvwusopvvwontu","initial_commit":"72de8afe2baac4d483ffe10d51c5ab28b7a3b61d","title":"bd-3uvb: Reduce TUI sidebar width for narrow screens","description":"Changed sidebar from 25% (max 40 cols) to 20% (clamped 15-35 cols) for better narrow screen support."}}
+{"ts":"2026-02-03T14:19:20.880864846Z","author":"botbus-dev","event":"ReviewApproved","data":{"review_id":"cr-4qi1"}}

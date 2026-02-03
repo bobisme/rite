@@ -1,0 +1,41 @@
+{
+  "version": "1.0.0",
+  "project": {
+    "name": "botbus",
+    "type": [
+      "cli"
+    ]
+  },
+  "tools": {
+    "beads": true,
+    "maw": true,
+    "crit": true,
+    "botbus": true,
+    "botty": true
+  },
+  "review": {
+    "enabled": true,
+    "reviewers": [
+      "security"
+    ]
+  },
+  "pushMain": false,
+  "agents": {
+    "dev": {
+      "model": "opus",
+      "max_loops": 20,
+      "pause": 2,
+      "timeout": 900
+    },
+    "worker": {
+      "model": "haiku",
+      "timeout": 600
+    },
+    "reviewer": {
+      "model": "opus",
+      "max_loops": 20,
+      "pause": 2,
+      "timeout": 600
+    }
+  }
+}

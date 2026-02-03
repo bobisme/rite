@@ -25,11 +25,25 @@ pub struct FileClaim {
 
     /// Event type (created, released, expired)
     pub event: ClaimEvent,
+
+    /// Optional message
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 impl FileClaim {
     /// Create a new file claim with the given TTL in seconds.
     pub fn new(agent: impl Into<String>, patterns: Vec<String>, ttl_secs: u64) -> Self {
+        Self::with_message(agent, patterns, ttl_secs, None)
+    }
+
+    /// Create a new file claim with an optional message.
+    pub fn with_message(
+        agent: impl Into<String>,
+        patterns: Vec<String>,
+        ttl_secs: u64,
+        message: Option<String>,
+    ) -> Self {
         let now = Utc::now();
         Self {
             ts: now,
@@ -39,6 +53,7 @@ impl FileClaim {
             expires_at: now + Duration::seconds(ttl_secs as i64),
             active: true,
             event: ClaimEvent::Created,
+            message,
         }
     }
 
@@ -62,6 +77,7 @@ impl FileClaim {
             expires_at: self.expires_at,
             active: false,
             event: ClaimEvent::Released,
+            message: self.message.clone(),
         }
     }
 
@@ -75,6 +91,7 @@ impl FileClaim {
             expires_at: self.expires_at,
             active: false,
             event: ClaimEvent::Expired,
+            message: self.message.clone(),
         }
     }
 
@@ -89,6 +106,7 @@ impl FileClaim {
             expires_at: now + Duration::seconds(ttl_secs as i64),
             active: true,
             event: ClaimEvent::Extended,
+            message: self.message.clone(),
         }
     }
 }

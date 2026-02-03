@@ -16,6 +16,7 @@ pub mod names;
 pub mod search;
 pub mod send;
 pub mod status;
+pub mod statuses;
 pub mod subscribe;
 pub mod ui;
 pub mod wait;
@@ -295,6 +296,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: HooksCommands,
     },
+
+    /// Manage agent statuses (presence + status message)
+    Statuses {
+        #[command(subcommand)]
+        command: StatusesCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -471,6 +478,25 @@ pub enum SubscriptionsCommands {
     },
 
     /// List subscribed channels
+    List,
+}
+
+#[derive(Subcommand)]
+pub enum StatusesCommands {
+    /// Set your status message
+    Set {
+        /// Status message (max 32 characters)
+        message: String,
+
+        /// How long the status lasts (e.g., "1h", "30m", "8h"; default: 1h)
+        #[arg(short, long, default_value = "1h")]
+        ttl: String,
+    },
+
+    /// Clear your status
+    Clear,
+
+    /// List all agent statuses
     List,
 }
 

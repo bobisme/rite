@@ -21,22 +21,35 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .constraints([Constraint::Min(10), Constraint::Length(1)])
         .split(f.area());
 
-    // Main content: channels | messages | agents
+    // Main content: sidebar | messages
+    // Sidebar contains: channels on top, agents below
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(20), // channels
+            Constraint::Length(20), // sidebar (channels + agents)
             Constraint::Min(40),    // messages
-            Constraint::Length(18), // agents
         ])
         .split(outer_chunks[0]);
 
-    // Update cached layout areas for mouse detection
-    app.set_layout_areas(main_chunks[0], main_chunks[1]);
+    // Split sidebar vertically: channels on top, agents below
+    // Calculate agent pane height: 2 lines per agent (name + message) + 2 for borders, max 20
+    let agent_count = app.agent_statuses().len();
+    let agent_height = ((agent_count * 2) + 2).clamp(5, 20) as u16;
 
-    draw_channels(f, app, main_chunks[0]);
+    let sidebar_chunks = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Min(10),              // channels (flexible, min 10 lines)
+            Constraint::Length(agent_height), // agents (dynamic, 5-20 lines)
+        ])
+        .split(main_chunks[0]);
+
+    // Update cached layout areas for mouse detection
+    app.set_layout_areas(sidebar_chunks[0], main_chunks[1]);
+
+    draw_channels(f, app, sidebar_chunks[0]);
+    draw_agents(f, app, sidebar_chunks[1]);
     draw_messages(f, app, main_chunks[1]);
-    draw_agents(f, app, main_chunks[2]);
     draw_status(f, app, outer_chunks[1]);
 
     // Draw help overlay if active
@@ -180,7 +193,7 @@ fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
 
     let items: Vec<ListItem> = agents
         .iter()
-        .map(|agent_info| {
+        .flat_map(|agent_info| {
             let (indicator, name_style) = match agent_info.status {
                 AgentStatus::Online => (
                     Span::styled("● ", Style::default().fg(Color::Green)),
@@ -196,12 +209,31 @@ fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
                 ),
             };
 
-            let line = Line::from(vec![
+            let name_line = Line::from(vec![
                 indicator,
                 Span::styled(agent_info.name.clone(), name_style),
             ]);
 
-            ListItem::new(line)
+            // If there's a status message, add it on a second line (truncated to fit)
+            if let Some(msg) = &agent_info.message {
+                let truncated = if msg.len() > 32 {
+                    format!("{}...", &msg[..29])
+                } else {
+                    msg.clone()
+                };
+                let msg_line = Line::from(vec![
+                    Span::raw("  "),
+                    Span::styled(
+                        truncated,
+                        Style::default()
+                            .fg(Color::DarkGray)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
+                ]);
+                vec![ListItem::new(name_line), ListItem::new(msg_line)]
+            } else {
+                vec![ListItem::new(name_line)]
+            }
         })
         .collect();
 

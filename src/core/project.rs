@@ -126,6 +126,11 @@ pub fn claims_path() -> PathBuf {
     data_dir().join("claims.jsonl")
 }
 
+/// Get the statuses.jsonl path.
+pub fn statuses_path() -> PathBuf {
+    data_dir().join("statuses.jsonl")
+}
+
 /// Get the state.json path.
 pub fn state_path() -> PathBuf {
     data_dir().join("state.json")

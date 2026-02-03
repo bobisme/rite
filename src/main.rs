@@ -278,5 +278,16 @@ fn main() -> Result<()> {
                 HooksCommands::Test { hook_id } => cli::hooks::test(hook_id, format),
             }
         }
+
+        Commands::Statuses { command } => {
+            use cli::StatusesCommands;
+            match command {
+                StatusesCommands::Set { message, ttl } => {
+                    cli::statuses::set(&message, &ttl, cli.agent.as_deref(), format)
+                }
+                StatusesCommands::Clear => cli::statuses::clear(cli.agent.as_deref(), format),
+                StatusesCommands::List => cli::statuses::list(format, cli.agent.as_deref()),
+            }
+        }
     }
 }

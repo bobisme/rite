@@ -171,8 +171,13 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
         anyhow::bail!("Cannot claim - conflicts with existing claims");
     }
 
-    // Create the claim with expanded (absolute) patterns
-    let claim = FileClaim::new(&agent_name, expanded_patterns.clone(), options.ttl);
+    // Create the claim with expanded (absolute) patterns and optional message
+    let claim = FileClaim::with_message(
+        &agent_name,
+        expanded_patterns.clone(),
+        options.ttl,
+        options.message.clone(),
+    );
 
     // Append to claims.jsonl
     append_record(&claims_path(), &claim).with_context(|| "Failed to record claim")?;

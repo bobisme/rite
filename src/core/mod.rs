@@ -6,6 +6,7 @@ pub mod identity;
 pub mod message;
 pub mod names;
 pub mod project;
+pub mod status;
 
 pub use agent::{Agent, AgentEvent};
 pub use claim::{ClaimEvent, FileClaim};

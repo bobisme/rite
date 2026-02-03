@@ -9,10 +9,10 @@ use tui_textarea::TextArea;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::core::claim::FileClaim;
 use crate::core::identity::resolve_agent;
 use crate::core::message::Message;
-use crate::core::project::{channel_path, channels_dir, claims_path, state_path};
+use crate::core::project::{channel_path, channels_dir, state_path, statuses_path};
+use crate::core::status::AgentStatusEntry;
 use crate::storage::jsonl::{read_last_n, read_records, read_records_from_offset};
 use crate::storage::state::ProjectState;
 use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
@@ -30,6 +30,7 @@ pub enum AgentStatus {
 pub struct AgentInfo {
     pub name: String,
     pub status: AgentStatus,
+    pub message: Option<String>,
 }
 
 pub struct App {
@@ -64,6 +65,8 @@ pub struct App {
     input_area: Rect,
     /// Agent status information (for agent pane)
     agent_statuses: Vec<AgentInfo>,
+    /// Last time agent statuses were updated (for rate limiting)
+    last_agent_update: Option<std::time::Instant>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -121,6 +124,7 @@ impl App {
             input: TextArea::default(),
             input_area: Rect::default(),
             agent_statuses: Vec::new(),
+            last_agent_update: None,
         };
 
         app.update_new_message_counts();
@@ -600,65 +604,52 @@ impl App {
     }
 
     fn update_agent_statuses(&mut self) {
-        use chrono::Utc;
+        // Rate limit: only update every 2 seconds
+        if let Some(last_update) = self.last_agent_update
+            && last_update.elapsed() < Duration::from_secs(2)
+        {
+            return;
+        }
+        self.last_agent_update = Some(std::time::Instant::now());
 
-        // Load all claims
-        let all_claims: Vec<FileClaim> = read_records(&claims_path()).unwrap_or_default();
+        // Load all status entries - if read fails, keep previous state
+        let all_entries: Vec<AgentStatusEntry> = match read_records(&statuses_path()) {
+            Ok(entries) => entries,
+            Err(_) => return,
+        };
 
-        // Build active claims map (latest state per claim ID)
-        let mut active: std::collections::HashMap<ulid::Ulid, FileClaim> =
+        // Build latest status per agent (last entry wins)
+        let mut latest: std::collections::HashMap<String, AgentStatusEntry> =
             std::collections::HashMap::new();
-        for claim in all_claims {
-            active.insert(claim.id, claim);
+        for entry in all_entries {
+            latest.insert(entry.agent.clone(), entry);
         }
 
-        // Find all agent:// claims and determine status
-        let now = Utc::now();
-        let mut agent_map: std::collections::HashMap<String, AgentStatus> =
-            std::collections::HashMap::new();
+        // Convert to AgentInfo list
+        let mut statuses: Vec<AgentInfo> = latest
+            .into_values()
+            .filter_map(|entry| {
+                let status = if entry.is_valid() {
+                    AgentStatus::Online
+                } else if entry.is_recently_expired() {
+                    AgentStatus::Afk
+                } else {
+                    return None; // Expired too long ago or cleared
+                };
 
-        for claim in active.values() {
-            if !claim.active {
-                continue;
-            }
-
-            // Look for agent:// URIs in patterns
-            for pattern in &claim.patterns {
-                if let Some(agent_name) = pattern.strip_prefix("agent://") {
-                    let time_remaining = (claim.expires_at - now).num_seconds();
-
-                    // Determine status based on time remaining
-                    let status = if time_remaining < 0 {
-                        AgentStatus::Offline // Expired
-                    } else if time_remaining < 300 {
-                        // < 5 minutes
-                        AgentStatus::Afk
+                Some(AgentInfo {
+                    name: entry.agent,
+                    status,
+                    message: if entry.message.is_empty() {
+                        None
                     } else {
-                        AgentStatus::Online
-                    };
-
-                    // Update to the "best" status (Online > Afk > Offline)
-                    agent_map
-                        .entry(agent_name.to_string())
-                        .and_modify(|s| {
-                            if status == AgentStatus::Online
-                                || (*s == AgentStatus::Offline && status == AgentStatus::Afk)
-                            {
-                                *s = status.clone();
-                            }
-                        })
-                        .or_insert(status);
-                }
-            }
-        }
-
-        // Convert to sorted vector
-        let mut statuses: Vec<AgentInfo> = agent_map
-            .into_iter()
-            .map(|(name, status)| AgentInfo { name, status })
+                        Some(entry.message)
+                    },
+                })
+            })
             .collect();
 
-        // Sort: Online first, then Afk, then Offline; alphabetically within each group
+        // Sort: Online first, then Afk; alphabetically within each group
         statuses.sort_by(|a, b| {
             use std::cmp::Ordering;
             let status_order = |s: &AgentStatus| match s {

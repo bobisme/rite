@@ -6,7 +6,7 @@ Full worker lifecycle — triage, start, work, finish, repeat. This is the "coll
 
 If spawned by `agent-loop.sh`, your identity is provided as `$AGENT` (a random name like `storm-raven`). Otherwise, adopt `<project>-dev` as your name (e.g., `botbox-dev`). Run `bus whoami --agent $AGENT` first to confirm; if it returns a name, use it. It will generate a name if one isn't set.
 
-Your project channel is `$BOTBOX_PROJECT`. All bus commands must include `--agent $AGENT`. All announcements go to `$BOTBOX_PROJECT` with `-L mesh`.
+Your project channel is `$BOTBOX_PROJECT`. All bus commands must include `--agent $AGENT`. All announcements go to `$BOTBOX_PROJECT` with appropriate labels (e.g., `-L task-claim`, `-L review-request`).
 
 **Important:** Run all `br` commands (`br update`, `br close`, `br comments`, `br sync`) from the **project root**, not from inside `.workspaces/$WS/`. This prevents merge conflicts in the beads database. Use absolute paths for file operations in the workspace — **do not `cd` into the workspace and stay there**, as this breaks cleanup when the workspace is destroyed.
 
@@ -29,7 +29,7 @@ Before triaging new work, check if you have an in-progress bead from a previous 
 
 - Check inbox: `bus inbox --agent $AGENT --channels $BOTBOX_PROJECT --mark-read`
 - For messages that request work, create beads: `br create --actor $AGENT --owner $AGENT --title="..." --description="..." --type=task --priority=2`
-- For questions or status checks, reply directly: `bus send --agent $AGENT <channel> "<reply>" -L mesh -L triage-reply`
+- For questions or status checks, reply directly: `bus send --agent $AGENT <channel> "<reply>" -L triage-reply`
 - Check ready beads: `br ready`
 - If no ready beads and no new beads from inbox, stop with message "No work available."
 - **Check blocked beads** for resolved blockers: if a bead was blocked pending information or an upstream fix that has since landed, unblock it with `br update --actor $AGENT <id> --status=open` and a comment noting why.
@@ -52,7 +52,7 @@ Before triaging new work, check if you have an in-progress bead from a previous 
 - `maw ws create --random` — note the workspace name (e.g., `frost-castle`) and the **absolute path** from the output. Store as `$WS` (name) and `$WS_PATH` (absolute path).
 - **All file operations must use the absolute workspace path** from `maw ws create` output. Use absolute paths for Read, Write, and Edit. For bash: `cd $WS_PATH && <command>`. For jj: `maw ws jj $WS <args>`. **Do not `cd` into the workspace and stay there** — the workspace will be destroyed during finish, breaking your shell session.
 - `bus claims stake --agent $AGENT "workspace://$BOTBOX_PROJECT/$WS" -m "<bead-id>"`
-- `bus send --agent $AGENT $BOTBOX_PROJECT "Working on <bead-id>: <bead-title>" -L mesh -L task-claim`
+- `bus send --agent $AGENT $BOTBOX_PROJECT "Working on <bead-id>: <bead-title>" -L task-claim`
 
 ### 3. Work — implement the task
 
@@ -69,8 +69,8 @@ You are stuck if: you attempted the same approach twice without progress, you ca
 
 If stuck:
 - Add a detailed comment with what you tried and where you got blocked: `br comments add --actor $AGENT --author $AGENT <bead-id> "Blocked: ..."`
-- Post in the project channel: `bus send --agent $AGENT $BOTBOX_PROJECT "Stuck on <bead-id>: <summary>" -L mesh -L task-blocked`
-- If a tool behaved unexpectedly (e.g., command succeeded but had no effect), also report it: `bus send --agent $AGENT $BOTBOX_PROJECT "Tool issue: <tool> <what happened>" -L mesh -L tool-issue`
+- Post in the project channel: `bus send --agent $AGENT $BOTBOX_PROJECT "Stuck on <bead-id>: <summary>" -L task-blocked`
+- If a tool behaved unexpectedly (e.g., command succeeded but had no effect), also report it: `bus send --agent $AGENT $BOTBOX_PROJECT "Tool issue: <tool> <what happened>" -L tool-issue`
 - `br update --actor $AGENT <bead-id> --status=blocked`
 - Release the bead claim: `bus claims release --agent $AGENT "bead://$BOTBOX_PROJECT/<bead-id>"`
 - Move on to triage again (go to step 1).
@@ -80,9 +80,17 @@ If stuck:
 After completing the implementation:
 
 - Describe the change: `maw ws jj $WS describe -m "<bead-id>: <summary>"`
-- Create a crit review: `crit reviews create --agent $AGENT --title "<bead-title>" --description "<summary of changes>"`
+- Create a crit review with bead context: `crit reviews create --agent $AGENT --title "<bead-title>" --description "For <bead-id>: <summary of changes, what was done, why>"`
+  - Always include the bead ID in the description so reviewers have context
+  - Explain what changed and why, not just a summary
 - Add a comment to the bead: `br comments add --actor $AGENT --author $AGENT <bead-id> "Review requested: <review-id>, workspace: $WS ($WS_PATH)"`
-- Announce: `bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> for <bead-id>: <bead-title>" -L mesh -L review-request`
+- **If requesting a specialist reviewer** (e.g., security):
+  - Assign them: `crit reviews request <review-id> --reviewers <reviewer> --agent $AGENT`
+  - Announce with @mention: `bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> for <bead-id>, @<reviewer>" -L review-request`
+  - The @mention triggers auto-spawn hooks
+- **If requesting a general code review**:
+  - Spawn a subagent to perform the review
+  - Announce: `bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> for <bead-id>, spawned subagent for review" -L review-request`
 - **STOP this iteration.** Do NOT close the bead, merge the workspace, or release claims. The reviewer will process the review, and you will resume in the next iteration via step 0.
 
 See [review-request](review-request.md) for full details.
@@ -99,7 +107,7 @@ Then proceed with teardown:
 - `maw ws merge $WS --destroy` (if merge conflict, preserve workspace and announce)
 - `bus claims release --agent $AGENT --all`
 - `br sync --flush-only`
-- `bus send --agent $AGENT $BOTBOX_PROJECT "Completed <bead-id>: <bead-title>" -L mesh -L task-done`
+- `bus send --agent $AGENT $BOTBOX_PROJECT "Completed <bead-id>: <bead-title>" -L task-done`
 
 ### 7. Repeat
 

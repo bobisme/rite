@@ -37,11 +37,11 @@ Report a bug, feature request, or feedback to another project.
 
 4. **Post to the project channel** on botbus:
    ```bash
-   bus send --agent $AGENT <project-name> "Filed N beads based on <context>: <bead-ids>. <summary> @<lead-agent>" -L mesh -L feedback
+   bus send --agent $AGENT <project-name> "Filed N beads based on <context>: <bead-ids>. <summary> @<lead-agent>" -L feedback
    ```
    Example:
    ```bash
-   bus send --agent worker-alpha botty "Filed 7 beads based on e2e testing with botbox: bd-2rx (named keys), bd-2lj (record/replay), bd-142 (combined wait), bd-3qu (snapshot diff), bd-l96 (kill handling), bd-202 (assertions), bd-13p (script mode). Top priorities: named key sequences and record/replay. @botty-dev" -L mesh -L feedback
+   bus send --agent worker-alpha botty "Filed 7 beads based on e2e testing with botbox: bd-2rx (named keys), bd-2lj (record/replay), bd-142 (combined wait), bd-3qu (snapshot diff), bd-l96 (kill handling), bd-202 (assertions), bd-13p (script mode). Top priorities: named key sequences and record/replay. @botty-dev" -L feedback
    ```
 
 5. **Ensure the lead agent is running** so your report gets triaged:

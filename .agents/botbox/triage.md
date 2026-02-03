@@ -15,8 +15,8 @@ Find exactly one actionable bead, or determine there is no work available. Groom
    - For messages with `-L feedback` (reports from other agents):
      - Review the mentioned bead IDs with `br show <bead-id>`
      - Triage the beads (accept, adjust priority, close if duplicate/out-of-scope)
-     - Respond on botbus: `bus send --agent $AGENT <channel> "Triaged N beads: <summary> @<reporter-agent>" -L mesh -L triage-reply`
-   - For messages that are questions or status checks, reply inline: `bus send --agent $AGENT <channel> "<response>" -L mesh -L triage-reply`
+     - Respond on botbus: `bus send --agent $AGENT <channel> "Triaged N beads: <summary> @<reporter-agent>" -L triage-reply`
+   - For messages that are questions or status checks, reply inline: `bus send --agent $AGENT <channel> "<response>" -L triage-reply`
 3. Check for ready beads: `br ready`
    - If no ready beads exist and no inbox messages created new beads, output `NO_WORK_AVAILABLE` and stop.
 4. **Check blocked beads** for resolved blockers. If a bead was blocked pending information, an upstream fix, or a tool issue that has since been resolved, unblock it: `br update --actor $AGENT <bead-id> --status=open` with a comment explaining why it's unblocked.

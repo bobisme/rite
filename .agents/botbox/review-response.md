@@ -38,7 +38,7 @@ Run this when:
    b. Describe the change: `maw ws jj $WS describe -m "fix: address review feedback on <review-id>"`
    c. Re-request review: `crit reviews request <review-id> --agent $AGENT --reviewers <reviewer>`
    d. Announce (include workspace path so the reviewer can find the fixed code):
-      `bus send --agent $AGENT $BOTBOX_PROJECT "Review feedback addressed: <review-id>, fixes in workspace $WS ($WS_PATH)" -L mesh -L review-response`
+      `bus send --agent $AGENT $BOTBOX_PROJECT "Review feedback addressed: <review-id>, fixes in workspace $WS ($WS_PATH)" -L review-response`
 
 ## After LGTM
 

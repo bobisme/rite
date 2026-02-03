@@ -29,7 +29,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .direction(Direction::Horizontal)
         .constraints([
             Constraint::Length(sidebar_percentage), // sidebar (channels + agents) - percentage of screen width, max 40 columns
-            Constraint::Min(40), // messages - expands with available space
+            Constraint::Min(40),                    // messages - expands with available space
         ])
         .split(outer_chunks[0]);
 

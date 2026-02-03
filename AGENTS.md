@@ -536,14 +536,13 @@ See [report-issue.md](.agents/botbox/report-issue.md) for details.
 
 ### Loop Scripts
 
-Scripts in `scripts/` automate agent loops:
+Scripts in `.agents/botbox/scripts/` automate agent loops:
 
 | Script | Purpose |
 |--------|---------|
-| `agent-loop.sh` | Worker: sequential triage-start-work-finish |
-| `dev-loop.sh` | Lead dev: triage, parallel dispatch, merge |
-| `reviewer-loop.sh` | Reviewer: review loop until queue empty |
-| `spawn-security-reviewer.sh` | Spawn a security reviewer |
+| `agent-loop.mjs` | Worker: sequential triage-start-work-finish |
+| `dev-loop.mjs` | Lead dev: triage, parallel dispatch, merge |
+| `reviewer-loop.mjs` | Reviewer: review loop until queue empty |
 
-Usage: `bash scripts/<script>.sh <project-name> [agent-name]`
+Usage: `bun .agents/botbox/scripts/<script>.mjs <project-name> [agent-name]`
 <!-- botbox:managed-end -->

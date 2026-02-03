@@ -1,0 +1,337 @@
+#!/usr/bin/env node
+import { spawn } from 'child_process';
+import { readFile } from 'fs/promises';
+import { existsSync, readFileSync } from 'fs';
+import { join } from 'path';
+import { parseArgs } from 'util';
+
+// --- Inline prompt utilities (scripts must be self-contained) ---
+
+/**
+ * Derive the reviewer role from an agent name.
+ * e.g., "myproject-security" -> "security", "myproject-dev" -> null
+ */
+function deriveRoleFromAgentName(agentName, knownRoles = ['security']) {
+	for (const role of knownRoles) {
+		if (agentName.endsWith(`-${role}`)) {
+			return role;
+		}
+	}
+	return null;
+}
+
+/**
+ * Get the prompt name for a reviewer based on role.
+ */
+function getReviewerPromptName(role) {
+	if (role) {
+		return `reviewer-${role}`;
+	}
+	return 'reviewer';
+}
+
+/**
+ * Load a prompt template and substitute variables.
+ */
+function loadPrompt(promptName, variables, promptsDir) {
+	const filePath = join(promptsDir, `${promptName}.md`);
+
+	if (!existsSync(filePath)) {
+		throw new Error(`Prompt template not found: ${filePath}`);
+	}
+
+	let template = readFileSync(filePath, 'utf-8');
+
+	// Simple {{VARIABLE}} substitution
+	for (const [key, value] of Object.entries(variables)) {
+		const pattern = new RegExp(`\\{\\{${key}\\}\\}`, 'g');
+		template = template.replace(pattern, value);
+	}
+
+	return template;
+}
+
+// --- Defaults ---
+let MAX_LOOPS = 20;
+let LOOP_PAUSE = 2;
+let CLAUDE_TIMEOUT = 600;
+let MODEL = '';
+let PROJECT = '';
+let AGENT = '';
+
+// --- Load config from .botbox.json ---
+async function loadConfig() {
+	if (existsSync('.botbox.json')) {
+		try {
+			const config = JSON.parse(await readFile('.botbox.json', 'utf-8'));
+			MODEL = config.agents?.reviewer?.model || '';
+			MAX_LOOPS = config.agents?.reviewer?.max_loops || 20;
+			LOOP_PAUSE = config.agents?.reviewer?.pause || 2;
+			CLAUDE_TIMEOUT = config.agents?.reviewer?.timeout || 600;
+		} catch (err) {
+			console.error('Warning: Failed to load .botbox.json:', err.message);
+		}
+	}
+}
+
+// --- Parse CLI args ---
+function parseCliArgs() {
+	const { values, positionals } = parseArgs({
+		options: {
+			'max-loops': { type: 'string' },
+			pause: { type: 'string' },
+			model: { type: 'string' },
+			help: { type: 'boolean', short: 'h' },
+		},
+		allowPositionals: true,
+	});
+
+	if (values.help) {
+		console.log(`Usage: reviewer-loop.mjs [options] <project> <agent-name>
+
+Reviewer agent. Picks one open review per iteration, reads the diff,
+leaves comments, and votes LGTM or BLOCKED.
+
+Options:
+  --max-loops N   Max iterations (default: ${MAX_LOOPS})
+  --pause N       Seconds between iterations (default: ${LOOP_PAUSE})
+  --model M       Model for the reviewer agent (default: ${MODEL || 'opus'})
+  -h, --help      Show this help
+
+Arguments:
+  project         Project name (required)
+  agent-name      Agent identity (required)`);
+		process.exit(0);
+	}
+
+	if (values['max-loops']) MAX_LOOPS = parseInt(values['max-loops'], 10);
+	if (values.pause) LOOP_PAUSE = parseInt(values.pause, 10);
+	if (values.model) MODEL = values.model;
+
+	if (positionals.length < 2) {
+		console.error('Error: Project name and agent name required');
+		console.error('Usage: reviewer-loop.mjs [options] <project> <agent-name>');
+		process.exit(1);
+	}
+
+	PROJECT = positionals[0];
+	AGENT = positionals[1];
+}
+
+// --- Helper: run command and get output ---
+async function runCommand(cmd, args = []) {
+	return new Promise((resolve, reject) => {
+		const proc = spawn(cmd, args);
+		let stdout = '';
+		let stderr = '';
+
+		proc.stdout?.on('data', (data) => (stdout += data));
+		proc.stderr?.on('data', (data) => (stderr += data));
+
+		proc.on('close', (code) => {
+			if (code === 0) resolve({ stdout: stdout.trim(), stderr: stderr.trim() });
+			else reject(new Error(`${cmd} exited with code ${code}: ${stderr}`));
+		});
+	});
+}
+
+// --- Helper: check if there are reviews ---
+async function hasWork() {
+	try {
+		const result = await runCommand('crit', ['reviews', 'list', '--format', 'json']);
+		const reviews = JSON.parse(result.stdout || '[]');
+		const openReviews = Array.isArray(reviews)
+			? reviews.filter((r) => r.status === 'open')
+			: [];
+		return openReviews.length > 0;
+	} catch (err) {
+		console.error('Error checking for reviews:', err.message);
+		return false;
+	}
+}
+
+// --- Build reviewer prompt ---
+function buildPrompt() {
+	// Derive role from agent name (e.g., "myproject-security" -> "security")
+	const role = deriveRoleFromAgentName(AGENT);
+	const promptName = getReviewerPromptName(role);
+
+	// Use project-local prompts
+	const promptsDir = join(process.cwd(), '.agents', 'botbox', 'prompts');
+
+	try {
+		return loadPrompt(promptName, { AGENT, PROJECT }, promptsDir);
+	} catch (err) {
+		// Fall back to base reviewer if specialized prompt not found
+		if (role && promptName !== 'reviewer') {
+			console.warn(`Warning: ${promptName}.md not found, using base reviewer prompt`);
+			try {
+				return loadPrompt('reviewer', { AGENT, PROJECT }, promptsDir);
+			} catch {
+				// If even base fails, throw original error
+			}
+		}
+		throw err;
+	}
+}
+
+// --- Run agent via botbox run-agent ---
+async function runClaude(prompt) {
+	return new Promise((resolve, reject) => {
+		const args = ['run-agent', 'claude', '-p', prompt];
+		if (MODEL) {
+			args.push('-m', MODEL);
+		}
+		args.push('-t', CLAUDE_TIMEOUT.toString());
+
+		const proc = spawn('botbox', args);
+		let output = '';
+
+		proc.stdout?.on('data', (data) => {
+			const chunk = data.toString();
+			output += chunk;
+			process.stdout.write(chunk); // Pass through to stdout
+		});
+
+		proc.stderr?.on('data', (data) => {
+			process.stderr.write(data); // Pass through to stderr
+		});
+
+		proc.on('close', (code) => {
+			if (code === 0) {
+				resolve({ output, code: 0 });
+			} else {
+				reject(new Error(`botbox run-agent exited with code ${code}`));
+			}
+		});
+
+		proc.on('error', (err) => {
+			reject(err);
+		});
+	});
+}
+
+// --- Cleanup handler ---
+async function cleanup() {
+	console.log('Cleaning up...');
+	try {
+		await runCommand('bus', ['statuses', 'clear', '--agent', AGENT]);
+	} catch {}
+	try {
+		await runCommand('bus', ['claims', 'release', '--agent', AGENT, `agent://${AGENT}`]);
+	} catch {}
+	console.log(`Cleanup complete for ${AGENT}.`);
+}
+
+process.on('SIGINT', async () => {
+	await cleanup();
+	process.exit(0);
+});
+
+process.on('SIGTERM', async () => {
+	await cleanup();
+	process.exit(0);
+});
+
+// --- Main ---
+async function main() {
+	await loadConfig();
+	parseCliArgs();
+
+	console.log(`Reviewer:  ${AGENT}`);
+	console.log(`Project:   ${PROJECT}`);
+	console.log(`Max loops: ${MAX_LOOPS}`);
+	console.log(`Pause:     ${LOOP_PAUSE}s`);
+	console.log(`Model:     ${MODEL || 'opus'}`);
+
+	// Confirm identity
+	try {
+		await runCommand('bus', ['whoami', '--agent', AGENT]);
+	} catch (err) {
+		console.error('Error confirming agent identity:', err.message);
+		process.exit(1);
+	}
+
+	// Try to refresh claim, otherwise stake
+	try {
+		await runCommand('bus', ['claims', 'refresh', '--agent', AGENT, `agent://${AGENT}`]);
+	} catch {
+		try {
+			await runCommand('bus', [
+				'claims',
+				'stake',
+				'--agent',
+				AGENT,
+				`agent://${AGENT}`,
+				'-m',
+				`reviewer-loop for ${PROJECT}`,
+			]);
+		} catch (err) {
+			console.log(`Claim denied. Agent ${AGENT} is already running.`);
+			process.exit(0);
+		}
+	}
+
+	// Announce
+	await runCommand('bus', [
+		'send',
+		'--agent',
+		AGENT,
+		PROJECT,
+		`Reviewer ${AGENT} online, starting review loop`,
+		'-L',
+		'spawn-ack',
+	]);
+
+	// Set starting status
+	await runCommand('bus', ['statuses', 'set', '--agent', AGENT, 'Starting loop', '--ttl', '10m']);
+
+	// Main loop
+	for (let i = 1; i <= MAX_LOOPS; i++) {
+		console.log(`\n--- Review loop ${i}/${MAX_LOOPS} ---`);
+
+		if (!(await hasWork())) {
+			await runCommand('bus', ['statuses', 'set', '--agent', AGENT, 'Idle']);
+			console.log('No reviews pending. Exiting cleanly.');
+			await runCommand('bus', [
+				'send',
+				'--agent',
+				AGENT,
+				PROJECT,
+				`No reviews pending. Reviewer ${AGENT} signing off.`,
+				'-L',
+				'agent-idle',
+			]);
+			break;
+		}
+
+		// Run Claude
+		try {
+			const prompt = buildPrompt();
+			const result = await runClaude(prompt);
+
+			// Check for completion signals
+			if (result.output.includes('<promise>COMPLETE</promise>')) {
+				console.log('✓ Review cycle complete');
+			} else if (result.output.includes('<promise>BLOCKED</promise>')) {
+				console.log('⚠ Reviewer blocked');
+			} else {
+				console.log('Warning: No completion signal found in output');
+			}
+		} catch (err) {
+			console.error('Error running Claude:', err.message);
+			// Continue to next iteration on error
+		}
+
+		if (i < MAX_LOOPS) {
+			await new Promise((resolve) => setTimeout(resolve, LOOP_PAUSE * 1000));
+		}
+	}
+
+	await cleanup();
+}
+
+main().catch((err) => {
+	console.error('Fatal error:', err);
+	cleanup().finally(() => process.exit(1));
+});

@@ -29,7 +29,7 @@ Your identity is `$AGENT`. All bus commands must include `--agent $AGENT`. Run `
 5. Vote:
    - `crit block <id> --reason "..."` if any CRITICAL or HIGH issues exist
    - `crit lgtm <id>` if no CRITICAL or HIGH issues
-6. Post a summary in the project channel and tag the author: `bus send --agent $AGENT $BOTBOX_PROJECT "..." -L mesh -L review-done`
+6. Post a summary in the project channel and tag the author: `bus send --agent $AGENT $BOTBOX_PROJECT "..." -L review-done`
 
 Focus on security and correctness. Ground findings in evidence — compiler output, documentation, or source code — not assumptions about API behavior.
 

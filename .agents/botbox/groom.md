@@ -21,7 +21,7 @@ Groom a set of ready beads to improve backlog quality. Use this when you need to
    - Create smaller child beads with `br create --actor $AGENT --owner $AGENT` and `br dep add --actor $AGENT <child> <parent>`.
    - Add sibling dependencies where order matters: `br dep add --actor $AGENT <later> <earlier>` (e.g., "write report" blocked by "run eval").
    - Add a comment to the parent: `br comments add --actor $AGENT --author $AGENT <parent-id> "Broken down into smaller tasks: <child-id>, ..."`
-4. Announce if you groomed multiple beads: `bus send --agent $AGENT $BOTBOX_PROJECT "Groomed N beads: <summary>" -L mesh -L grooming`
+4. Announce if you groomed multiple beads: `bus send --agent $AGENT $BOTBOX_PROJECT "Groomed N beads: <summary>" -L grooming`
 
 ## Acceptance Criteria
 

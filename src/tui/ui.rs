@@ -217,7 +217,8 @@ fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
             ]);
 
             // If there's a status message, add it on a second line (truncated to fit)
-            if let Some(msg) = &agent_info.message {
+            // Only show status messages for Online agents (AFK agents have stale statuses)
+            if let (AgentStatus::Online, Some(msg)) = (&agent_info.status, &agent_info.message) {
                 let truncated = if msg.len() > 32 {
                     format!("{}...", &msg[..29])
                 } else {

@@ -68,6 +68,10 @@ pub struct App {
     agent_statuses: Vec<AgentInfo>,
     /// Last time agent statuses were updated (for rate limiting)
     last_agent_update: Option<std::time::Instant>,
+    /// Sidebar width (columns) - user can resize
+    sidebar_width: u16,
+    /// Whether user is currently dragging the sidebar border
+    dragging_border: bool,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -126,6 +130,8 @@ impl App {
             input_area: Rect::default(),
             agent_statuses: Vec::new(),
             last_agent_update: None,
+            sidebar_width: 30, // Default width: 30 columns
+            dragging_border: false,
         };
 
         app.update_new_message_counts();
@@ -357,6 +363,13 @@ impl App {
                 let x = mouse.column;
                 let y = mouse.row;
 
+                // Check if click is on the vertical border between sidebar and messages
+                // Border is at x = sidebar_width (the right edge of sidebar)
+                if x == self.sidebar_width && y < self.messages_area.y + self.messages_area.height {
+                    self.dragging_border = true;
+                    return Ok(());
+                }
+
                 // Check if click is in channels area
                 if x >= self.channels_area.x
                     && x < self.channels_area.x + self.channels_area.width
@@ -404,6 +417,23 @@ impl App {
                     && y < self.messages_area.y + self.messages_area.height
                 {
                     self.focus = Focus::Messages;
+                }
+            }
+            MouseEventKind::Up(MouseButton::Left) => {
+                // Stop dragging on mouse up
+                self.dragging_border = false;
+            }
+            MouseEventKind::Drag(MouseButton::Left) => {
+                if self.dragging_border {
+                    let x = mouse.column;
+                    // Update sidebar width, enforcing minimum widths for both panes
+                    // Min sidebar: 20 columns, Min messages: 40 columns
+                    let terminal_width = self.messages_area.x + self.messages_area.width;
+                    let min_sidebar = 20;
+                    let min_messages = 40;
+                    let max_sidebar = terminal_width.saturating_sub(min_messages);
+
+                    self.sidebar_width = x.clamp(min_sidebar, max_sidebar);
                 }
             }
             MouseEventKind::ScrollUp => {
@@ -876,6 +906,11 @@ impl App {
     /// Update cached input area for mouse click detection
     pub fn set_input_area(&mut self, input: Rect) {
         self.input_area = input;
+    }
+
+    /// Get current sidebar width
+    pub fn sidebar_width(&self) -> u16 {
+        self.sidebar_width
     }
 }
 

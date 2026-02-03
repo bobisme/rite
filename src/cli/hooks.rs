@@ -73,7 +73,10 @@ pub fn add(
             }
         }
         (None, Some(agent_name)) => HookCondition::MentionReceived {
-            agent: agent_name.clone(),
+            agent: agent_name
+                .strip_prefix('@')
+                .unwrap_or(agent_name)
+                .to_string(),
         },
         (None, None) => bail!("Must specify either --claim or --mention"),
         (Some(_), Some(_)) => bail!("Cannot specify both --claim and --mention"),

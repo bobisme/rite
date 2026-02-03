@@ -115,6 +115,23 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
     // Load existing claims
     let claims: Vec<FileClaim> = read_records(&claims_path())?;
 
+    // Check if we already have an active claim for the exact same patterns - extend instead
+    if let Some(existing) = find_own_exact_claim(&claims, &expanded_patterns, &agent_name) {
+        // Extend the existing claim instead of creating a duplicate
+        let extended = existing.extend(options.ttl);
+        append_record(&claims_path(), &extended)?;
+
+        println!(
+            "{} Extended existing claim for {}",
+            "Success:".green(),
+            format_duration(options.ttl)
+        );
+        for pattern in &expanded_patterns {
+            println!("  {}", display_pattern(pattern).cyan());
+        }
+        return Ok(());
+    }
+
     // Check for conflicts - deny overlapping claims (using expanded patterns)
     let conflicts = check_conflicts(&expanded_patterns, &claims, &agent_name);
     if !conflicts.is_empty() {
@@ -758,6 +775,46 @@ fn uri_matches_pattern(uri: &str, pattern: &str) -> bool {
     }
 
     false
+}
+
+/// Find an existing active claim by this agent with the exact same patterns.
+fn find_own_exact_claim(
+    claims: &[FileClaim],
+    patterns: &[String],
+    my_agent: &str,
+) -> Option<FileClaim> {
+    let now = Utc::now();
+
+    // Build active claims map (latest state per claim ID)
+    let mut active: std::collections::HashMap<ulid::Ulid, &FileClaim> =
+        std::collections::HashMap::new();
+    for claim in claims {
+        active.insert(claim.id, claim);
+    }
+
+    // Sort patterns for comparison
+    let mut sorted_new: Vec<_> = patterns.to_vec();
+    sorted_new.sort();
+
+    for claim in active.values() {
+        // Only our own claims
+        if claim.agent != my_agent {
+            continue;
+        }
+        // Only active and not expired
+        if !claim.active || claim.expires_at < now {
+            continue;
+        }
+        // Check for exact pattern match
+        let mut sorted_existing: Vec<_> = claim.patterns.clone();
+        sorted_existing.sort();
+
+        if sorted_new == sorted_existing {
+            return Some((*claim).clone());
+        }
+    }
+
+    None
 }
 
 fn check_conflicts(

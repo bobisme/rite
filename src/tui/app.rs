@@ -388,6 +388,15 @@ impl App {
                         self.load_messages()?;
                     }
                 }
+                // Check input area BEFORE messages area - input is a subset of the right panel,
+                // so we must check it first or messages_area will match input clicks
+                else if x >= self.input_area.x
+                    && x < self.input_area.x + self.input_area.width
+                    && y >= self.input_area.y
+                    && y < self.input_area.y + self.input_area.height
+                {
+                    self.focus = Focus::Input;
+                }
                 // Check if click is in messages area
                 else if x >= self.messages_area.x
                     && x < self.messages_area.x + self.messages_area.width
@@ -395,14 +404,6 @@ impl App {
                     && y < self.messages_area.y + self.messages_area.height
                 {
                     self.focus = Focus::Messages;
-                }
-                // Check if click is in input area
-                else if x >= self.input_area.x
-                    && x < self.input_area.x + self.input_area.width
-                    && y >= self.input_area.y
-                    && y < self.input_area.y + self.input_area.height
-                {
-                    self.focus = Focus::Input;
                 }
             }
             MouseEventKind::ScrollUp => {

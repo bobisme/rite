@@ -140,7 +140,7 @@ trap cleanup EXIT
 
 # --- Announce ---
 bus send --agent "$AGENT" "$PROJECT" "Dev agent $AGENT online, starting dev loop" \
-	-L mesh -L spawn-ack
+	-L spawn-ack
 
 # --- Python check ---
 PYTHON_BIN=${PYTHON_BIN:-python3}
@@ -189,7 +189,7 @@ for ((i = 1; i <= MAX_LOOPS; i++)); do
 		echo "No work available. Exiting cleanly."
 		bus send --agent "$AGENT" "$PROJECT" \
 			"No work remaining. Dev agent $AGENT signing off." \
-			-L mesh -L agent-idle
+			-L agent-idle
 		break
 	fi
 
@@ -271,7 +271,7 @@ Same as the standard worker loop:
 4. bus claims stake --agent $AGENT "workspace://$PROJECT/\$WS" -m "<id>"
 5. br comments add --actor $AGENT --author $AGENT <id> "Started in workspace \$WS (\$WS_PATH)"
 6. bus statuses set --agent $AGENT "Working: <id>" --ttl 30m
-7. Announce: bus send --agent $AGENT $PROJECT "Working on <id>: <title>" -L mesh -L task-claim
+7. Announce: bus send --agent $AGENT $PROJECT "Working on <id>: <title>" -L task-claim
 8. Implement the task. All file operations use absolute WS_PATH.
    For jj: maw ws jj \$WS <args>. Do NOT cd into workspace and stay there.
 9. br comments add --actor $AGENT --author $AGENT <id> "Progress: ..."
@@ -281,7 +281,7 @@ If REVIEW is true:
   11. Create review: crit reviews create --agent $AGENT --title "<title>" --description "<summary>"
   12. br comments add --actor $AGENT --author $AGENT <id> "Review requested: <review-id>, workspace: \$WS (\$WS_PATH)"
   13. bus statuses set --agent $AGENT "Review: <review-id>"
-  14. bus send --agent $AGENT $PROJECT "Review requested: <review-id> for <id>" -L mesh -L review-request
+  14. bus send --agent $AGENT $PROJECT "Review requested: <review-id> for <id>" -L review-request
   15. STOP this iteration — wait for reviewer.
 
 If REVIEW is false:
@@ -290,7 +290,7 @@ If REVIEW is false:
   13. bus claims release --agent $AGENT --all
   14. br sync --flush-only$([ "$PUSH_MAIN" = "true" ] && echo '
   14. Push to GitHub: jj bookmark set main -r @- && jj git push (if fails, announce issue)')
-  $([ "$PUSH_MAIN" = "true" ] && echo "15" || echo "14"). bus send --agent $AGENT $PROJECT "Completed <id>: <title>" -L mesh -L task-done
+  $([ "$PUSH_MAIN" = "true" ] && echo "15" || echo "14"). bus send --agent $AGENT $PROJECT "Completed <id>: <title>" -L task-done
 
 ## 4b. PARALLEL DISPATCH (2+ beads)
 
@@ -311,7 +311,7 @@ Read each bead (br show <id>) and select a model based on complexity:
 5. bus claims stake --agent $AGENT "workspace://$PROJECT/\$WS" -m "<id>"
 6. br comments add --actor $AGENT --author $AGENT <id> "Dispatched worker <worker-name> (model: <model>) in workspace \$WS (\$WS_PATH)"
 7. bus statuses set --agent $AGENT "Dispatch: <id>" --ttl 5m
-8. bus send --agent $AGENT $PROJECT "Dispatching <worker-name> for <id>: <title>" -L mesh -L task-claim
+8. bus send --agent $AGENT $PROJECT "Dispatching <worker-name> for <id>: <title>" -L task-claim
 
 9. Launch worker as a BACKGROUND process:
 
@@ -342,7 +342,7 @@ Workspace: <ws-name> at <ws-path>
 5. Verify your work (run tests, lints, or checks as appropriate for the project).
 6. Describe the change: maw ws jj <ws-name> describe -m '<id>: <summary>'
 7. bus statuses clear --agent <worker-name>
-8. Announce completion: bus send --agent <worker-name> $PROJECT 'Worker <worker-name> completed <id>: <title>' -L mesh -L task-done
+8. Announce completion: bus send --agent <worker-name> $PROJECT 'Worker <worker-name> completed <id>: <title>' -L task-done
 
 Do NOT close the bead, merge the workspace, or release claims. The lead dev handles that."
 
@@ -371,7 +371,7 @@ For each completed worker:
    Skip destroy, move to next. Announce the conflict.
 3. br close --actor $AGENT <id> --reason="Completed by <worker-name>"
 4. bus claims release --agent $AGENT "bead://$PROJECT/<id>"
-5. bus send --agent $AGENT $PROJECT "Merged <id>: <title>" -L mesh -L task-done
+5. bus send --agent $AGENT $PROJECT "Merged <id>: <title>" -L task-done
 
 After all merges: br sync --flush-only$([ "$PUSH_MAIN" = "true" ] && echo '
 Then push to GitHub: jj bookmark set main -r @- && jj git push (if fails, announce issue)')
@@ -392,7 +392,7 @@ After merging, if review is enabled:
 - All bus, br, crit, and maw commands use --agent $AGENT (except worker prompts which use their own identity).
 - The dev agent holds bead claims on behalf of workers. Workers do NOT claim beads.
 - Workers do NOT close beads, merge workspaces, or release claims. You do.
-- If a tool behaves unexpectedly: bus send --agent $AGENT $PROJECT "Tool issue: <details>" -L mesh -L tool-issue
+- If a tool behaves unexpectedly: bus send --agent $AGENT $PROJECT "Tool issue: <details>" -L tool-issue
 - STOP after completing one iteration. Do not loop — the outer bash loop handles iteration.
 EOF
 	)"; then
@@ -401,7 +401,7 @@ EOF
 			echo "Claude timed out after ${CLAUDE_TIMEOUT}s on dev loop $i"
 			bus send --agent "$AGENT" "$PROJECT" \
 				"Dev agent Claude iteration timed out after ${CLAUDE_TIMEOUT}s on loop $i" \
-				-L mesh -L tool-issue >/dev/null 2>&1 || true
+				-L tool-issue >/dev/null 2>&1 || true
 		else
 			echo "Claude exited with code $exit_code on dev loop $i"
 		fi
@@ -417,5 +417,5 @@ done
 br sync 2>/dev/null || true
 bus send --agent "$AGENT" "$PROJECT" \
 	"Dev agent $AGENT shutting down after $((i - 1)) loops." \
-	-L mesh -L agent-shutdown
+	-L agent-shutdown
 echo "Dev agent $AGENT finished."

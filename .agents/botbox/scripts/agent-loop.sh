@@ -106,7 +106,7 @@ trap cleanup EXIT
 
 # --- Announce ---
 bus send --agent "$AGENT" "$PROJECT" "Agent $AGENT online, starting worker loop" \
-	-L mesh -L spawn-ack
+	-L spawn-ack
 
 # --- Python check ---
 PYTHON_BIN=${PYTHON_BIN:-python3}
@@ -155,7 +155,7 @@ for ((i = 1; i <= MAX_LOOPS; i++)); do
 		echo "No work available. Exiting cleanly."
 		bus send --agent "$AGENT" "$PROJECT" \
 			"No work remaining. Agent $AGENT signing off." \
-			-L mesh -L agent-idle
+			-L agent-idle
 		break
 	fi
 
@@ -213,7 +213,7 @@ then STOP. Do not start a second task — the outer loop handles iteration.
    bus claims stake --agent $AGENT "workspace://$PROJECT/\$WS" -m "<id>".
    br comments add --actor $AGENT --author $AGENT <id> "Started in workspace \$WS (\$WS_PATH)".
    bus statuses set --agent $AGENT "Working: <id>" --ttl 30m.
-   Announce: bus send --agent $AGENT $PROJECT "Working on <id>: <title>" -L mesh -L task-claim.
+   Announce: bus send --agent $AGENT $PROJECT "Working on <id>: <title>" -L task-claim.
 
 4. WORK: br show <id>, then implement the task in the workspace.
    Add at least one progress comment: br comments add --actor $AGENT --author $AGENT <id> "Progress: ...".
@@ -221,7 +221,7 @@ then STOP. Do not start a second task — the outer loop handles iteration.
 5. STUCK CHECK: If same approach tried twice, info missing, or tool fails repeatedly — you are
    stuck. br comments add --actor $AGENT --author $AGENT <id> "Blocked: <details>".
    bus statuses set --agent $AGENT "Blocked: <short reason>".
-   bus send --agent $AGENT $PROJECT "Stuck on <id>: <reason>" -L mesh -L task-blocked.
+   bus send --agent $AGENT $PROJECT "Stuck on <id>: <reason>" -L task-blocked.
    br update --actor $AGENT <id> --status=blocked.
    Release: bus claims release --agent $AGENT "bead://$PROJECT/<id>".
    Stop this cycle.
@@ -231,7 +231,7 @@ then STOP. Do not start a second task — the outer loop handles iteration.
    Create review: crit reviews create --agent $AGENT --title "<title>" --description "<summary>".
    Add bead comment: br comments add --actor $AGENT --author $AGENT <id> "Review requested: <review-id>, workspace: \$WS (\$WS_PATH)".
    bus statuses set --agent $AGENT "Review: <review-id>".
-   Announce: bus send --agent $AGENT $PROJECT "Review requested: <review-id> for <id>: <title>" -L mesh -L review-request.
+   Announce: bus send --agent $AGENT $PROJECT "Review requested: <review-id> for <id>: <title>" -L review-request.
    Do NOT close the bead. Do NOT merge the workspace. Do NOT release claims.
    STOP this iteration. The reviewer will process the review.
 
@@ -246,7 +246,7 @@ then STOP. Do not start a second task — the outer loop handles iteration.
    bus claims release --agent $AGENT --all.
    br sync --flush-only.$([ "$PUSH_MAIN" = "true" ] && echo '
    Push to GitHub: jj bookmark set main -r @- && jj git push (if fails, announce issue).')
-   bus send --agent $AGENT $PROJECT "Completed <id>: <title>" -L mesh -L task-done.
+   bus send --agent $AGENT $PROJECT "Completed <id>: <title>" -L task-done.
 
 Key rules:
 - Exactly one small task per cycle.
@@ -255,7 +255,7 @@ Key rules:
 - All bus and crit commands use --agent $AGENT.
 - All file operations use the absolute workspace path from maw ws create output. Do NOT cd into the workspace and stay there.
 - Run br commands (br update, br close, br comments, br sync) from the project root, NOT from .workspaces/WS/.
-- If a tool behaves unexpectedly, report it: bus send --agent $AGENT $PROJECT "Tool issue: <details>" -L mesh -L tool-issue.
+- If a tool behaves unexpectedly, report it: bus send --agent $AGENT $PROJECT "Tool issue: <details>" -L tool-issue.
 - STOP after completing one task or determining no work. Do not loop.
 EOF
 	)"; then
@@ -264,7 +264,7 @@ EOF
 			echo "Claude timed out after ${CLAUDE_TIMEOUT}s on loop $i"
 			bus send --agent "$AGENT" "$PROJECT" \
 				"Claude iteration timed out after ${CLAUDE_TIMEOUT}s on loop $i" \
-				-L mesh -L tool-issue >/dev/null 2>&1 || true
+				-L tool-issue >/dev/null 2>&1 || true
 		else
 			echo "Claude exited with code $exit_code on loop $i"
 		fi
@@ -281,5 +281,5 @@ done
 br sync 2>/dev/null || true
 bus send --agent "$AGENT" "$PROJECT" \
 	"Agent $AGENT shutting down after $((i - 1)) loops." \
-	-L mesh -L agent-shutdown
+	-L agent-shutdown
 echo "Agent $AGENT finished."

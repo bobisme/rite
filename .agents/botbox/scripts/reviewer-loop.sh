@@ -104,7 +104,7 @@ trap cleanup EXIT
 
 # --- Announce ---
 bus send --agent "$AGENT" "$PROJECT" "Reviewer $AGENT online, starting review loop" \
-	-L mesh -L spawn-ack
+	-L spawn-ack
 
 # --- Python check ---
 PYTHON_BIN=${PYTHON_BIN:-python3}
@@ -149,7 +149,7 @@ for ((i = 1; i <= MAX_LOOPS; i++)); do
 		echo "No reviews pending. Exiting cleanly."
 		bus send --agent "$AGENT" "$PROJECT" \
 			"No reviews pending. Reviewer $AGENT signing off." \
-			-L mesh -L agent-idle
+			-L agent-idle
 		break
 	fi
 
@@ -192,7 +192,7 @@ Execute exactly ONE review cycle, then STOP. Do not process multiple reviews.
       - crit lgtm <id> if no CRITICAL or HIGH issues
 
 4. ANNOUNCE:
-   bus send --agent $AGENT $PROJECT "Review complete: <review-id> — <LGTM|BLOCKED>" -L mesh -L review-done
+   bus send --agent $AGENT $PROJECT "Review complete: <review-id> — <LGTM|BLOCKED>" -L review-done
 
 5. RE-REVIEW (if a review-response message indicates the author addressed feedback):
    The author's fixes are in their workspace, not the main branch.
@@ -215,7 +215,7 @@ EOF
 			echo "Claude timed out after ${CLAUDE_TIMEOUT}s on review loop $i"
 			bus send --agent "$AGENT" "$PROJECT" \
 				"Reviewer Claude iteration timed out after ${CLAUDE_TIMEOUT}s on loop $i" \
-				-L mesh -L tool-issue >/dev/null 2>&1 || true
+				-L tool-issue >/dev/null 2>&1 || true
 		else
 			echo "Claude exited with code $exit_code on review loop $i"
 		fi
@@ -227,5 +227,5 @@ done
 # --- Shutdown ---
 bus send --agent "$AGENT" "$PROJECT" \
 	"Reviewer $AGENT shutting down after $((i - 1)) loops." \
-	-L mesh -L agent-shutdown
+	-L agent-shutdown
 echo "Reviewer $AGENT finished."

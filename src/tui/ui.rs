@@ -21,10 +21,14 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .constraints([Constraint::Min(10), Constraint::Length(1)])
         .split(f.area());
 
-    // Main content: sidebar | messages
+    // Main content: channels | messages | agents
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
-        .constraints([Constraint::Length(20), Constraint::Min(40)])
+        .constraints([
+            Constraint::Length(20), // channels
+            Constraint::Min(40),    // messages
+            Constraint::Length(18), // agents
+        ])
         .split(outer_chunks[0]);
 
     // Update cached layout areas for mouse detection
@@ -32,6 +36,7 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     draw_channels(f, app, main_chunks[0]);
     draw_messages(f, app, main_chunks[1]);
+    draw_agents(f, app, main_chunks[2]);
     draw_status(f, app, outer_chunks[1]);
 
     // Draw help overlay if active
@@ -166,6 +171,52 @@ fn format_channel_line_dm(
     }
 
     Line::from(spans)
+}
+
+fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
+    use super::app::AgentStatus;
+
+    let agents = app.agent_statuses();
+
+    let items: Vec<ListItem> = agents
+        .iter()
+        .map(|agent_info| {
+            let (indicator, name_style) = match agent_info.status {
+                AgentStatus::Online => (
+                    Span::styled("● ", Style::default().fg(Color::Green)),
+                    Style::default().fg(Color::White),
+                ),
+                AgentStatus::Afk => (
+                    Span::styled("● ", Style::default().fg(Color::DarkGray)),
+                    Style::default().fg(Color::DarkGray),
+                ),
+                AgentStatus::Offline => (
+                    Span::styled("● ", Style::default().fg(Color::DarkGray)),
+                    Style::default().fg(Color::DarkGray),
+                ),
+            };
+
+            let line = Line::from(vec![
+                indicator,
+                Span::styled(agent_info.name.clone(), name_style),
+            ]);
+
+            ListItem::new(line)
+        })
+        .collect();
+
+    let list = List::new(items).block(
+        Block::default()
+            .title(Span::styled(
+                " Agents ",
+                Style::default().fg(INACTIVE_TITLE),
+            ))
+            .borders(Borders::ALL)
+            .border_type(BorderType::Rounded)
+            .border_style(Style::default()),
+    );
+
+    f.render_widget(list, area);
 }
 
 fn draw_messages(f: &mut Frame, app: &mut App, area: Rect) {

@@ -119,7 +119,7 @@ fn format_channel_line(
         Style::default()
             .fg(ACTIVE_BORDER)
             .add_modifier(Modifier::BOLD)
-    } else if is_selected || new_count > 0 {
+    } else if is_selected {
         Style::default().add_modifier(Modifier::BOLD)
     } else {
         Style::default()
@@ -129,7 +129,7 @@ fn format_channel_line(
 
     if new_count > 0 {
         spans.push(Span::styled(
-            format!(" ({})", new_count),
+            format!(" {}", new_count),
             Style::default().fg(Color::Yellow),
         ));
     }
@@ -148,7 +148,7 @@ fn format_channel_line_dm(
         Style::default()
             .fg(ACTIVE_BORDER)
             .add_modifier(Modifier::BOLD)
-    } else if is_selected || new_count > 0 {
+    } else if is_selected {
         Style::default()
             .fg(Color::Magenta)
             .add_modifier(Modifier::BOLD)
@@ -160,7 +160,7 @@ fn format_channel_line_dm(
 
     if new_count > 0 {
         spans.push(Span::styled(
-            format!(" ({})", new_count),
+            format!(" {}", new_count),
             Style::default().fg(Color::Yellow),
         ));
     }

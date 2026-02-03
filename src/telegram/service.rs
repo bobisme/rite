@@ -5,7 +5,7 @@ use std::time::Duration;
 use tokio::sync::{Mutex, watch};
 
 use crate::cli::send;
-use crate::core::message::Message;
+use crate::core::message::{Message, MessageMeta};
 use crate::core::project::{channel_path, channels_dir, state_path};
 use crate::storage::jsonl::read_records_from_offset;
 use crate::storage::state::ProjectState;
@@ -390,6 +390,11 @@ async fn publish_message(
         return Ok(());
     }
 
+    // Skip system messages (hook firings, claims, etc.)
+    if is_system_message(msg) {
+        return Ok(());
+    }
+
     let (chat_id, agent_name, mut topic_id, mut muted) = {
         let guard = config.lock().await;
         (
@@ -626,4 +631,9 @@ fn validate_incoming_message(text: &str) -> Option<String> {
 fn is_topic_not_modified_error(err: &anyhow::Error) -> bool {
     let message = err.to_string().to_lowercase();
     message.contains("not modified") || message.contains("not_modified")
+}
+
+/// Check if a message is a system message (hook firings, claims, etc.)
+fn is_system_message(msg: &Message) -> bool {
+    matches!(&msg.meta, Some(MessageMeta::System { .. }))
 }

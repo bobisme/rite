@@ -23,11 +23,13 @@ pub fn draw(f: &mut Frame, app: &mut App) {
 
     // Main content: sidebar | messages
     // Sidebar contains: channels on top, agents below
+    // Sidebar is 25% of screen width, capped at 40 columns
+    let sidebar_percentage = ((f.area().width as f32) * 0.25).min(40.0) as u16;
     let main_chunks = Layout::default()
         .direction(Direction::Horizontal)
         .constraints([
-            Constraint::Length(20), // sidebar (channels + agents)
-            Constraint::Min(40),    // messages
+            Constraint::Length(sidebar_percentage), // sidebar (channels + agents) - percentage of screen width, max 40 columns
+            Constraint::Min(40), // messages - expands with available space
         ])
         .split(outer_chunks[0]);
 
@@ -226,7 +228,7 @@ fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
                     Span::styled(
                         truncated,
                         Style::default()
-                            .fg(Color::DarkGray)
+                            .fg(Color::Blue)
                             .add_modifier(Modifier::ITALIC),
                     ),
                 ]);

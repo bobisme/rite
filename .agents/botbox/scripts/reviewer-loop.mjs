@@ -64,10 +64,19 @@ async function loadConfig() {
 	if (existsSync('.botbox.json')) {
 		try {
 			const config = JSON.parse(await readFile('.botbox.json', 'utf-8'));
-			MODEL = config.agents?.reviewer?.model || '';
-			MAX_LOOPS = config.agents?.reviewer?.max_loops || 20;
-			LOOP_PAUSE = config.agents?.reviewer?.pause || 2;
-			CLAUDE_TIMEOUT = config.agents?.reviewer?.timeout || 600;
+			const project = config.project || {};
+			const agents = config.agents || {};
+			const reviewer = agents.reviewer || {};
+
+			// Project identity (can be overridden by CLI args)
+			PROJECT = project.channel || project.name || '';
+			// Reviewer agent name is typically passed via CLI (e.g., maw-security)
+
+			// Agent settings
+			MODEL = reviewer.model || '';
+			MAX_LOOPS = reviewer.max_loops || 20;
+			LOOP_PAUSE = reviewer.pause || 2;
+			CLAUDE_TIMEOUT = reviewer.timeout || 600;
 		} catch (err) {
 			console.error('Warning: Failed to load .botbox.json:', err.message);
 		}
@@ -99,8 +108,8 @@ Options:
   -h, --help      Show this help
 
 Arguments:
-  project         Project name (required)
-  agent-name      Agent identity (required)`);
+  project         Project name (default: from .botbox.json)
+  agent-name      Agent identity (required - determines reviewer role)`);
 		process.exit(0);
 	}
 
@@ -108,14 +117,30 @@ Arguments:
 	if (values.pause) LOOP_PAUSE = parseInt(values.pause, 10);
 	if (values.model) MODEL = values.model;
 
-	if (positionals.length < 2) {
-		console.error('Error: Project name and agent name required');
-		console.error('Usage: reviewer-loop.mjs [options] <project> <agent-name>');
+	// CLI args override config values
+	if (positionals.length >= 1) {
+		PROJECT = positionals[0];
+	}
+	if (positionals.length >= 2) {
+		AGENT = positionals[1];
+	} else if (positionals.length === 1) {
+		// If only one arg provided, treat it as agent name (project from config)
+		AGENT = positionals[0];
+	}
+
+	// Require project
+	if (!PROJECT) {
+		console.error('Error: Project name required (provide as argument or configure in .botbox.json)');
+		console.error('Usage: reviewer-loop.mjs [options] [project] <agent-name>');
 		process.exit(1);
 	}
 
-	PROJECT = positionals[0];
-	AGENT = positionals[1];
+	// Require agent name
+	if (!AGENT) {
+		console.error('Error: Agent name required (determines reviewer role)');
+		console.error('Usage: reviewer-loop.mjs [options] [project] <agent-name>');
+		process.exit(1);
+	}
 }
 
 // --- Helper: run command and get output ---
@@ -135,17 +160,18 @@ async function runCommand(cmd, args = []) {
 	});
 }
 
-// --- Helper: check if there are reviews ---
+// --- Helper: check if there are reviews needing attention ---
 async function hasWork() {
 	try {
-		const result = await runCommand('crit', ['reviews', 'list', '--format', 'json']);
-		const reviews = JSON.parse(result.stdout || '[]');
-		const openReviews = Array.isArray(reviews)
-			? reviews.filter((r) => r.status === 'open')
-			: [];
-		return openReviews.length > 0;
+		// crit inbox shows only reviews awaiting this reviewer's response:
+		// - Reviews where reviewer is assigned but hasn't voted
+		// - Reviews that were re-requested after voting
+		// Reviews disappear from inbox after voting until re-requested.
+		const result = await runCommand('crit', ['inbox', '--agent', AGENT, '--format', 'json']);
+		const inbox = JSON.parse(result.stdout || '[]');
+		return Array.isArray(inbox) && inbox.length > 0;
 	} catch (err) {
-		console.error('Error checking for reviews:', err.message);
+		console.error('Error checking inbox:', err.message);
 		return false;
 	}
 }

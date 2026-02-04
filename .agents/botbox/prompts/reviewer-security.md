@@ -13,9 +13,9 @@ At the end of your work, output exactly one of these completion signals:
    Note any review-request or review-response messages. Ignore task-claim, task-done, spawn-ack, etc.
 
 2. FIND REVIEWS:
-   Run: crit reviews list --format json
-   Look for open reviews (status: "open"). Pick one to process.
-   If no open reviews exist, say "NO_REVIEWS_PENDING" and stop.
+   Run: crit inbox --agent {{AGENT}} --format json
+   This shows reviews awaiting YOUR response (hides reviews you've already voted on).
+   Pick one to process. If inbox is empty, say "NO_REVIEWS_PENDING" and stop.
    bus statuses set --agent {{AGENT}} "Security Review: <review-id>" --ttl 30m
 
 3. SECURITY REVIEW (follow .agents/botbox/review-loop.md):

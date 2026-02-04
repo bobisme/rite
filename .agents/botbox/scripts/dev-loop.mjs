@@ -20,9 +20,19 @@ async function loadConfig() {
 	if (existsSync('.botbox.json')) {
 		try {
 			const config = JSON.parse(await readFile('.botbox.json', 'utf-8'));
-			MODEL = config.agents?.dev?.model || '';
-			WORKER_MODEL = config.agents?.worker?.model || '';
-			CLAUDE_TIMEOUT = config.agents?.dev?.timeout || 600;
+			const project = config.project || {};
+			const agents = config.agents || {};
+			const dev = agents.dev || {};
+			const worker = agents.worker || {};
+
+			// Project identity (can be overridden by CLI args)
+			PROJECT = project.channel || project.name || '';
+			AGENT = project.default_agent || '';
+
+			// Agent settings
+			MODEL = dev.model || '';
+			WORKER_MODEL = worker.model || '';
+			CLAUDE_TIMEOUT = dev.timeout || 600;
 			PUSH_MAIN = config.pushMain || false;
 			REVIEW = config.review ?? true;
 		} catch (err) {
@@ -59,8 +69,8 @@ Options:
   -h, --help      Show this help
 
 Arguments:
-  project         Project name (required)
-  agent-name      Agent identity (default: auto-generated)`);
+  project         Project name (default: from .botbox.json)
+  agent-name      Agent identity (default: from .botbox.json or auto-generated)`);
 		process.exit(0);
 	}
 
@@ -69,14 +79,20 @@ Arguments:
 	if (values.model) MODEL = values.model;
 	if (values.review !== undefined) REVIEW = values.review;
 
-	if (positionals.length < 1) {
-		console.error('Error: Project name required');
+	// CLI args override config values
+	if (positionals.length >= 1) {
+		PROJECT = positionals[0];
+	}
+	if (positionals.length >= 2) {
+		AGENT = positionals[1];
+	}
+
+	// Require project (either from CLI or config)
+	if (!PROJECT) {
+		console.error('Error: Project name required (provide as argument or configure in .botbox.json)');
 		console.error('Usage: dev-loop.mjs [options] <project> [agent-name]');
 		process.exit(1);
 	}
-
-	PROJECT = positionals[0];
-	AGENT = positionals[1] || null;
 }
 
 // --- Helper: run command and get output ---
@@ -251,7 +267,10 @@ If REVIEW is true:
   11. Create review: crit reviews create --agent ${AGENT} --title "<title>" --description "<summary>"
   12. br comments add --actor ${AGENT} --author ${AGENT} <id> "Review requested: <review-id>, workspace: \$WS (\$WS_PATH)"
   13. bus statuses set --agent ${AGENT} "Review: <review-id>"
-  14. bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id>" -L review-request
+  14. Request security review (if project has security reviewer):
+      - Assign: crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT}
+      - Spawn via @mention: bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id> @${PROJECT}-security" -L review-request
+      (The @mention triggers the auto-spawn hook — without it, no reviewer spawns!)
   15. STOP this iteration — wait for reviewer.
 
 If REVIEW is false:
@@ -303,7 +322,10 @@ For each completed bead with a workspace:
 If REVIEW is true:
   1. crit reviews create --agent ${AGENT} --title "<title>" --description "<summary of changes>"
   2. br comments add --actor ${AGENT} --author ${AGENT} <id> "Review requested: <review-id>"
-  3. bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id>" -L review-request
+  3. Request security review (if project has security reviewer):
+     - Assign: crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT}
+     - Spawn via @mention: bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id> @${PROJECT}-security" -L review-request
+     (The @mention triggers the auto-spawn hook — without it, no reviewer spawns!)
   4. STOP — wait for reviewer
 
 If REVIEW is false:

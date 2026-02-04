@@ -18,8 +18,17 @@ async function loadConfig() {
 	if (existsSync('.botbox.json')) {
 		try {
 			const config = JSON.parse(await readFile('.botbox.json', 'utf-8'));
-			MODEL = config.agents?.worker?.model || '';
-			CLAUDE_TIMEOUT = config.agents?.worker?.timeout || 600;
+			const project = config.project || {};
+			const agents = config.agents || {};
+			const worker = agents.worker || {};
+
+			// Project identity (can be overridden by CLI args)
+			PROJECT = project.channel || project.name || '';
+			// Workers get auto-generated names by default (AGENT stays empty)
+
+			// Agent settings
+			MODEL = worker.model || '';
+			CLAUDE_TIMEOUT = worker.timeout || 600;
 			PUSH_MAIN = config.pushMain || false;
 		} catch (err) {
 			console.error('Warning: Failed to load .botbox.json:', err.message);
@@ -52,7 +61,7 @@ Options:
   -h, --help      Show this help
 
 Arguments:
-  project         Project name (required)
+  project         Project name (default: from .botbox.json)
   agent-name      Agent identity (default: auto-generated)`);
 		process.exit(0);
 	}
@@ -61,14 +70,20 @@ Arguments:
 	if (values.pause) LOOP_PAUSE = parseInt(values.pause, 10);
 	if (values.model) MODEL = values.model;
 
-	if (positionals.length < 1) {
-		console.error('Error: Project name required');
+	// CLI args override config values
+	if (positionals.length >= 1) {
+		PROJECT = positionals[0];
+	}
+	if (positionals.length >= 2) {
+		AGENT = positionals[1];
+	}
+
+	// Require project (either from CLI or config)
+	if (!PROJECT) {
+		console.error('Error: Project name required (provide as argument or configure in .botbox.json)');
 		console.error('Usage: agent-loop.mjs [options] <project> [agent-name]');
 		process.exit(1);
 	}
-
-	PROJECT = positionals[0];
-	AGENT = positionals[1] || null;
 }
 
 // --- Helper: run command and get output ---
@@ -224,7 +239,10 @@ At the end of your work, output exactly one of these completion signals:
    Create review: crit reviews create --agent ${AGENT} --title "<title>" --description "<summary>".
    Add bead comment: br comments add --actor ${AGENT} --author ${AGENT} <id> "Review requested: <review-id>, workspace: \$WS (\$WS_PATH)".
    bus statuses set --agent ${AGENT} "Review: <review-id>".
-   Announce: bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id>: <title>" -L review-request.
+   Request security review (if project has security reviewer):
+     - Assign: crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT}
+     - Spawn via @mention: bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id> @${PROJECT}-security" -L review-request
+     (The @mention triggers the auto-spawn hook — without it, no reviewer spawns!)
    Do NOT close the bead. Do NOT merge the workspace. Do NOT release claims.
    Output: <promise>COMPLETE</promise>
    STOP this iteration. The reviewer will process the review.

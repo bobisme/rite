@@ -1,0 +1,7 @@
+[merge]
+# Auto-resolve conflicts in these paths by taking main's version
+# Useful for tracking files that change frequently on main
+auto_resolve_from_main = [
+  ".beads/**",
+  ".crit/**",
+]

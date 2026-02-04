@@ -27,6 +27,25 @@ All steps below are required — they clean up resources, prevent workspace leak
    - If push fails, announce: `bus send --agent $AGENT $BOTBOX_PROJECT "Push failed for <bead-id>, manual intervention needed" -L tool-issue`
 9. Announce completion in the project channel: `bus send --agent $AGENT $BOTBOX_PROJECT "Completed <bead-id>: <bead-title>" -L task-done`
 
+## After Finishing a Batch of Beads
+
+When you've completed multiple beads in a session (or a significant single bead), check if a **release** is warranted:
+
+**Chores only** (docs, refactoring, config changes, version bumps):
+- Push to main is sufficient, no release needed
+
+**Features or fixes** (user-visible changes):
+- Follow the project's release process:
+  1. Bump version (Cargo.toml, package.json, etc.) using **semantic versioning**
+  2. Update changelog/release notes if the project has one
+  3. Push to main
+  4. Tag the release (`jj tag set vX.Y.Z -r main && git push origin vX.Y.Z`)
+  5. Announce on botbus: `bus send --agent $AGENT $BOTBOX_PROJECT "<project> vX.Y.Z released - <summary>" -L release`
+
+Use **conventional commits** (`feat:`, `fix:`, `docs:`, `chore:`, etc.) for clear history.
+
+A "release" = user-visible changes shipped with a version tag. When in doubt, release — it's better to ship small incremental versions than batch up large changes.
+
 ## Assumptions
 
 - `BOTBOX_PROJECT` env var contains the project channel name.

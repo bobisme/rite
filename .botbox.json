@@ -1,10 +1,12 @@
 {
-  "version": "1.0.3",
+  "version": "1.0.4",
   "project": {
     "name": "botbus",
     "type": [
       "cli"
-    ]
+    ],
+    "default_agent": "botbus-dev",
+    "channel": "botbus"
   },
   "tools": {
     "beads": true,

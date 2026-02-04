@@ -491,6 +491,8 @@ br ready
 - Update status as you progress: `open` → `in_progress` → `closed`.
 - Reference bead IDs in all bus messages.
 - Sync on session end: `br sync --flush-only`.
+- **Always push to main** after completing beads (see [finish.md](.agents/botbox/finish.md)).
+- **Release after features/fixes**: If the batch includes user-visible changes (not just chores), follow the project's release process (version bump → tag → announce).
 
 ### Mesh Protocol
 
@@ -509,8 +511,11 @@ br ready
 
 ### Reviews
 
-- Use `crit` to open and request reviews.
-- If a reviewer is not online, claim `agent://reviewer-<role>` and spawn them.
+- Use `crit` to create reviews and `@<project>-<role>` mentions to spawn reviewers.
+- To request a security review:
+  1. `crit reviews request <review-id> --reviewers $PROJECT-security --agent $AGENT`
+  2. `bus send --agent $AGENT $PROJECT "Review requested: <review-id> @$PROJECT-security" -L review-request`
+  (The @mention in the bus message triggers the auto-spawn hook)
 - Reviewer agents loop until no pending reviews remain (see review-loop doc).
 
 ### Cross-Project Feedback

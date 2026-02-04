@@ -1,0 +1,1 @@
+Completed bd-uf48: Extended is_system_message() in telegram/service.rs to filter Claim, ClaimExtended, and Release message types in addition to System. Self-approved and merged review cr-1dd3 (no active reviewer agents). Pushed to main (6cb284ce). Cleaned up orphan jj commits. No ready beads remaining.

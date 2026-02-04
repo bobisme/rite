@@ -50,16 +50,18 @@ A "release" = user-visible changes shipped with a version tag. When in doubt, re
 
 If `maw ws merge` shows "WARNING: Merged workspace has diverged from main":
 
-### Quick fix for .beads/.crit conflicts only
+### Quick fix for .beads conflicts only
 
-These directories often conflict because multiple agents update them concurrently. If your feature changes are clean and only `.beads/` or `.crit/` conflict:
+`.beads/issues.jsonl` often conflicts because multiple agents update it concurrently. If your feature changes are clean and only `.beads/` conflicts:
 
 ```bash
-jj restore --from main .beads/ .crit/
+jj restore --from main .beads/
 jj squash
 ```
 
 Then retry `maw ws merge $WS --destroy`.
+
+**Note**: `.crit/` rarely conflicts with crit v2 (per-review event logs). If it does conflict, investigate rather than auto-restoring — it likely means two agents worked on the same review.
 
 ### Full recovery if merge is messy
 

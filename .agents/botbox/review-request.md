@@ -27,7 +27,8 @@ The botbus hook system watches for @mentions. When you send a message containing
 2. If requesting a **specialist reviewer** (e.g., security):
    ```bash
    # Step 1: Assign reviewer in crit (records who should review)
-   crit reviews request <review-id> --reviewers $BOTBOX_PROJECT-security --agent $AGENT
+   # Use --path $WS_PATH if the review was created in a workspace
+   crit reviews request <review-id> --reviewers $BOTBOX_PROJECT-security --agent $AGENT --path $WS_PATH
 
    # Step 2: Announce with @mention (TRIGGERS THE SPAWN)
    bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> @$BOTBOX_PROJECT-security" -L review-request

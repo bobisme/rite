@@ -160,24 +160,124 @@ async function runCommand(cmd, args = []) {
 	});
 }
 
-// --- Helper: check if there are reviews needing attention ---
-async function hasWork() {
+// --- Helper: list all jj workspaces ---
+async function listWorkspaces() {
 	try {
-		// crit inbox shows only reviews awaiting this reviewer's response:
-		// - Reviews where reviewer is assigned but hasn't voted
-		// - Reviews that were re-requested after voting
-		// Reviews disappear from inbox after voting until re-requested.
-		const result = await runCommand('crit', ['inbox', '--agent', AGENT, '--format', 'json']);
-		const inbox = JSON.parse(result.stdout || '[]');
-		return Array.isArray(inbox) && inbox.length > 0;
+		const result = await runCommand('maw', ['ws', 'list', '--format', 'json']);
+		return JSON.parse(result.stdout || '[]');
 	} catch (err) {
-		console.error('Error checking inbox:', err.message);
-		return false;
+		// If maw is not available or fails, return just the default workspace
+		console.warn('Warning: Could not list workspaces:', err.message);
+		return [{ name: 'default', is_default: true }];
 	}
 }
 
+// --- Helper: get workspace path from name ---
+function getWorkspacePath(workspace) {
+	if (workspace.is_default || workspace.name === 'default') {
+		return process.cwd();
+	}
+	return join(process.cwd(), '.workspaces', workspace.name);
+}
+
+// --- Helper: check if there are reviews needing attention ---
+// Returns { hasWork: boolean, workspaces: Array<{ name, path, inbox }> }
+async function findWork() {
+	let workspacesWithWork = [];
+
+	try {
+		const workspaces = await listWorkspaces();
+
+		for (const ws of workspaces) {
+			const wsPath = getWorkspacePath(ws);
+			try {
+				// crit inbox shows only reviews awaiting this reviewer's response:
+				// - Reviews where reviewer is assigned but hasn't voted
+				// - Reviews that were re-requested after voting
+				// Reviews disappear from inbox after voting until re-requested.
+				const result = await runCommand('crit', [
+					'inbox',
+					'--agent',
+					AGENT,
+					'--format',
+					'json',
+					'--path',
+					wsPath,
+				]);
+				const inbox = JSON.parse(result.stdout || '{}');
+				const hasReviews =
+					(inbox.reviews_awaiting_vote && inbox.reviews_awaiting_vote.length > 0) ||
+					(inbox.threads_with_new_responses && inbox.threads_with_new_responses.length > 0);
+
+				if (hasReviews) {
+					workspacesWithWork.push({
+						name: ws.name,
+						path: wsPath,
+						isDefault: ws.is_default || ws.name === 'default',
+						inbox,
+					});
+				}
+			} catch (err) {
+				console.warn(`Warning: Could not check inbox for workspace ${ws.name}:`, err.message);
+			}
+		}
+	} catch (err) {
+		console.error('Error finding work:', err.message);
+	}
+
+	return {
+		hasWork: workspacesWithWork.length > 0,
+		workspaces: workspacesWithWork,
+	};
+}
+
+// --- Build workspace context for prompt ---
+function buildWorkspaceContext(workspacesWithWork) {
+	if (workspacesWithWork.length === 0) {
+		return '';
+	}
+
+	// If all reviews are in the default workspace, no special context needed
+	if (workspacesWithWork.every((ws) => ws.isDefault)) {
+		return '';
+	}
+
+	let context = '\n\n## IMPORTANT: Reviews in Workspaces\n\n';
+	context +=
+		'Reviews exist in jj workspaces (not just repo root). You MUST use the correct workspace for each review.\n\n';
+
+	for (const ws of workspacesWithWork) {
+		if (ws.isDefault) {
+			context += `### Repo root (default workspace)\n`;
+		} else {
+			context += `### Workspace: ${ws.name}\n`;
+			context += `- **Path**: \`${ws.path}\`\n`;
+			context += `- **Commands**: Run crit commands with \`--path ${ws.path}\` or \`cd ${ws.path}\` first\n`;
+			context += `- **Source files**: Read from \`${ws.path}/\`, NOT the repo root\n`;
+		}
+
+		if (ws.inbox.reviews_awaiting_vote && ws.inbox.reviews_awaiting_vote.length > 0) {
+			context += `- **Reviews awaiting vote**:\n`;
+			for (const review of ws.inbox.reviews_awaiting_vote) {
+				context += `  - \`${review.review_id}\`: ${review.title} (by ${review.author})\n`;
+			}
+		}
+		if (ws.inbox.threads_with_new_responses && ws.inbox.threads_with_new_responses.length > 0) {
+			context += `- **Threads with new responses**: ${ws.inbox.threads_with_new_responses.length}\n`;
+		}
+		context += '\n';
+	}
+
+	context += '**Reminder**: When reviewing workspace code:\n';
+	context += '1. Use `crit review <id> --path <workspace-path>` or `cd <workspace-path> && crit review <id>`\n';
+	context += '2. Read source files from the workspace path, not repo root\n';
+	context += '3. Run static analysis (clippy, lint, etc.) from the workspace directory\n';
+
+	return context;
+}
+
 // --- Build reviewer prompt ---
-function buildPrompt() {
+function buildPrompt(workspacesWithWork = []) {
 	// Derive role from agent name (e.g., "myproject-security" -> "security")
 	const role = deriveRoleFromAgentName(AGENT);
 	const promptName = getReviewerPromptName(role);
@@ -185,20 +285,27 @@ function buildPrompt() {
 	// Use project-local prompts
 	const promptsDir = join(process.cwd(), '.agents', 'botbox', 'prompts');
 
+	let basePrompt;
 	try {
-		return loadPrompt(promptName, { AGENT, PROJECT }, promptsDir);
+		basePrompt = loadPrompt(promptName, { AGENT, PROJECT }, promptsDir);
 	} catch (err) {
 		// Fall back to base reviewer if specialized prompt not found
 		if (role && promptName !== 'reviewer') {
 			console.warn(`Warning: ${promptName}.md not found, using base reviewer prompt`);
 			try {
-				return loadPrompt('reviewer', { AGENT, PROJECT }, promptsDir);
+				basePrompt = loadPrompt('reviewer', { AGENT, PROJECT }, promptsDir);
 			} catch {
 				// If even base fails, throw original error
+				throw err;
 			}
+		} else {
+			throw err;
 		}
-		throw err;
 	}
+
+	// Append workspace context if reviews exist in non-default workspaces
+	const workspaceContext = buildWorkspaceContext(workspacesWithWork);
+	return basePrompt + workspaceContext;
 }
 
 // --- Run agent via botbox run-agent ---
@@ -292,9 +399,9 @@ async function main() {
 				'-m',
 				`reviewer-loop for ${PROJECT}`,
 			]);
-		} catch (err) {
-			console.log(`Claim denied. Agent ${AGENT} is already running.`);
-			process.exit(0);
+		} catch {
+			// Claim held by another agent - they're orchestrating, continue
+			console.log(`Claim held by another agent, continuing`);
 		}
 	}
 
@@ -316,7 +423,8 @@ async function main() {
 	for (let i = 1; i <= MAX_LOOPS; i++) {
 		console.log(`\n--- Review loop ${i}/${MAX_LOOPS} ---`);
 
-		if (!(await hasWork())) {
+		const work = await findWork();
+		if (!work.hasWork) {
 			await runCommand('bus', ['statuses', 'set', '--agent', AGENT, 'Idle']);
 			console.log('No reviews pending. Exiting cleanly.');
 			await runCommand('bus', [
@@ -331,9 +439,18 @@ async function main() {
 			break;
 		}
 
+		// Log which workspaces have work
+		for (const ws of work.workspaces) {
+			const reviewCount = ws.inbox.reviews_awaiting_vote?.length || 0;
+			const threadCount = ws.inbox.threads_with_new_responses?.length || 0;
+			console.log(
+				`  ${ws.isDefault ? 'repo root' : `workspace ${ws.name}`}: ${reviewCount} reviews, ${threadCount} threads`,
+			);
+		}
+
 		// Run Claude
 		try {
-			const prompt = buildPrompt();
+			const prompt = buildPrompt(work.workspaces);
 			const result = await runClaude(prompt);
 
 			// Check for completion signals

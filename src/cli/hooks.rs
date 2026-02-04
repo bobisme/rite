@@ -13,7 +13,7 @@ use crate::core::claim::FileClaim;
 use crate::core::hook::{ClaimRelease, Hook, HookCondition, HookFiring, shell_display};
 use crate::core::message::{Message, MessageMeta, SystemEvent};
 use crate::core::project::{channel_path, claims_path, hooks_audit_path, hooks_path};
-use crate::storage::jsonl::{append_record, read_records};
+use crate::storage::jsonl::{append_if, append_record, read_records};
 
 /// Parse a cooldown duration string (e.g., "30s", "5m", "1h").
 /// Returns seconds. Defaults to seconds if no unit.
@@ -494,51 +494,118 @@ fn evaluate_hooks_inner(
             continue;
         }
 
-        // Evaluate condition
-        let condition_result = evaluate_condition(&hook.condition, mentions).unwrap_or(false);
+        // Handle condition evaluation and claim acquisition
+        // For ClaimAvailable hooks, we do an atomic check-and-stake to prevent races
+        let (claim, claim_ttl, claim_pattern) = match &hook.condition {
+            HookCondition::ClaimAvailable { pattern } => {
+                // Use claim_owner if specified, otherwise use message sender
+                let claim_agent = hook.claim_owner.as_deref().unwrap_or(agent);
+                let pattern_clone = pattern.clone();
 
-        if !condition_result {
-            let firing = HookFiring {
-                ts: now,
-                hook_id: hook.id.clone(),
-                channel: channel.to_string(),
-                message_id: message_id.to_string(),
-                condition_result: false,
-                executed: false,
-                reason: Some("condition not met".to_string()),
-            };
-            let _ = append_record(&hooks_audit_path(), &firing);
-            continue;
-        }
+                match &hook.claim_release {
+                    Some(ClaimRelease::Ttl { secs }) => {
+                        let ttl = *secs;
+                        let c = FileClaim::new(claim_agent, vec![pattern.clone()], ttl);
 
-        // Acquire claim before spawning (only for ClaimAvailable hooks)
-        let claim_pattern = match &hook.condition {
-            HookCondition::ClaimAvailable { pattern } => Some(pattern.clone()),
-            HookCondition::MentionReceived { agent: _ } => None,
-        };
+                        // Atomic check-and-stake: only append if pattern is still available
+                        let acquired = append_if(&claims_path(), &c, |existing_claims| {
+                            let now = Utc::now();
+                            // Check if ANY active, non-expired claim holds this pattern
+                            !existing_claims.iter().any(|claim: &FileClaim| {
+                                claim.active
+                                    && claim.expires_at > now
+                                    && claim.patterns.iter().any(|p| p == &pattern_clone)
+                            })
+                        })
+                        .unwrap_or(false);
 
-        // Acquire claim only if this is a ClaimAvailable hook
-        let (claim, claim_ttl) = if let Some(pattern) = &claim_pattern {
-            // Use claim_owner if specified, otherwise use message sender
-            let claim_agent = hook.claim_owner.as_deref().unwrap_or(agent);
+                        if !acquired {
+                            let firing = HookFiring {
+                                ts: now,
+                                hook_id: hook.id.clone(),
+                                channel: channel.to_string(),
+                                message_id: message_id.to_string(),
+                                condition_result: false,
+                                executed: false,
+                                reason: Some("claim unavailable (atomic check)".to_string()),
+                            };
+                            let _ = append_record(&hooks_audit_path(), &firing);
+                            continue;
+                        }
 
-            match &hook.claim_release {
-                Some(ClaimRelease::Ttl { secs }) => {
-                    let c = FileClaim::new(claim_agent, vec![pattern.clone()], *secs);
-                    let _ = append_record(&claims_path(), &c);
-                    (Some(c), Some(*secs))
+                        (Some(c), Some(ttl), Some(pattern.clone()))
+                    }
+                    Some(ClaimRelease::OnExit) => {
+                        // Use large sentinel TTL; released explicitly after command exits
+                        let c = FileClaim::new(claim_agent, vec![pattern.clone()], 86400);
+
+                        // Atomic check-and-stake
+                        let acquired = append_if(&claims_path(), &c, |existing_claims| {
+                            let now = Utc::now();
+                            !existing_claims.iter().any(|claim: &FileClaim| {
+                                claim.active
+                                    && claim.expires_at > now
+                                    && claim.patterns.iter().any(|p| p == &pattern_clone)
+                            })
+                        })
+                        .unwrap_or(false);
+
+                        if !acquired {
+                            let firing = HookFiring {
+                                ts: now,
+                                hook_id: hook.id.clone(),
+                                channel: channel.to_string(),
+                                message_id: message_id.to_string(),
+                                condition_result: false,
+                                executed: false,
+                                reason: Some("claim unavailable (atomic check)".to_string()),
+                            };
+                            let _ = append_record(&hooks_audit_path(), &firing);
+                            continue;
+                        }
+
+                        (Some(c), None, Some(pattern.clone()))
+                    }
+                    None => {
+                        // No claim release strategy - just check availability without claiming
+                        let condition_result = is_claim_available(pattern).unwrap_or(false);
+                        if !condition_result {
+                            let firing = HookFiring {
+                                ts: now,
+                                hook_id: hook.id.clone(),
+                                channel: channel.to_string(),
+                                message_id: message_id.to_string(),
+                                condition_result: false,
+                                executed: false,
+                                reason: Some("condition not met".to_string()),
+                            };
+                            let _ = append_record(&hooks_audit_path(), &firing);
+                            continue;
+                        }
+                        (None, None, Some(pattern.clone()))
+                    }
                 }
-                Some(ClaimRelease::OnExit) => {
-                    // Use large sentinel TTL; released explicitly after command exits
-                    let c = FileClaim::new(claim_agent, vec![pattern.clone()], 86400);
-                    let _ = append_record(&claims_path(), &c);
-                    (Some(c), None)
-                }
-                None => (None, None),
             }
-        } else {
-            // MentionReceived hooks don't need claims
-            (None, None)
+            HookCondition::MentionReceived {
+                agent: mention_agent,
+            } => {
+                // Simple condition check for mentions (no claim needed)
+                let condition_result = mentions.iter().any(|m| m == mention_agent);
+                if !condition_result {
+                    let firing = HookFiring {
+                        ts: now,
+                        hook_id: hook.id.clone(),
+                        channel: channel.to_string(),
+                        message_id: message_id.to_string(),
+                        condition_result: false,
+                        executed: false,
+                        reason: Some("condition not met".to_string()),
+                    };
+                    let _ = append_record(&hooks_audit_path(), &firing);
+                    continue;
+                }
+                (None, None, None)
+            }
         };
 
         let is_on_exit = matches!(hook.claim_release, Some(ClaimRelease::OnExit));

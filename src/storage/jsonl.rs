@@ -67,6 +67,69 @@ pub fn append_records<T: Serialize>(path: &Path, records: &[T]) -> Result<()> {
     Ok(())
 }
 
+/// Atomically check a condition and append a record if the condition is met.
+///
+/// This function:
+/// 1. Acquires an exclusive lock on the file
+/// 2. Reads all existing records
+/// 3. Calls the predicate function with the records
+/// 4. If the predicate returns true, appends the new record
+/// 5. Returns whether the append happened
+///
+/// This is useful for implementing compare-and-swap style operations.
+pub fn append_if<T, F>(path: &Path, record: &T, predicate: F) -> Result<bool>
+where
+    T: Serialize + DeserializeOwned,
+    F: FnOnce(&[T]) -> bool,
+{
+    let file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("Failed to open file: {}", path.display()))?;
+
+    // Acquire exclusive lock for atomic read-check-write
+    file.lock_exclusive()
+        .with_context(|| format!("Failed to acquire lock on: {}", path.display()))?;
+
+    // Read existing records while holding the lock
+    let reader = BufReader::new(&file);
+    let mut records: Vec<T> = Vec::new();
+
+    for line_result in reader.lines() {
+        let line =
+            line_result.with_context(|| format!("Failed to read from: {}", path.display()))?;
+
+        if line.trim().is_empty() {
+            continue;
+        }
+
+        let rec: T = serde_json::from_str(&line)
+            .with_context(|| format!("Failed to parse in {}: {}", path.display(), line))?;
+
+        records.push(rec);
+    }
+
+    // Check if we should append
+    if !predicate(&records) {
+        // Lock is released when file is dropped
+        return Ok(false);
+    }
+
+    // Append the record
+    let json = serde_json::to_string(record).with_context(|| "Failed to serialize record")?;
+
+    let mut writer = std::io::BufWriter::new(&file);
+    writeln!(writer, "{}", json)
+        .with_context(|| format!("Failed to write to: {}", path.display()))?;
+
+    writer.flush()?;
+    file.sync_all()?;
+
+    Ok(true)
+}
+
 /// Read all records from a JSONL file.
 ///
 /// Returns an empty Vec if the file doesn't exist.

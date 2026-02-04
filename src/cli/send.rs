@@ -11,7 +11,7 @@ use crate::storage::jsonl::append_record;
 
 /// Simple message send (no labels or attachments) - for internal use and tests.
 pub fn run_simple(target: String, message: String, agent: Option<&str>) -> Result<()> {
-    run(target, message, None, vec![], vec![], agent)
+    run(target, message, None, vec![], vec![], false, agent)
 }
 
 /// Send a message to a channel or agent.
@@ -21,6 +21,7 @@ pub fn run(
     _meta: Option<String>,
     labels: Vec<String>,
     attachments: Vec<String>,
+    no_hooks: bool,
     agent: Option<&str>,
 ) -> Result<()> {
     // Get current agent from env var or explicit flag
@@ -78,13 +79,17 @@ pub fn run(
         .with_context(|| format!("Failed to send message to #{}", channel))?;
 
     // Evaluate channel hooks (may block briefly for --release-on-exit hooks)
-    let hook_results = super::hooks::evaluate_hooks(
-        &channel,
-        &msg.id.to_string(),
-        msg.meta.as_ref(),
-        &agent_name,
-        &msg.mentions,
-    );
+    let hook_results = if no_hooks {
+        vec![]
+    } else {
+        super::hooks::evaluate_hooks(
+            &channel,
+            &msg.id.to_string(),
+            msg.meta.as_ref(),
+            &agent_name,
+            &msg.mentions,
+        )
+    };
 
     // Output confirmation
     if target.starts_with('@') {
@@ -217,6 +222,7 @@ mod tests {
             None,
             vec![],
             vec![],
+            false,
             Some("test-sender"),
         )
         .unwrap();
@@ -239,6 +245,7 @@ mod tests {
             None,
             vec![],
             vec![],
+            false,
             Some("test-sender"),
         )
         .unwrap();
@@ -261,6 +268,7 @@ mod tests {
             None,
             vec![],
             vec![],
+            false,
             Some("test-sender"),
         );
         assert!(result.is_err());
@@ -282,6 +290,7 @@ mod tests {
             None,
             vec![],
             vec![],
+            false,
             None,
         );
         assert!(result.is_err());
@@ -298,6 +307,7 @@ mod tests {
             None,
             vec!["bug".to_string(), "ready".to_string()],
             vec![],
+            false,
             Some("test-sender"),
         )
         .unwrap();
@@ -319,6 +329,7 @@ mod tests {
             None,
             vec![],
             vec![],
+            false,
             Some("test-sender"),
         );
         assert!(result.is_err());
@@ -331,6 +342,7 @@ mod tests {
             None,
             vec![],
             vec![],
+            false,
             Some("test-sender"),
         );
         assert!(result.is_err());

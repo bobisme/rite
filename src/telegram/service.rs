@@ -216,6 +216,7 @@ async fn handle_update(
         None,
         vec!["human".to_string(), "telegram".to_string()],
         vec![],
+        false,
         Some(&agent_name),
     )?;
     Ok(())

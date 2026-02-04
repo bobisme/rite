@@ -102,6 +102,10 @@ pub enum Commands {
         /// Attach file(s) (can be used multiple times)
         #[arg(long = "attach", action = clap::ArgAction::Append)]
         attachments: Vec<String>,
+
+        /// Don't fire hooks for this message
+        #[arg(long)]
+        no_hooks: bool,
     },
 
     /// View message history

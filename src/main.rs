@@ -55,12 +55,14 @@ fn main() -> Result<()> {
             meta,
             labels,
             attachments,
+            no_hooks,
         } => cli::send::run(
             target,
             message,
             meta,
             labels,
             attachments,
+            no_hooks,
             cli.agent.as_deref(),
         ),
 

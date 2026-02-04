@@ -129,7 +129,7 @@ fn main() -> Result<()> {
             channel,
             count,
             from,
-            json: cli.json,
+            json: format == OutputFormat::Json,
         }),
 
         Commands::Claims { command } => {
@@ -224,7 +224,7 @@ fn main() -> Result<()> {
                 channel,
                 labels,
                 timeout,
-                json: cli.json,
+                json: format == OutputFormat::Json,
             },
             cli.agent.as_deref(),
         ),

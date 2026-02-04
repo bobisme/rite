@@ -427,11 +427,36 @@ async function main() {
 			}
 		} catch (err) {
 			console.error('Error running Claude:', err.message);
-			const exitCode = err.message.includes('Timeout') ? 124 : 1;
-			if (exitCode === 124) {
+
+			// Check for fatal API errors and post to botbus
+			const isFatalError =
+				err.message.includes('API Error') ||
+				err.message.includes('rate limit') ||
+				err.message.includes('overloaded');
+
+			if (isFatalError) {
+				console.error('Fatal error detected, posting to botbus and exiting...');
+				try {
+					await runCommand('bus', [
+						'send',
+						'--agent',
+						AGENT,
+						PROJECT,
+						`Worker error: ${err.message}. Agent ${AGENT} going offline.`,
+						'-L',
+						'agent-error',
+					]);
+				} catch {
+					// Ignore bus errors during shutdown
+				}
+				break; // Exit loop on fatal error
+			}
+
+			// Handle timeout separately
+			if (err.message.includes('Timeout')) {
 				console.error('Claude timed out. Session may be stuck.');
 			}
-			// Continue to next iteration on error
+			// Continue to next iteration on non-fatal errors
 		}
 
 		if (i < MAX_LOOPS) {

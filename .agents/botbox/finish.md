@@ -46,6 +46,49 @@ Use **conventional commits** (`feat:`, `fix:`, `docs:`, `chore:`, etc.) for clea
 
 A "release" = user-visible changes shipped with a version tag. When in doubt, release — it's better to ship small incremental versions than batch up large changes.
 
+## Merge Conflict Recovery
+
+If `maw ws merge` shows "WARNING: Merged workspace has diverged from main":
+
+### Quick fix for .beads/.crit conflicts only
+
+These directories often conflict because multiple agents update them concurrently. If your feature changes are clean and only `.beads/` or `.crit/` conflict:
+
+```bash
+jj restore --from main .beads/ .crit/
+jj squash
+```
+
+Then retry `maw ws merge $WS --destroy`.
+
+### Full recovery if merge is messy
+
+If jj squash times out or multiple commits are tangled:
+
+```bash
+# 1. Find your feature commit (has your actual changes)
+jj log -r 'all()' --limit 15
+
+# 2. Abandon the merge mess (empty commits, merge commits)
+jj abandon <merge-commit-id> <empty-commit-ids>
+
+# 3. Move to your feature commit
+jj edit <feature-commit-id>
+
+# 4. Set main and push
+jj bookmark set main -r @
+jj git push
+```
+
+### When to escalate
+
+If recovery takes more than 2-3 attempts, preserve the workspace and escalate:
+
+```bash
+br comments add --actor $AGENT --author $AGENT <bead-id> "Merge conflict unresolved. Workspace $WS preserved for manual resolution."
+bus send --agent $AGENT $BOTBOX_PROJECT "Merge conflict in $WS for <bead-id>. Manual help needed." -L tool-issue
+```
+
 ## Assumptions
 
 - `BOTBOX_PROJECT` env var contains the project channel name.

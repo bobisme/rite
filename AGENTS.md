@@ -494,6 +494,25 @@ br ready
 - **Always push to main** after completing beads (see [finish.md](.agents/botbox/finish.md)).
 - **Release after features/fixes**: If the batch includes user-visible changes (not just chores), follow the project's release process (version bump → tag → announce).
 
+### Beads Quick Reference
+
+Beads are **project-local** — always `cd` to the project directory first.
+
+| Operation | Command |
+|-----------|---------|
+| View ready work | `br ready` |
+| Show bead | `br show <id>` |
+| Create | `br create --actor $AGENT --owner $AGENT --title="..." --type=task --priority=2` |
+| Start work | `br update --actor $AGENT <id> --status=in_progress` |
+| Add comment | `br comments add --actor $AGENT --author $AGENT <id> "message"` |
+| Close | `br close --actor $AGENT <id>` |
+| Add labels | `br update --actor $AGENT <id> --labels=foo,bar` |
+| Add dependency | `br dep add --actor $AGENT <blocked> <blocker>` |
+| Block | `br update --actor $AGENT <id> --status=blocked` |
+| Sync | `br sync --flush-only` |
+
+**Required flags**: `--actor $AGENT` on all mutations, `--author $AGENT` on comments.
+
 ### Mesh Protocol
 
 - Include `-L mesh` on bus messages.

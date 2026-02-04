@@ -635,5 +635,13 @@ fn is_topic_not_modified_error(err: &anyhow::Error) -> bool {
 
 /// Check if a message is a system message (hook firings, claims, etc.)
 fn is_system_message(msg: &Message) -> bool {
-    matches!(&msg.meta, Some(MessageMeta::System { .. }))
+    matches!(
+        &msg.meta,
+        Some(
+            MessageMeta::System { .. }
+                | MessageMeta::Claim { .. }
+                | MessageMeta::ClaimExtended { .. }
+                | MessageMeta::Release { .. }
+        )
+    )
 }

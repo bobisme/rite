@@ -364,7 +364,8 @@ pub enum HooksCommands {
         #[arg(long, conflicts_with = "mention")]
         claim: Option<String>,
 
-        /// Agent mention — fire when this agent is @mentioned
+        /// Agent mention — fire when this agent is @mentioned.
+        /// Can be combined with --ttl and --claim-owner to acquire a claim when the mention fires.
         #[arg(long, conflicts_with = "claim")]
         mention: Option<String>,
 

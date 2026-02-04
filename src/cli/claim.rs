@@ -11,7 +11,7 @@ use crate::core::claim::FileClaim;
 use crate::core::identity::{require_agent, resolve_agent};
 use crate::core::message::{Message, MessageMeta};
 use crate::core::project::{channel_path, claims_path};
-use crate::storage::jsonl::{append_record, read_records};
+use crate::storage::jsonl::{append_if, append_record, read_records};
 
 /// Check if a pattern looks like a URI (has a scheme like "bead://", "db://", etc.)
 fn is_uri(pattern: &str) -> bool {
@@ -112,47 +112,53 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
     let expanded_patterns: Vec<String> =
         options.patterns.iter().map(|p| expand_pattern(p)).collect();
 
-    // Load existing claims
-    let claims: Vec<FileClaim> = read_records(&claims_path())?;
+    // Create the claim with expanded (absolute) patterns and optional message
+    let claim = FileClaim::with_message(
+        &agent_name,
+        expanded_patterns.clone(),
+        options.ttl,
+        options.message.clone(),
+    );
 
-    // Check if we already have an active claim for the exact same patterns - extend instead
-    if let Some(existing) = find_own_exact_claim(&claims, &expanded_patterns, &agent_name) {
-        // Extend the existing claim instead of creating a duplicate
-        let extended = existing.extend(options.ttl);
-        append_record(&claims_path(), &extended)?;
+    // Atomic check-and-stake: fail if ANY active claim (including our own) holds overlapping patterns
+    // This prevents double-firing hooks and ensures claim semantics are strict
+    let patterns_for_check = expanded_patterns.clone();
+    let acquired = append_if(&claims_path(), &claim, |existing_claims| {
+        let now = Utc::now();
 
-        // Post system message for claim extension
-        let display_patterns: Vec<String> = expanded_patterns
-            .iter()
-            .map(|p| display_pattern(p))
-            .collect();
-        let body = format!(
-            "Claim extended: {} by {} (expires in {})",
-            display_patterns.join(", "),
-            agent_name,
-            format_duration(options.ttl)
-        );
-        let extend_msg =
-            Message::new(&agent_name, "claims", &body).with_meta(MessageMeta::ClaimExtended {
-                patterns: display_patterns.clone(),
-                ttl_secs: options.ttl,
-            });
-        append_record(&channel_path("claims"), &extend_msg)?;
-
-        println!(
-            "{} Extended existing claim for {}",
-            "Success:".green(),
-            format_duration(options.ttl)
-        );
-        for pattern in &expanded_patterns {
-            println!("  {}", display_pattern(pattern).cyan());
+        // Build active claims map (latest state per claim ID)
+        let mut active: std::collections::HashMap<ulid::Ulid, &FileClaim> =
+            std::collections::HashMap::new();
+        for c in existing_claims {
+            active.insert(c.id, c);
         }
-        return Ok(());
-    }
 
-    // Check for conflicts - deny overlapping claims (using expanded patterns)
-    let conflicts = check_conflicts(&expanded_patterns, &claims, &agent_name);
-    if !conflicts.is_empty() {
+        // Check for ANY overlapping active claim (including our own)
+        for c in active.values() {
+            // Skip inactive or expired
+            if !c.active || c.expires_at < now {
+                continue;
+            }
+
+            // Check for pattern overlap
+            for new_pat in &patterns_for_check {
+                for existing_pat in &c.patterns {
+                    if patterns_overlap(new_pat, existing_pat) {
+                        return false; // Conflict - don't append
+                    }
+                }
+            }
+        }
+
+        true // No conflicts - safe to append
+    })
+    .with_context(|| "Failed to stake claim")?;
+
+    if !acquired {
+        // Re-read claims to provide helpful error message
+        let claims: Vec<FileClaim> = read_records(&claims_path())?;
+        let conflicts = check_conflicts_including_self(&expanded_patterns, &claims);
+
         let now = Utc::now();
         eprintln!("{}", "Error: Conflict with existing claim(s)".red().bold());
         eprintln!();
@@ -171,51 +177,54 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
             eprintln!();
         }
 
-        // Get the first conflicting agent for suggestions
-        let first_holder = &conflicts[0].1;
-        let first_expires = &conflicts[0].2;
-        let wait_secs = (*first_expires - now).num_seconds().max(0);
+        if !conflicts.is_empty() {
+            // Get the first conflicting agent for suggestions
+            let first_holder = &conflicts[0].1;
+            let first_expires = &conflicts[0].2;
+            let wait_secs = (*first_expires - now).num_seconds().max(0);
 
-        eprintln!("{}", "Options:".bold());
-        eprintln!();
-        eprintln!("1. {} Wait for claim to expire:", "Wait:".green());
-        eprintln!(
-            "   {}",
-            format!(
-                "sleep {} && botbus claim {}",
-                wait_secs + 5,
-                options.patterns.join(" ")
-            )
-            .dimmed()
-        );
-        eprintln!();
-        eprintln!(
-            "2. {} Ask holder to release or narrow their claim:",
-            "Communicate:".green()
-        );
-        eprintln!(
-            "   {}",
-            format!(
-                "botbus send @{} \"Can you release {}? I need to work on it\"",
-                first_holder,
-                options.patterns.join(", ")
-            )
-            .dimmed()
-        );
+            eprintln!("{}", "Options:".bold());
+            eprintln!();
+            eprintln!("1. {} Wait for claim to expire:", "Wait:".green());
+            eprintln!(
+                "   {}",
+                format!(
+                    "sleep {} && botbus claim {}",
+                    wait_secs + 5,
+                    options.patterns.join(" ")
+                )
+                .dimmed()
+            );
+            eprintln!();
+
+            if first_holder != &agent_name {
+                eprintln!(
+                    "2. {} Ask holder to release or narrow their claim:",
+                    "Communicate:".green()
+                );
+                eprintln!(
+                    "   {}",
+                    format!(
+                        "botbus send @{} \"Can you release {}? I need to work on it\"",
+                        first_holder,
+                        options.patterns.join(", ")
+                    )
+                    .dimmed()
+                );
+            } else {
+                eprintln!(
+                    "2. {} Release your existing claim first:",
+                    "Release:".green()
+                );
+                eprintln!(
+                    "   {}",
+                    format!("botbus release {}", options.patterns.join(" ")).dimmed()
+                );
+            }
+        }
 
         anyhow::bail!("Cannot claim - conflicts with existing claims");
     }
-
-    // Create the claim with expanded (absolute) patterns and optional message
-    let claim = FileClaim::with_message(
-        &agent_name,
-        expanded_patterns.clone(),
-        options.ttl,
-        options.message.clone(),
-    );
-
-    // Append to claims.jsonl
-    append_record(&claims_path(), &claim).with_context(|| "Failed to record claim")?;
 
     // Post message to #claims (use absolute patterns for clarity)
     let display_patterns: Vec<String> = expanded_patterns.clone();
@@ -797,50 +806,11 @@ fn uri_matches_pattern(uri: &str, pattern: &str) -> bool {
     false
 }
 
-/// Find an existing active claim by this agent with the exact same patterns.
-fn find_own_exact_claim(
-    claims: &[FileClaim],
-    patterns: &[String],
-    my_agent: &str,
-) -> Option<FileClaim> {
-    let now = Utc::now();
-
-    // Build active claims map (latest state per claim ID)
-    let mut active: std::collections::HashMap<ulid::Ulid, &FileClaim> =
-        std::collections::HashMap::new();
-    for claim in claims {
-        active.insert(claim.id, claim);
-    }
-
-    // Sort patterns for comparison
-    let mut sorted_new: Vec<_> = patterns.to_vec();
-    sorted_new.sort();
-
-    for claim in active.values() {
-        // Only our own claims
-        if claim.agent != my_agent {
-            continue;
-        }
-        // Only active and not expired
-        if !claim.active || claim.expires_at < now {
-            continue;
-        }
-        // Check for exact pattern match
-        let mut sorted_existing: Vec<_> = claim.patterns.clone();
-        sorted_existing.sort();
-
-        if sorted_new == sorted_existing {
-            return Some((*claim).clone());
-        }
-    }
-
-    None
-}
-
-fn check_conflicts(
+/// Check for conflicts including the agent's own claims.
+/// Used when we want to fail if ANY claim (including our own) holds the pattern.
+fn check_conflicts_including_self(
     new_patterns: &[String],
     claims: &[FileClaim],
-    my_agent: &str,
 ) -> Vec<(String, String, chrono::DateTime<Utc>)> {
     let mut conflicts = Vec::new();
     let now = Utc::now();
@@ -853,17 +823,12 @@ fn check_conflicts(
     }
 
     for claim in active.values() {
-        // Skip our own claims
-        if claim.agent == my_agent {
-            continue;
-        }
-
         // Skip inactive or expired
         if !claim.active || claim.expires_at < now {
             continue;
         }
 
-        // Check for overlaps
+        // Check for overlaps (including our own claims)
         for new_pat in new_patterns {
             for existing_pat in &claim.patterns {
                 if patterns_overlap(new_pat, existing_pat) {

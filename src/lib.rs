@@ -2,6 +2,7 @@ pub mod cli;
 pub mod core;
 pub mod index;
 pub mod storage;
+pub mod sync;
 pub mod telegram;
 pub mod tui;
 

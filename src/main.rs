@@ -302,5 +302,19 @@ fn main() -> Result<()> {
                 MessagesCommands::Get { id } => cli::messages::get(&id, format),
             }
         }
+
+        Commands::Sync { command } => {
+            use cli::SyncCommands;
+            match command.as_ref() {
+                Some(SyncCommands::Init { remote }) => cli::sync::init(remote.clone()),
+                Some(SyncCommands::Push) => cli::sync::push(),
+                Some(SyncCommands::Pull) => cli::sync::pull(),
+                Some(SyncCommands::Status) => cli::sync::status(),
+                None => {
+                    // Default: push
+                    cli::sync::push()
+                }
+            }
+        }
     }
 }

@@ -19,6 +19,7 @@ pub mod send;
 pub mod status;
 pub mod statuses;
 pub mod subscribe;
+pub mod sync;
 pub mod telegram;
 pub mod ui;
 pub mod wait;
@@ -317,6 +318,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: MessagesCommands,
     },
+
+    /// Git-based multi-machine sync
+    Sync {
+        #[command(subcommand)]
+        command: Option<SyncCommands>,
+    },
 }
 
 #[derive(Subcommand)]
@@ -544,4 +551,23 @@ pub enum AgentsMdCommands {
 
     /// Print the BotBus section that would be added to AGENTS.md
     Show,
+}
+
+#[derive(Subcommand)]
+pub enum SyncCommands {
+    /// Initialize git repository in data directory
+    Init {
+        /// Remote URL (e.g., git@github.com:user/botbus-data.git)
+        #[arg(long)]
+        remote: Option<String>,
+    },
+
+    /// Push local commits to remote
+    Push,
+
+    /// Pull and merge changes from remote
+    Pull,
+
+    /// Show git status (uncommitted changes, ahead/behind)
+    Status,
 }

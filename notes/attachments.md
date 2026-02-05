@@ -4,9 +4,17 @@
 
 This document outlines the design for bridging file attachments between BotBus messages and Telegram. Currently, BotBus supports three attachment types (File, Inline, Url) but the Telegram integration only displays attachment names as text. This design proposes a two-way attachment bridge that:
 
-- Sends BotBus attachments to Telegram users (with fallback for unsupported types)
+- Sends BotBus attachments to Telegram users (with smart MIME type detection)
 - Captures Telegram attachments (photos, documents, audio, video) and bridges them back to BotBus
+- Uses unified content-addressed storage for all attachments (Telegram, CLI `bus send --attach`, agent APIs)
 - Handles storage, size limits, and format restrictions appropriately
+
+**Key Design Decisions**:
+- **Content-addressed storage**: Files stored by SHA256 hash (automatic deduplication)
+- **Sidecar metadata**: Each file has a `.meta.json` for Telegram file_id, source info, etc.
+- **Daemon-managed**: Telegram daemon handles all downloads (not individual agents)
+- **MIME detection**: Use `infer` crate for magic-number detection (not extension-based)
+- **No core Message changes**: Keep using `File { path }` attachment type, no Telegram-specific variants
 
 ## Current State
 
@@ -116,15 +124,36 @@ If text + large → Send as Document
 - For binary/large: Send as `sendDocument` for source code, or media type (photo, video, etc.)
 - **Size check**: If file > 50 MB, error gracefully with message
 
-**File Type Detection**:
+**File Type Detection** (using `infer` crate):
+```rust
+// Read file bytes and detect MIME type via magic numbers
+let bytes = fs::read(&path)?;
+let mime_type = infer::get(&bytes)
+    .map(|t| t.mime_type())
+    .unwrap_or("application/octet-stream");
+
+// Route based on detected MIME type
+match mime_type {
+    "image/jpeg" | "image/png" | "image/webp" | "image/gif" => {
+        telegram_client.send_photo(chat_id, thread_id, path, caption).await?;
+    }
+    "video/mp4" | "video/webm" | "video/x-matroska" => {
+        telegram_client.send_video(chat_id, thread_id, path, caption).await?;
+    }
+    "audio/mpeg" | "audio/wav" | "audio/flac" => {
+        telegram_client.send_audio(chat_id, thread_id, path, caption).await?;
+    }
+    _ => {
+        // Everything else (including text/code) as document
+        telegram_client.send_document(chat_id, thread_id, path, caption).await?;
+    }
+}
 ```
-.rs, .py, .js, .ts, .go, .rs → Format as code block
-.jpg, .png, .gif, .webp → sendPhoto
-.mp4, .webm, .mkv → sendVideo
-.mp3, .wav, .flac → sendAudio
-.pdf, .txt, .md, .log → sendDocument
-(other binary) → sendDocument
-```
+
+**Benefits**:
+- Detects real file type (not fooled by wrong extensions like `.jpg.exe`)
+- Handles files without extensions
+- Validates against malicious files (e.g., executable disguised as image)
 
 **Risk**: File may not exist or be readable → send error message to Telegram
 
@@ -169,7 +198,81 @@ Attachment: config.rs (type: file)
 
 Current behavior (line 155-157 in service.rs): Ignore all non-text messages.
 
-**New behavior**: Extract media from Telegram updates and create BotBus attachments
+**New behavior**: Telegram daemon extracts media, downloads to cache, creates BotBus attachments
+
+### Daemon Download Implementation
+
+```rust
+// In src/telegram/service.rs
+
+async fn handle_telegram_media(
+    &self,
+    file_id: &str,
+    file_unique_id: &str,
+    original_filename: Option<&str>,
+    message_id: &str,
+    channel: &str,
+) -> Result<Attachment> {
+    // 1. Download file from Telegram
+    let bytes = self.client.download_file(file_id).await?;
+
+    // 2. Compute hash
+    let mut hasher = Sha256::new();
+    hasher.update(&bytes);
+    let hash = format!("{:x}", hasher.finalize());
+
+    // 3. Detect real MIME type (don't trust Telegram)
+    let mime_type = infer::get(&bytes)
+        .map(|t| t.mime_type())
+        .unwrap_or("application/octet-stream");
+
+    // 4. Determine extension
+    let ext = mime2ext::mime_to_ext(mime_type).unwrap_or("bin");
+    let final_path = self.cache_dir.join(format!("{}.{}", hash, ext));
+
+    // 5. Write file atomically (if not exists)
+    if !final_path.exists() {
+        let tmp_path = self.cache_dir.join(format!("{}.tmp", hash));
+        fs::write(&tmp_path, bytes)?;
+        fs::rename(&tmp_path, &final_path)?;
+
+        // 6. Write metadata
+        let meta = AttachmentMetadata {
+            original_filename: original_filename.unwrap_or("file").to_string(),
+            mime_type: mime_type.to_string(),
+            size_bytes: bytes.len() as u64,
+            sha256: hash.clone(),
+            downloaded_at: Utc::now(),
+            downloaded_by: "telegram-daemon".to_string(),
+            source: "telegram".to_string(),
+            telegram_file_id: Some(file_id.to_string()),
+            telegram_file_unique_id: Some(file_unique_id.to_string()),
+            source_message_id: Some(message_id.to_string()),
+            source_channel: Some(channel.to_string()),
+            source_project: Some(self.project.clone()),
+        };
+
+        let meta_path = final_path.with_extension(format!("{}.meta.json", ext));
+        let meta_tmp = self.cache_dir.join(format!("{}.meta.tmp", hash));
+        fs::write(&meta_tmp, serde_json::to_string_pretty(&meta)?)?;
+        fs::rename(&meta_tmp, &meta_path)?;
+    }
+
+    // 7. Return attachment reference
+    Ok(Attachment {
+        name: original_filename.unwrap_or("file").to_string(),
+        content: AttachmentContent::File {
+            path: final_path.to_string_lossy().to_string(),
+        },
+    })
+}
+```
+
+**Error Handling**:
+- If download fails, retry once with exponential backoff
+- If still fails, publish message without attachment + log error
+- If disk full during write, cleanup cache and retry
+- If hash collision detected (astronomically rare), append counter to filename
 
 ### Supported Telegram Media → BotBus Attachment Mapping
 
@@ -185,128 +288,195 @@ Current behavior (line 155-157 in service.rs): Ignore all non-text messages.
 
 ### Implementation Flow
 
+**Key principle**: Telegram daemon handles all downloads synchronously before publishing message to BotBus.
+
 ```
-Telegram Update
+Telegram Update received
   ↓
-Extract media_type (photo, document, video, etc.)
+Extract media (photo, document, video, etc.)
   ↓
-If text + media:
-   Create message with text body + media attachment
+If media present:
+   Telegram daemon downloads file immediately
+   ↓
+   Compute SHA256 hash
+   ↓
+   Detect MIME type (infer crate)
+   ↓
+   Store as {hash}.{ext} in cache (if not exists)
+   ↓
+   Write {hash}.{ext}.meta.json with Telegram file_id
+   ↓
+   Create Attachment::File with cache path
   ↓
-If text only:
-   Create message (current behavior)
+Create BotBus message with attachments
   ↓
-If media only (no text):
-   Create message with media attachment + generic text
+Publish to BotBus channels
 ```
+
+**Why daemon downloads**:
+- Telegram file download URLs expire in 1 hour
+- Agents may not process messages immediately
+- Centralized download = single point of failure handling, rate limiting, retry logic
+- Deduplication happens automatically (same hash = already cached)
 
 ### Storage Strategy
 
-**Challenge**: Where to store downloaded Telegram files?
+**Challenge**: Where to store downloaded Telegram files? How to handle `bus send --attach`?
 
-**Design Decision**: Centralized attachment cache
+**Design Decision**: Unified content-addressed attachment cache
 
 **Location**: `~/.local/share/botbus/attachments/`
-- Global (not per-project) so files can be shared across projects
-- Directory structure: `<project-slug>/<channel-name>/<message-id>-<filename>`
-- Follows BotBus global storage pattern
 
-**Lifecycle**:
-1. Download from Telegram to cache
-2. Store path in BotBus `Attachment::File { path: "..." }`
-3. Path is relative to home directory or absolute
-4. Cleanup: Remove files older than 7 days (configurable)
-
-**Size Management**:
-- Max cache size: 500 MB (or configurable)
-- When exceeded: LRU eviction
-- Per-attachment limit: 50 MB (Telegram max)
-
-### File Naming Convention
-
+**Directory Structure** (flat, hash-based):
 ```
-Format: {project_slug}/{channel}/{message_id}-{timestamp}-{original_or_type}.{ext}
-
-Example:
-botbus/general/01ARZ3NDEKTSV4RRFFQ69G5FAV-20250204T123456Z-photo.jpg
-botbus/security/01ARZ3NDEKTSV4RRFFQ69G5FAV-20250204T123456Z-config.pdf
+~/.local/share/botbus/attachments/
+├── a3f8b9c2...d4e5.jpg
+├── a3f8b9c2...d4e5.jpg.meta.json
+├── f7e6d5c4...a1b2.pdf
+└── f7e6d5c4...a1b2.pdf.meta.json
 ```
+
+**File Naming Convention**:
+- Files: `{sha256-hash}.{extension}`
+- Metadata: `{sha256-hash}.{extension}.meta.json`
+- Extension determined by MIME type detection (via `infer` crate)
 
 **Benefits**:
-- Timestamp allows cleanup by age
-- Message ID links back to original Telegram message
-- Original filename preserved when possible
-- Prevents collisions
+- **Automatic deduplication**: Same file uploaded twice = same hash, stored once
+- **Simple lookups**: Hash → file is O(1) filesystem read
+- **No collisions**: SHA256 ensures uniqueness (collision astronomically rare)
+- **Source-agnostic**: Works for Telegram downloads, `bus send --attach`, agent APIs
+- **Easy cleanup**: Age-based on `mtime`, no complex queries needed
+- **Debuggable**: Just `cat {hash}.meta.json` to inspect
 
-## Storage Considerations
-
-### Attachment Storage Options
-
-#### Option A: Reference-based (Recommended)
-
-**Approach**: Store Telegram file_id in BotBus attachment metadata
-
+**Metadata Schema** (`.meta.json`):
 ```json
 {
-  "name": "photo.jpg",
-  "type": "telegram_file",
-  "file_id": "AgAD...",
-  "file_unique_id": "AQADy..."
+  "original_filename": "screenshot.jpg",
+  "mime_type": "image/jpeg",
+  "size_bytes": 245680,
+  "sha256": "a3f8b9c2...d4e5",
+  "downloaded_at": "2026-02-05T14:23:45Z",
+  "downloaded_by": "telegram-daemon",
+  "source": "telegram",
+  "telegram_file_id": "AgAD...",           // Only if from Telegram
+  "telegram_file_unique_id": "AQADy...",  // Only if from Telegram
+  "source_message_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "source_channel": "general",
+  "source_project": "botbus"
 }
 ```
 
-**Pros**:
-- No local storage needed
-- Can re-download any time during 1-hour window
-- Automatic cleanup (Telegram deletes after expiry)
+**Lifecycle**:
+1. **Download/Copy**: Telegram daemon or `bus send --attach` writes file to cache
+2. **Hash**: Compute SHA256 of content
+3. **Detect MIME**: Use `infer` crate to detect real file type (not extension)
+4. **Store**: Write `{hash}.{ext}` and `{hash}.{ext}.meta.json` atomically
+5. **Reference**: Store path in BotBus `Attachment::File { path: "~/.local/share/botbus/attachments/{hash}.{ext}" }`
+6. **Cleanup**: Age-based removal (files older than 7 days, configurable)
 
-**Cons**:
-- Requires Telegram API call to retrieve
-- File_id only valid for bot that generated it
-- 1-hour expiry for file download URLs
+**Size Management**:
+- Max cache size: 500 MB (configurable)
+- When exceeded: Delete oldest files by `mtime` until under threshold
+- Per-attachment limit: 50 MB (Telegram max)
 
-#### Option B: Cache-based (Hybrid - Recommended)
+**Atomic Writes**:
+```rust
+// Write to .tmp file, rename atomically
+let tmp_path = cache_dir.join(format!("{}.tmp", hash));
+fs::write(&tmp_path, bytes)?;
+fs::rename(&tmp_path, &final_path)?;
 
-**Approach**: Download and cache with reference fallback
-
-```json
-{
-  "name": "photo.jpg",
-  "type": "cached_file",
-  "path": "~/.local/share/botbus/attachments/botbus/general/abc123.jpg",
-  "telegram_file_id": "AgAD...",
-  "cached_at": "2025-02-04T12:34:56Z"
-}
+// Write metadata similarly
+let meta_tmp = cache_dir.join(format!("{}.{}.meta.json.tmp", hash, ext));
+fs::write(&meta_tmp, serde_json::to_string_pretty(&meta)?)?;
+fs::rename(&meta_tmp, &meta_path)?;
 ```
 
-**Pros**:
-- Fast access via local file
-- Survives Telegram API downtime
-- User can reference files offline
-- File ID backup for recovery
+## Unified Attachment Storage
 
-**Cons**:
-- Disk storage required
-- Cleanup needed to avoid disk bloat
-- More complex metadata
+All attachment sources (Telegram, `bus send --attach`, agent APIs) use the same storage mechanism:
 
-**Recommendation**: Use Option B for media (photos, video, audio) but Option A for quick text documents
+### `bus send --attach` Integration
+
+When users run `bus send --attach <file>`, BotBus should:
+
+1. **Read file** from provided path
+2. **Compute hash** (SHA256)
+3. **Detect MIME type** (using `infer` crate)
+4. **Copy to cache** as `{hash}.{ext}` if not already present
+5. **Write metadata** as `{hash}.{ext}.meta.json`
+6. **Create message** with `Attachment::File { path: "~/.local/share/botbus/attachments/{hash}.{ext}" }`
+
+**Example**:
+```bash
+bus send general --attach ./screenshot.png "Here's the bug"
+```
+
+**Internals**:
+```rust
+// 1. Read file
+let bytes = fs::read("./screenshot.png")?;
+
+// 2. Hash
+let hash = sha256(&bytes);
+
+// 3. Detect MIME and extension
+let mime_type = infer::get(&bytes)
+    .map(|t| t.mime_type())
+    .unwrap_or("application/octet-stream");
+let ext = mime2ext::mime_to_ext(mime_type).unwrap_or("bin");
+
+// 4. Store if not exists
+let cache_path = cache_dir.join(format!("{}.{}", hash, ext));
+if !cache_path.exists() {
+    fs::write(&cache_path, bytes)?;
+
+    // 5. Write metadata
+    let meta = AttachmentMetadata {
+        original_filename: "screenshot.png".to_string(),
+        mime_type: mime_type.to_string(),
+        size_bytes: bytes.len() as u64,
+        sha256: hash.clone(),
+        downloaded_at: Utc::now(),
+        downloaded_by: env::var("BOTBUS_AGENT").unwrap_or_else(|_| "cli".to_string()),
+        source: "cli".to_string(),
+        telegram_file_id: None,
+        telegram_file_unique_id: None,
+        source_message_id: None,
+        source_channel: Some("general".to_string()),
+        source_project: None,
+    };
+    fs::write(cache_path.with_extension(format!("{}.meta.json", ext)),
+              serde_json::to_string_pretty(&meta)?)?;
+}
+
+// 6. Create attachment reference
+let attachment = Attachment {
+    name: "screenshot.png".to_string(),
+    content: AttachmentContent::File {
+        path: cache_path.to_string_lossy().to_string(),
+    },
+};
+```
 
 ### Path Representation
 
-**Internal**: Absolute paths stored in attachment metadata
+**Storage**: Always absolute paths in cache directory
 ```
-/home/user/.local/share/botbus/attachments/botbus/general/msg-001-photo.jpg
-```
-
-**Display**: Relative paths when in BotBus home tree
-```
-attachments/botbus/general/msg-001-photo.jpg
+/home/user/.local/share/botbus/attachments/a3f8b9c2...d4e5.jpg
 ```
 
-**In Messages**: Markdown links or just the filename
+**In Messages**: Store absolute path in `Attachment::File { path }`
+```rust
+AttachmentContent::File {
+    path: "/home/user/.local/share/botbus/attachments/a3f8b9c2...d4e5.jpg"
+}
 ```
-Attachment: photo.jpg
+
+**Display**: Show original filename from metadata when rendering
+```
+📎 screenshot.jpg (245 KB)
 ```
 
 ## Size Limits and Quotas
@@ -329,9 +499,93 @@ Attachment: photo.jpg
 
 ### Cache Limits
 
-- **Cache directory max size**: 500 MB
-- **Age-based cleanup**: Files older than 7 days
+- **Cache directory max size**: 500 MB (configurable)
+- **Age-based cleanup**: Files older than 7 days (configurable)
 - **Cache flush**: Automatic when size > threshold
+
+### Cache Cleanup Implementation
+
+```rust
+// In src/attachments/cache.rs
+
+pub fn cleanup_cache(cache_dir: &Path, max_age_days: u64, max_size_mb: u64) -> Result<()> {
+    let cutoff = SystemTime::now() - Duration::from_secs(max_age_days * 24 * 60 * 60);
+    let max_bytes = max_size_mb * 1024 * 1024;
+
+    // 1. Collect all files with their metadata
+    let mut entries = Vec::new();
+    for entry in fs::read_dir(cache_dir)? {
+        let entry = entry?;
+        let path = entry.path();
+
+        // Skip metadata files and temp files
+        if path.extension().and_then(|s| s.to_str()) == Some("json")
+            || path.file_name().and_then(|s| s.to_str()).unwrap_or("").contains(".tmp") {
+            continue;
+        }
+
+        let metadata = entry.metadata()?;
+        entries.push((path, metadata));
+    }
+
+    // 2. Age-based cleanup (delete files older than cutoff)
+    for (path, metadata) in &entries {
+        if metadata.modified()? < cutoff {
+            fs::remove_file(path)?;
+            // Also remove metadata file
+            let meta_path = path.with_extension(
+                format!("{}.meta.json", path.extension().and_then(|s| s.to_str()).unwrap_or(""))
+            );
+            let _ = fs::remove_file(meta_path); // Ignore if doesn't exist
+        }
+    }
+
+    // 3. Size-based cleanup (if still over limit, delete oldest first)
+    let total_size: u64 = entries.iter()
+        .filter(|(path, _)| path.exists())
+        .map(|(_, metadata)| metadata.len())
+        .sum();
+
+    if total_size > max_bytes {
+        // Sort by modification time (oldest first)
+        entries.sort_by_key(|(_, metadata)| metadata.modified().ok());
+
+        let mut freed = 0u64;
+        for (path, metadata) in entries {
+            if total_size - freed <= max_bytes {
+                break;
+            }
+
+            let size = metadata.len();
+            fs::remove_file(&path)?;
+            let meta_path = path.with_extension(
+                format!("{}.meta.json", path.extension().and_then(|s| s.to_str()).unwrap_or(""))
+            );
+            let _ = fs::remove_file(meta_path);
+
+            freed += size;
+        }
+    }
+
+    Ok(())
+}
+```
+
+**Cleanup triggers**:
+- On daemon startup (clean stale files)
+- Periodically (every hour) in background thread
+- Before writing new file (if cache near limit)
+
+**Orphan cleanup**:
+```rust
+// Remove .meta.json files without corresponding data files
+for entry in glob(cache_dir.join("*.meta.json"))? {
+    let data_file = entry.with_extension("");
+    if !data_file.exists() {
+        fs::remove_file(entry)?;
+    }
+}
+```
 
 ### Validation Rules
 
@@ -353,170 +607,376 @@ if total_size > 100 * 1024 * 1024 {
 
 ## API Design
 
-### Core Extension to `TelegramClient`
+### Module Structure
+
+```
+src/
+├── attachments/
+│   ├── mod.rs          # Public API
+│   ├── cache.rs        # AttachmentCache implementation
+│   └── metadata.rs     # AttachmentMetadata struct
+├── telegram/
+│   ├── client.rs       # TelegramClient with download/upload
+│   └── service.rs      # Daemon handles media in updates
+└── cli/
+    └── send.rs         # `bus send --attach` implementation
+```
+
+### `src/attachments/mod.rs`
 
 ```rust
-// In src/telegram/client.rs
+pub struct AttachmentCache {
+    cache_dir: PathBuf,
+    max_size_mb: u64,
+    max_age_days: u64,
+}
 
+impl AttachmentCache {
+    pub fn new(cache_dir: PathBuf) -> Result<Self>;
+
+    /// Store bytes in cache, return path and metadata
+    pub async fn store(
+        &self,
+        bytes: Vec<u8>,
+        original_filename: &str,
+        source: AttachmentSource,
+    ) -> Result<StoredAttachment>;
+
+    /// Get file path by hash
+    pub fn get(&self, hash: &str) -> Option<PathBuf>;
+
+    /// Read metadata for a cached file
+    pub fn read_metadata(&self, hash: &str) -> Result<AttachmentMetadata>;
+
+    /// Cleanup old/excess files
+    pub fn cleanup(&self) -> Result<CleanupStats>;
+}
+
+pub struct StoredAttachment {
+    pub path: PathBuf,
+    pub hash: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+}
+
+pub enum AttachmentSource {
+    Telegram {
+        file_id: String,
+        file_unique_id: String,
+        message_id: String,
+        channel: String,
+        project: String,
+    },
+    Cli {
+        agent: String,
+        channel: String,
+    },
+    Agent {
+        agent: String,
+    },
+}
+
+#[derive(Serialize, Deserialize)]
+pub struct AttachmentMetadata {
+    pub original_filename: String,
+    pub mime_type: String,
+    pub size_bytes: u64,
+    pub sha256: String,
+    pub downloaded_at: DateTime<Utc>,
+    pub downloaded_by: String,
+    pub source: String,
+    pub telegram_file_id: Option<String>,
+    pub telegram_file_unique_id: Option<String>,
+    pub source_message_id: Option<String>,
+    pub source_channel: Option<String>,
+    pub source_project: Option<String>,
+}
+```
+
+### `src/telegram/client.rs`
+
+```rust
 impl TelegramClient {
-    /// Download media from Telegram and return file data
-    pub async fn download_file(&self, file_id: &str) -> Result<Vec<u8>> { }
+    /// Download file from Telegram by file_id
+    pub async fn download_file(&self, file_id: &str) -> Result<Vec<u8>> {
+        // 1. Call getFile API to get file_path
+        // 2. Download from https://api.telegram.org/file/bot<TOKEN>/<file_path>
+        // 3. Return bytes
+    }
 
     /// Send photo to Telegram
     pub async fn send_photo(
         &self,
         chat_id: i64,
         thread_id: Option<i64>,
-        file_or_url: PhotoSource,
+        path: &Path,
         caption: Option<&str>,
-    ) -> Result<()> { }
+    ) -> Result<()> {
+        // Multipart upload with file
+    }
 
     /// Send document to Telegram
     pub async fn send_document(
         &self,
         chat_id: i64,
         thread_id: Option<i64>,
-        file_or_url: DocumentSource,
+        path: &Path,
         caption: Option<&str>,
-    ) -> Result<()> { }
+    ) -> Result<()> {
+        // Multipart upload with file
+    }
+
+    /// Send video to Telegram
+    pub async fn send_video(
+        &self,
+        chat_id: i64,
+        thread_id: Option<i64>,
+        path: &Path,
+        caption: Option<&str>,
+    ) -> Result<()> {
+        // Multipart upload with file
+    }
 
     /// Send audio to Telegram
     pub async fn send_audio(
         &self,
         chat_id: i64,
         thread_id: Option<i64>,
-        file_or_url: AudioSource,
+        path: &Path,
         caption: Option<&str>,
-    ) -> Result<()> { }
+    ) -> Result<()> {
+        // Multipart upload with file
+    }
 }
+```
 
-enum PhotoSource {
-    Path(PathBuf),
-    Url(String),
-    FileId(String),
-}
+### `src/telegram/service.rs`
 
-enum DocumentSource {
-    Path(PathBuf),
-    Url(String),
-    FileId(String),
+```rust
+impl TelegramService {
+    async fn handle_update(&self, update: Update) -> Result<()> {
+        // Extract media from update
+        let media = extract_media(&update)?;
+
+        let attachments = if let Some(media) = media {
+            // Download and cache via AttachmentCache
+            let stored = self.attachment_cache.store(
+                bytes,
+                media.filename,
+                AttachmentSource::Telegram { /* ... */ },
+            ).await?;
+
+            vec![Attachment {
+                name: media.filename,
+                content: AttachmentContent::File {
+                    path: stored.path.to_string_lossy().to_string(),
+                },
+            }]
+        } else {
+            vec![]
+        };
+
+        // Create and publish message
+        let message = Message {
+            body: update.message.text,
+            attachments,
+            // ...
+        };
+        self.publish_message(message).await?;
+    }
+
+    async fn publish_message(&self, message: &Message) -> Result<()> {
+        // For each attachment, read file and send to Telegram
+        for attachment in &message.attachments {
+            match &attachment.content {
+                AttachmentContent::File { path } => {
+                    let bytes = fs::read(path)?;
+                    let mime_type = infer::get(&bytes)
+                        .map(|t| t.mime_type())
+                        .unwrap_or("application/octet-stream");
+
+                    // Route based on MIME type
+                    match mime_type {
+                        "image/jpeg" | "image/png" => {
+                            self.client.send_photo(chat_id, thread_id, Path::new(path), Some(&attachment.name)).await?;
+                        }
+                        "video/mp4" => {
+                            self.client.send_video(chat_id, thread_id, Path::new(path), Some(&attachment.name)).await?;
+                        }
+                        // ... other types
+                        _ => {
+                            self.client.send_document(chat_id, thread_id, Path::new(path), Some(&attachment.name)).await?;
+                        }
+                    }
+                }
+                AttachmentContent::Inline { content, language } => {
+                    // Format as code block or send as document
+                }
+                AttachmentContent::Url { url } => {
+                    // Embed in message body
+                }
+            }
+        }
+    }
 }
 ```
 
 ### Message Formatting for Attachments
 
-**Bus → Telegram message format**:
+**Bus → Telegram caption format**:
+
+When sending files to Telegram, use the original filename in the caption:
 
 ```
-Format: "{agent}: {body}\n\nAttachments: {list}\n{details}"
-
-Example:
 alice: Check the deploy logs
 
-Attachments: config.rs, deploy.log
-
-📎 config.rs (2 KB, code)
-📎 deploy.log (15 KB, text)
+📎 deploy.log
 ```
 
-**Telegram → Bus attachment wrapper**:
+Telegram displays the filename automatically, but we include it in caption for consistency.
 
-```rust
-pub struct TelegramAttachmentMeta {
-    pub file_id: String,
-    pub file_unique_id: String,
-    pub mime_type: Option<String>,
-    pub file_size: u64,
-    pub original_filename: Option<String>,
-    pub cached_at: Option<DateTime<Utc>>,
-    pub cache_path: Option<PathBuf>,
-}
-```
+### Core `Message` Struct - No Changes Needed
 
-### Extended `Message` struct
-
-**Add new attachment type**:
+**Keep it simple**: Use existing `AttachmentContent::File { path }` for all cached attachments.
 
 ```rust
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum AttachmentContent {
-    // ... existing types ...
-
-    /// Telegram media reference (file_id for re-download)
-    TelegramMedia {
-        file_id: String,
-        file_unique_id: String,
-        mime_type: Option<String>,
-        /// Optional local cache path
-        #[serde(skip_serializing_if = "Option::is_none")]
-        cache_path: Option<String>,
-    },
+    File { path: String },              // Already exists
+    Inline { content: String, language: Option<String> },  // Already exists
+    Url { url: String },                // Already exists
 }
 ```
 
-### Attachment Labels
+**No Telegram-specific variants needed** - the `.meta.json` sidecar stores Telegram file_id and source information.
 
-Use message labels to mark attachment source:
+**Example message with Telegram attachment**:
+```json
+{
+  "id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
+  "channel": "general",
+  "agent": "telegram-user-alice",
+  "body": "Check this screenshot",
+  "attachments": [
+    {
+      "name": "screenshot.jpg",
+      "type": "file",
+      "path": "/home/user/.local/share/botbus/attachments/a3f8b9c2...d4e5.jpg"
+    }
+  ]
+}
+```
 
-```rust
-// Suggested labels
-message.labels.push("telegram_media".to_string());  // Came from Telegram
-message.labels.push("photo".to_string());           // Type hint
-message.labels.push("cached".to_string());          // Has local cache
+The attachment metadata lives in `/home/user/.local/share/botbus/attachments/a3f8b9c2...d4e5.jpg.meta.json`:
+```json
+{
+  "original_filename": "screenshot.jpg",
+  "mime_type": "image/jpeg",
+  "source": "telegram",
+  "telegram_file_id": "AgAD...",
+  "telegram_file_unique_id": "AQADy..."
+}
+```
+
+## Dependencies
+
+Add to `Cargo.toml`:
+
+```toml
+[dependencies]
+# Existing dependencies...
+
+# For MIME type detection via magic numbers
+infer = "0.16"
+
+# For SHA256 hashing
+sha2 = "0.10"
+
+# For MIME type to extension mapping
+mime2ext = "0.1"
+
+# Already have these:
+# serde = { version = "1.0", features = ["derive"] }
+# serde_json = "1.0"
+# tokio = { version = "1", features = ["fs", "io-util"] }
+# chrono = { version = "0.4", features = ["serde"] }
 ```
 
 ## Implementation Phases
 
-### Phase 1: Foundation (2-3 days)
+### Phase 1: Foundation - Cache Infrastructure
 
-1. Extend `TelegramClient` with media download capability
-2. Add new `TelegramMedia` attachment type to core message
-3. Add cache directory management and cleanup
-4. Write tests for size validation and path handling
-
-**Deliverables**:
-- `download_file()` method
-- Cache management utilities
-- Attachment validation
-
-### Phase 2: Bus → Telegram (3-5 days)
-
-1. Update `publish_message()` to handle file attachments
-2. Add `send_photo()`, `send_document()`, `send_audio()` methods
-3. Implement file type detection and routing
-4. Add attachment metadata encoding in captions
-5. Error handling for missing/unreadable files
+1. Create `src/attachments/mod.rs` module
+2. Implement content-addressed storage (hash-based naming)
+3. Add `AttachmentMetadata` struct and serde serialization
+4. Implement atomic file writes (tmp → rename)
+5. Add cache cleanup utilities (age-based, size-based)
+6. Write unit tests for storage and cleanup
 
 **Deliverables**:
-- Photos, documents, and audio sent to Telegram
-- Inline content formatted with syntax highlighting
-- URLs embedded as links
-- Error messages for unsupported types
+- `AttachmentCache` struct with `store()`, `get()`, `cleanup()` methods
+- Metadata sidecar JSON schema
+- Cache cleanup logic
+- Tests for hash collisions, orphan cleanup, size limits
 
-### Phase 3: Telegram → Bus (3-5 days)
+### Phase 2: Telegram Downloads (Telegram → Bus)
 
-1. Extend `Update` and `TelegramMessage` to include media fields
-2. Update `handle_update()` to extract media from updates
-3. Implement download and cache logic
-4. Create `Attachment` objects with TelegramMedia type
-5. Add tests for various media types
-
-**Deliverables**:
-- Photos, documents, audio from Telegram received in BotBus
-- Files cached locally with automatic cleanup
-- Attachment metadata preserved
-
-### Phase 4: Polish & Testing (2-3 days)
-
-1. End-to-end testing (send from Bus → Telegram → Bus)
-2. Edge cases (very large files, network failures, concurrent downloads)
-3. Performance optimization (concurrent downloads, caching strategy)
-4. Documentation and examples
+1. Extend `TelegramClient::download_file()` in `src/telegram/client.rs`
+2. Add MIME detection via `infer` crate
+3. Update `handle_update()` to extract media from Telegram updates
+4. Integrate `AttachmentCache::store()` in telegram daemon
+5. Create `Attachment::File` references with cache paths
+6. Handle Telegram API errors (rate limits, timeouts, not found)
 
 **Deliverables**:
-- Integration tests
+- Telegram photos, documents, videos downloaded to cache
+- Metadata with `telegram_file_id` for reference
+- Messages with file attachments published to BotBus
+- Error handling for download failures
+
+### Phase 3: Telegram Uploads (Bus → Telegram)
+
+1. Add `send_photo()`, `send_video()`, `send_audio()`, `send_document()` to `TelegramClient`
+2. Update `publish_message()` in telegram service to send attachments
+3. Read `Attachment::File` paths and detect MIME type
+4. Route to appropriate Telegram send method based on MIME
+5. Handle inline attachments (format as code blocks or send as documents)
+6. Handle URL attachments (embed as links)
+
+**Deliverables**:
+- BotBus file attachments sent to Telegram as appropriate media types
+- Inline code formatted with syntax highlighting
+- URLs rendered as clickable links
+- Captions with original filenames
+
+### Phase 4: CLI Integration (`bus send --attach`)
+
+1. Add `--attach <file>` flag to `bus send` command
+2. Implement file reading and cache storage
+3. Use same `AttachmentCache` as Telegram daemon
+4. Support multiple attachments per message
+5. Validate file size limits
+
+**Deliverables**:
+- `bus send general --attach ./file.txt "message"` works
+- Files copied to cache with proper metadata
+- Deduplication works (same file = same hash)
+- Error messages for missing files, size limits
+
+### Phase 5: Testing & Polish
+
+1. End-to-end tests (Telegram → Bus → Telegram round-trip)
+2. Integration tests for cache cleanup
+3. Load testing (concurrent downloads, many files)
+4. Edge cases (network failures, corrupted downloads, disk full)
+5. Documentation and examples
+6. Performance profiling and optimization
+
+**Deliverables**:
+- Integration test suite
+- Documented error codes and handling
 - Performance benchmarks
-- User documentation
+- User guide with examples
 
 ## Open Questions & Future Work
 
@@ -605,6 +1065,48 @@ fn validate_attachment_path(path: &Path) -> Result<()> {
 }
 ```
 
+### Edge Cases
+
+**Hash Collision** (astronomically rare with SHA256):
+```rust
+let cache_path = cache_dir.join(format!("{}.{}", hash, ext));
+if cache_path.exists() {
+    let existing_bytes = fs::read(&cache_path)?;
+    if existing_bytes != new_bytes {
+        // True collision! Append counter
+        let cache_path = cache_dir.join(format!("{}-1.{}", hash, ext));
+    } else {
+        // Same file already cached, skip write
+    }
+}
+```
+
+**Concurrent Downloads** (same file from multiple Telegram messages):
+- Write to `.tmp` file, rename atomically
+- If rename fails, check if final file exists
+- If exists with same hash, that's fine (another download finished first)
+- Metadata may differ (different source messages), last-write-wins acceptable
+
+**Orphaned Metadata**:
+- Data file deleted manually, `.meta.json` remains
+- Cleanup scans for orphans and removes them
+- Harmless but wastes disk space if not cleaned
+
+**Corrupted Downloads**:
+- If download interrupted, `.tmp` file remains
+- Next cleanup removes any `.tmp` files older than 1 hour
+- Hash verification ensures corrupt files aren't stored
+
+**Cache Directory Migration**:
+- If cache directory moves, all `Attachment::File` paths break
+- Consider storing relative paths: `attachments/{hash}.{ext}`
+- Resolve relative to `~/.local/share/botbus/` at read time
+
+**MIME Type Misdetection**:
+- `infer` crate has comprehensive magic number database
+- Fallback to `application/octet-stream` if unknown
+- Telegram will accept any file as document
+
 ## Metrics & Observability
 
 ### Logging
@@ -630,13 +1132,33 @@ error!("Failed to send attachment '{}': {}",
 
 ## Summary
 
-This design provides a pragmatic, bidirectional attachment bridge:
+This design provides a simple, unified attachment system:
 
-- **Bus → Telegram**: Convert different attachment types to appropriate Telegram media
-- **Telegram → Bus**: Download media and cache locally with Telegram file_id fallback
-- **Storage**: Centralized cache with automatic cleanup and LRU eviction
-- **Limits**: Respect Telegram and BotBus constraints
-- **Reliability**: Fallback mechanisms for API failures and file access issues
-- **Extensibility**: Room for future features like compression, scanning, archival
+**Storage**:
+- Content-addressed cache (`~/.local/share/botbus/attachments/{hash}.{ext}`)
+- Sidecar JSON metadata (`.meta.json`) for Telegram file_id, source info, MIME type
+- Automatic deduplication (same content = same hash)
+- Simple cleanup (age-based + size-based on `mtime`)
 
-The hybrid cache+reference approach balances storage efficiency with reliability.
+**Telegram Integration**:
+- **Telegram → Bus**: Daemon downloads immediately, stores in cache, publishes message with `Attachment::File`
+- **Bus → Telegram**: Read file, detect MIME (via `infer`), route to appropriate send method (photo/video/audio/document)
+- **Inline attachments**: Format as code blocks or send as documents
+- **URL attachments**: Embed as clickable links
+
+**CLI Integration**:
+- `bus send --attach <file>` copies to cache with same format
+- Works identically to Telegram downloads
+- Deduplication across all sources
+
+**Benefits**:
+- **Simple**: Flat directory, no complex queries, easy debugging
+- **Unified**: Same storage for Telegram, CLI, agent APIs
+- **Reliable**: Files cached locally, survive Telegram downtime
+- **Secure**: MIME detection via magic numbers, not extensions
+- **Efficient**: Deduplication, atomic writes, periodic cleanup
+
+**Trade-offs**:
+- Can't query "all files from project X" without scanning `.meta.json` files
+- Cache cleanup is O(n) in number of files (acceptable for <1000 files)
+- No transactions across multiple metadata files (not needed for single-daemon writer)

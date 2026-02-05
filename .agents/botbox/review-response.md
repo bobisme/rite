@@ -50,7 +50,7 @@ When the reviewer approves:
 2. Mark review as merged: `crit reviews mark-merged <review-id> --agent $AGENT --path $WS_PATH`
 3. Continue with [finish](finish.md) to close the bead and merge the workspace
 
-The actual code merge is handled by `maw ws merge` in the finish step — do not run `jj squash` manually.
+The actual code merge is handled by `maw ws merge` in the finish step (maw v0.22.0+ rebases onto main and squashes into a single commit) — do not run `jj squash` manually.
 
 ## Assumptions
 

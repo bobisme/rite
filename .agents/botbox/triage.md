@@ -40,6 +40,8 @@ Find exactly one actionable bead, or determine there is no work available. Groom
    - If all candidates are claimed, output `NO_WORK_AVAILABLE` and stop.
 9. Output the single bead ID as the result.
 
+**Tip**: Use `cass search "your error or problem"` to find how similar issues were solved in past sessions before starting work.
+
 ## Assumptions
 
 - `BOTBOX_PROJECT` env var contains the project channel name.

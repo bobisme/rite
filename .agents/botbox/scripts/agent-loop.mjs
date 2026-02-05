@@ -256,7 +256,7 @@ At the end of your work, output exactly one of these completion signals:
      crit reviews mark-merged <review-id> --agent ${AGENT}.
    br comments add --actor ${AGENT} --author ${AGENT} <id> "Completed by ${AGENT}".
    br close --actor ${AGENT} <id> --reason="Completed" --suggest-next.
-   maw ws merge \$WS --destroy (if conflict, preserve and announce).
+   maw ws merge \$WS --destroy (maw v0.22.0+ produces linear squashed history and auto-moves main; if conflict, preserve and announce).
    bus claims release --agent ${AGENT} --all.
    br sync --flush-only.${pushMainStep}
    bus send --agent ${AGENT} ${PROJECT} "Completed <id>: <title>" -L task-done.

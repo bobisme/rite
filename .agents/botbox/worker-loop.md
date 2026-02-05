@@ -2,6 +2,15 @@
 
 Full worker lifecycle — triage, start, work, finish, repeat. This is the "colleague" agent: it shows up, finds work, does it, cleans up, and repeats until there is nothing left.
 
+## Before the Loop
+
+If you have a spec, PRD, or high-level request that needs breakdown:
+
+1. **Scout** ([scout](scout.md)) — explore unfamiliar code to understand where changes go
+2. **Plan** ([planning](planning.md)) — turn the spec into actionable beads with dependencies
+
+Once beads exist, the worker loop takes over. Skip these steps if beads are already ready.
+
 ## Identity
 
 If spawned by `agent-loop.sh`, your identity is provided as `$AGENT` (a random name like `storm-raven`). Otherwise, adopt `<project>-dev` as your name (e.g., `botbox-dev`). Run `bus whoami --agent $AGENT` first to confirm; if it returns a name, use it. It will generate a name if one isn't set.
@@ -12,18 +21,37 @@ Your project channel is `$BOTBOX_PROJECT`. All bus commands must include `--agen
 
 ## Loop
 
-### 0. Resume check — handle in-progress reviews
+### 0. Resume check — handle unfinished work (crash recovery)
 
-Before triaging new work, check if you have an in-progress bead from a previous iteration:
+Before triaging new work, check if you have unfinished work from a previous session that was interrupted. This handles crash recovery naturally.
 
-- `bus claims --agent $AGENT` — look for `bead://` claims
-- If you hold a bead claim:
-  - Find the review ID: `br comments <bead-id>` — look for the "Review requested: <review-id>" comment
-  - Check review status: `crit review <review-id>`
-  - **LGTM (approved)**: Follow [merge-check](merge-check.md), then go to step 6 (Finish)
-  - **Blocked (changes requested)**: Follow [review-response](review-response.md) to fix issues and re-request review. Then STOP this iteration.
-  - **Pending (no new activity)**: STOP this iteration. The reviewer has not responded yet.
-- If no active claims: proceed to step 1 (Triage).
+**First, check for in_progress beads owned by you:**
+
+- `br list --status in_progress --assignee $AGENT --json` — shows all beads marked in_progress that you own
+- If any beads are found, you have unfinished work. For each bead:
+  1. Read the bead and its comments: `br show <bead-id>` and `br comments <bead-id>`
+  2. Check if you still hold claims: `bus claims list --agent $AGENT --mine`
+  3. Determine the state:
+     - **If "Review requested: <review-id>" comment exists:**
+       - Check review status: `crit review <review-id>`
+       - **LGTM (approved)**: Follow [merge-check](merge-check.md), then go to step 6 (Finish)
+       - **Blocked (changes requested)**: Follow [review-response](review-response.md) to fix issues and re-request review. Then STOP this iteration.
+       - **Pending (no new activity)**: STOP this iteration. The reviewer has not responded yet.
+     - **If workspace comment exists but no review comment** (work was interrupted mid-implementation):
+       - Extract workspace name and path from the "Started in workspace" comment
+       - Verify workspace still exists: `maw ws list`
+       - If workspace exists: Resume work in that workspace — read the code to see what's done, complete remaining work, then proceed to step 5 (Review request) or step 6 (Finish)
+       - If workspace was destroyed: Create a new workspace and resume from scratch (check comments for context on what was attempted)
+     - **If no workspace comment** (bead was just marked in_progress before crash):
+       - This bead was claimed but work never started
+       - Proceed to step 2 (Start) to create a workspace and begin implementation
+
+**Second, check for active claims not covered by in_progress beads:**
+
+- `bus claims list --agent $AGENT --mine` — look for `bead://` claims not already handled above
+- This catches edge cases where you hold a claim but the bead status wasn't updated
+
+**If no unfinished work found:** proceed to step 1 (Triage).
 
 ### 1. Triage — find and groom work, then pick one small task (always run this, even if you already know what to work on)
 
@@ -75,6 +103,8 @@ If stuck:
 - Release the bead claim: `bus claims release --agent $AGENT "bead://$BOTBOX_PROJECT/<bead-id>"`
 - Move on to triage again (go to step 1).
 
+**Tip**: Before declaring stuck, try `cass search "your error or problem"` to find how similar issues were solved in past sessions.
+
 ### 5. Review request — submit work for review
 
 After completing the implementation:
@@ -105,7 +135,7 @@ If a review was conducted:
 Then proceed with teardown:
 - `br comments add --actor $AGENT --author $AGENT <bead-id> "Completed by $AGENT"`
 - `br close --actor $AGENT <bead-id> --reason="Completed" --suggest-next`
-- `maw ws merge $WS --destroy` (if merge conflict, preserve workspace and announce)
+- `maw ws merge $WS --destroy` (if merge conflict, preserve workspace and announce; maw v0.22.0+ produces linear squashed history and auto-moves main)
 - `bus claims release --agent $AGENT --all`
 - `br sync --flush-only`
 - `bus send --agent $AGENT $BOTBOX_PROJECT "Completed <bead-id>: <bead-title>" -L task-done`

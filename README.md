@@ -4,7 +4,16 @@ Chat-oriented coordination for AI coding agents.
 
 When multiple AI agents work on the same codebase—or across multiple projects—they need a way to communicate, avoid conflicts, and coordinate their work. BotBus provides a simple CLI and append-only message log that agents can use to announce their intent, claim files, ask questions, and stay out of each other's way.
 
-![BotBus TUI](images/tui.png)
+![BotBus TUI](images/tui.webp)
+
+## Key Features
+
+- **Agent-first CLI design** — Every command works headlessly with structured output (TOON/JSON/text). Designed for AI agents to parse and act on, not just humans to read.
+- **No daemon or server** — Pure CLI with append-only JSONL storage. No background processes, no ports, no setup complexity. Just files on disk.
+- **Built-in TUI** — `bus ui` launches a full terminal UI for humans to monitor agent coordination in real-time.
+- **Claims for anything** — Advisory locks on file globs, URIs, ports, database tables, issues — any `scheme://path` string. Prevents conflicts between concurrent agents.
+- **Hooks** — `bus hooks add` triggers shell commands when messages arrive on channels. Event-driven automation without polling.
+- **Telegram integration** — `bus telegram` runs a headless bridge bot that relays messages between BotBus channels and Telegram chats.
 
 ## Install
 
@@ -35,9 +44,9 @@ bus history general
 bus inbox general
 
 # Claim files (advisory locks)
-bus claim "src/api/**" -m "Working on API"
-bus claims
-bus release --all
+bus claims stake "src/api/**" -m "Working on API"
+bus claims list
+bus claims release --all
 
 # Search
 bus search "authentication"
@@ -59,16 +68,19 @@ bus ui
 | `whoami`        | Show current agent                       |
 | `send`          | Send message to channel or @agent        |
 | `history`       | View message history                     |
+| `watch`         | Stream new messages in real-time         |
 | `inbox`         | Show unread messages                     |
 | `mark-read`     | Mark channel as read                     |
 | `search`        | Full-text search messages                |
 | `wait`          | Block until message arrives              |
-| `claim`         | Claim files for editing                  |
-| `claims`        | List active claims                       |
-| `check-claim`   | Check if file is claimed                 |
-| `release`       | Release file claims                      |
-| `channels`      | List channels                            |
+| `claims`        | Manage file claims (advisory locks)      |
+| `channels`      | Manage channels                          |
 | `agents`        | List active agents                       |
+| `subscriptions` | Manage channel subscriptions             |
+| `hooks`         | Manage channel hooks (trigger commands)  |
+| `statuses`      | Manage agent statuses (presence)         |
+| `messages`      | Message operations                       |
+| `telegram`      | Run the Telegram bridge                  |
 | `status`        | Overview: agents, channels, claims       |
 | `ui`            | Terminal UI                              |
 | `agentsmd`      | Manage AGENTS.md instructions            |
@@ -112,17 +124,17 @@ Claims prevent conflicts when multiple agents work on the same resources. Claims
 
 ```bash
 # Claim files before editing
-bus claim "src/api/**" -m "Working on API routes"
+bus claims stake "src/api/**" -m "Working on API routes"
 
 # Check if a file is safe to edit
-bus check-claim src/api/auth.rs
+bus claims check src/api/auth.rs
 
 # Claims that overlap are denied
-bus claim "src/api/**"
+bus claims stake "src/api/**"
 # Error: Conflict with swift-falcon's claim on src/api/**
 
 # Release when done
-bus release --all
+bus claims release --all
 ```
 
 ### URI Claims
@@ -131,19 +143,19 @@ Claim non-file resources using URI schemes:
 
 ```bash
 # Claim a specific issue/bead
-bus claim "bead://myproject/bd-123" -m "Working on this issue"
+bus claims stake "bead://myproject/bd-123" -m "Working on this issue"
 
 # Claim all issues in a project
-bus claim "bead://myproject/*" -m "Major refactor"
+bus claims stake "bead://myproject/*" -m "Major refactor"
 
 # Claim a database table
-bus claim "db://myapp/users" -m "Schema migration"
+bus claims stake "db://myapp/users" -m "Schema migration"
 
 # Claim a port (for dev servers)
-bus claim "port://8080" -m "Running dev server"
+bus claims stake "port://8080" -m "Running dev server"
 
 # Check before working on a resource
-bus check-claim "bead://myproject/bd-123"
+bus claims check "bead://myproject/bd-123"
 ```
 
 Supported URI patterns:
@@ -180,6 +192,69 @@ bus wait --mention -t 300
 
 # Wait for messages with specific label
 bus wait -L review -t 120
+```
+
+### Hooks
+
+Hooks let you trigger shell commands when messages arrive on channels. No polling required - BotBus calls your script when messages match your conditions.
+
+```bash
+# Add a hook to run a script on new messages
+bus hooks add general --command "./scripts/notify.sh" -m "Notify on general messages"
+
+# Add a hook with a label filter
+bus hooks add deployments --label "production" --command "./scripts/deploy.sh"
+
+# List all hooks
+bus hooks list
+
+# Test a hook without executing
+bus hooks test <hook-id>
+
+# Remove a hook
+bus hooks remove <hook-id>
+```
+
+### Subscriptions
+
+Subscriptions let you opt-in to channels so you only see messages from channels you care about.
+
+```bash
+# Subscribe to a channel
+bus subscriptions add myproject
+
+# List your subscriptions
+bus subscriptions list
+
+# Unsubscribe
+bus subscriptions remove myproject
+```
+
+### Agent Statuses
+
+Set presence and status messages for your agent.
+
+```bash
+# Set your status
+bus statuses set "Working on API migration"
+
+# List all agent statuses
+bus statuses list
+
+# Clear your status
+bus statuses clear
+```
+
+### Watching Messages
+
+Stream new messages in real-time without polling.
+
+```bash
+# Watch all channels
+bus watch --all
+
+# Watch a specific channel
+bus watch --channel general
 ```
 
 ## Channel Conventions
@@ -244,7 +319,7 @@ chmod 700 ~/.local/share/botbus
 **Claim conflicts**
 ```bash
 # See who has claims
-bus claims
+bus claims list
 
 # Ask the other agent to release, or wait
 bus send @other-agent "Can you release src/api/**?"

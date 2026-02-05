@@ -18,6 +18,7 @@ const POLL_TIMEOUT_SECS: u64 = 30;
 const SYNC_INTERVAL: Duration = Duration::from_secs(60);
 const WATCH_INTERVAL: Duration = Duration::from_millis(500);
 const TELEGRAM_MAX_CHARS: usize = 4000;
+const TELEGRAM_CAPTION_MAX_CHARS: usize = 1024;
 const SYSTEM_CHANNEL_PREFIX: char = '_';
 /// Maximum incoming message size (10KB) to prevent memory exhaustion
 const MAX_INCOMING_MESSAGE_LEN: usize = 10 * 1024;
@@ -589,17 +590,73 @@ async fn publish_message(
         return Ok(());
     }
 
-    // Send text message first
     let text = format_outbound_message(msg);
-    client.send_message(chat_id, Some(topic_id), &text).await?;
 
-    // Send file attachments as separate media messages
-    for attachment in &msg.attachments {
-        if let Err(err) = send_attachment_to_telegram(client, chat_id, topic_id, attachment).await {
+    // Count file attachments (inline/url attachments are embedded in text)
+    let file_attachments: Vec<_> = msg
+        .attachments
+        .iter()
+        .filter(|a| matches!(a.content, AttachmentContent::File { .. }))
+        .collect();
+
+    // If we have exactly 1 file attachment and text fits in caption limit,
+    // send the file with text as caption (single Telegram message)
+    if file_attachments.len() == 1 && text.chars().count() <= TELEGRAM_CAPTION_MAX_CHARS {
+        let attachment = file_attachments[0];
+        if let Err(err) =
+            send_attachment_with_caption(client, chat_id, topic_id, attachment, &text).await
+        {
             eprintln!(
-                "Failed to send attachment '{}' to Telegram: {err}",
+                "Failed to send attachment '{}' with caption to Telegram: {err}",
                 attachment.name
             );
+            // Fall back to separate messages
+            client.send_message(chat_id, Some(topic_id), &text).await?;
+            let _ = send_attachment_to_telegram(client, chat_id, topic_id, attachment, None).await;
+        }
+    } else if !file_attachments.is_empty() && text.chars().count() <= TELEGRAM_CAPTION_MAX_CHARS {
+        // Multiple file attachments: send first with caption, rest without
+        let first = file_attachments[0];
+        if let Err(err) =
+            send_attachment_with_caption(client, chat_id, topic_id, first, &text).await
+        {
+            eprintln!(
+                "Failed to send attachment '{}' with caption to Telegram: {err}",
+                first.name
+            );
+            // Fall back: send text separately, then all attachments
+            client.send_message(chat_id, Some(topic_id), &text).await?;
+            for attachment in &file_attachments {
+                let _ =
+                    send_attachment_to_telegram(client, chat_id, topic_id, attachment, None).await;
+            }
+        } else {
+            // First succeeded, send remaining attachments without caption
+            for attachment in file_attachments.iter().skip(1) {
+                if let Err(err) =
+                    send_attachment_to_telegram(client, chat_id, topic_id, attachment, None).await
+                {
+                    eprintln!(
+                        "Failed to send attachment '{}' to Telegram: {err}",
+                        attachment.name
+                    );
+                }
+            }
+        }
+    } else {
+        // No file attachments or text too long for caption: send text first
+        client.send_message(chat_id, Some(topic_id), &text).await?;
+
+        // Send file attachments as separate media messages
+        for attachment in &file_attachments {
+            if let Err(err) =
+                send_attachment_to_telegram(client, chat_id, topic_id, attachment, None).await
+            {
+                eprintln!(
+                    "Failed to send attachment '{}' to Telegram: {err}",
+                    attachment.name
+                );
+            }
         }
     }
 
@@ -644,12 +701,24 @@ fn format_outbound_message(msg: &Message) -> String {
     truncate_text(&text, TELEGRAM_MAX_CHARS)
 }
 
+/// Send attachment with a custom caption (used when combining text+file into one message).
+async fn send_attachment_with_caption(
+    client: &TelegramClient,
+    chat_id: i64,
+    thread_id: i64,
+    attachment: &Attachment,
+    caption: &str,
+) -> Result<()> {
+    send_attachment_to_telegram(client, chat_id, thread_id, attachment, Some(caption)).await
+}
+
 /// Send a single attachment to Telegram, routing by MIME type.
 async fn send_attachment_to_telegram(
     client: &TelegramClient,
     chat_id: i64,
     thread_id: i64,
     attachment: &Attachment,
+    caption: Option<&str>,
 ) -> Result<()> {
     match &attachment.content {
         AttachmentContent::File { path } => {
@@ -665,7 +734,8 @@ async fn send_attachment_to_telegram(
                 .map(|t| t.mime_type())
                 .unwrap_or("application/octet-stream");
 
-            let caption = Some(attachment.name.as_str());
+            // Use provided caption, or fall back to attachment name
+            let caption = caption.or(Some(attachment.name.as_str()));
 
             // Route based on MIME type
             match mime_type {
@@ -698,8 +768,9 @@ async fn send_attachment_to_telegram(
                 let tmp_dir = std::env::temp_dir();
                 let tmp_path = tmp_dir.join(&attachment.name);
                 std::fs::write(&tmp_path, content)?;
+                let caption = caption.or(Some(attachment.name.as_str()));
                 client
-                    .send_document(chat_id, Some(thread_id), &tmp_path, Some(&attachment.name))
+                    .send_document(chat_id, Some(thread_id), &tmp_path, caption)
                     .await?;
                 let _ = std::fs::remove_file(&tmp_path);
             }

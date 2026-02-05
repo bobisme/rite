@@ -84,15 +84,26 @@ impl IndexSyncer {
     }
 
     /// Rebuild the entire index from scratch.
+    ///
+    /// This performs a full rebuild:
+    /// 1. Reads all messages from all JSONL files
+    /// 2. Deduplicates by message ID (ULID)
+    /// 3. Sorts by ULID (chronological order)
+    /// 4. Clears existing FTS tables
+    /// 5. Bulk inserts into FTS index using transactions
     pub fn rebuild(&mut self) -> Result<SyncStats> {
-        // Reset all offsets
+        use std::collections::HashMap;
+
         let channels = channels_dir();
 
         if !channels.exists() {
             return Ok(SyncStats::default());
         }
 
-        // Reset offsets and re-sync
+        let mut stats = SyncStats::default();
+        let mut messages_by_id: HashMap<String, Message> = HashMap::new();
+
+        // 1. Read all messages from all JSONL files
         for entry in std::fs::read_dir(&channels)? {
             let entry = entry?;
             let path = entry.path();
@@ -100,11 +111,50 @@ impl IndexSyncer {
             if path.extension().is_some_and(|ext| ext == "jsonl")
                 && let Some(channel) = path.file_stem().and_then(|s| s.to_str())
             {
-                self.index.set_sync_offset(channel, 0)?;
+                stats.channels_synced += 1;
+
+                // Read all messages from this channel
+                match crate::storage::jsonl::read_records::<Message>(&path) {
+                    Ok(messages) => {
+                        // 2. Deduplicate by message ID
+                        for msg in messages {
+                            messages_by_id.insert(msg.id.to_string(), msg);
+                        }
+                    }
+                    Err(e) => {
+                        stats.errors.push(format!("{}: {}", channel, e));
+                    }
+                }
             }
         }
 
-        self.sync_all()
+        // 3. Sort by ULID (chronological order)
+        let mut messages: Vec<Message> = messages_by_id.into_values().collect();
+        messages.sort_by_key(|m| m.id);
+
+        // 4. Clear existing FTS tables
+        self.index.clear()?;
+
+        // 5. Bulk insert into FTS index
+        let count = self.index.index_messages(&messages)?;
+        stats.messages_indexed = count;
+
+        // Update sync offsets to the end of each file
+        for entry in std::fs::read_dir(&channels)? {
+            let entry = entry?;
+            let path = entry.path();
+
+            if path.extension().is_some_and(|ext| ext == "jsonl")
+                && let Some(channel) = path.file_stem().and_then(|s| s.to_str())
+            {
+                // Get the file size as the new offset
+                let metadata = std::fs::metadata(&path)?;
+                let offset = metadata.len();
+                self.index.set_sync_offset(channel, offset)?;
+            }
+        }
+
+        Ok(stats)
     }
 }
 

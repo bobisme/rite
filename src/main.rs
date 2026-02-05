@@ -316,5 +316,13 @@ fn main() -> Result<()> {
                 }
             }
         }
+
+        Commands::Index { command } => {
+            use cli::IndexCommands;
+            match command {
+                IndexCommands::Rebuild { if_needed } => cli::index::rebuild(if_needed),
+                IndexCommands::Status => cli::index::status(),
+            }
+        }
     }
 }

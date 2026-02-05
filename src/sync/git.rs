@@ -201,7 +201,9 @@ pub fn push(data_dir: &Path) -> Result<()> {
 }
 
 /// Pull and merge changes from remote.
-pub fn pull(data_dir: &Path) -> Result<()> {
+///
+/// Returns true if changes were pulled and merged, false if already up to date.
+pub fn pull(data_dir: &Path) -> Result<bool> {
     if !is_git_repo(data_dir) {
         bail!("Not a git repository. Run 'bus sync init' first.");
     }
@@ -218,17 +220,23 @@ pub fn pull(data_dir: &Path) -> Result<()> {
     }
 
     // Merge with union strategy (configured in .gitattributes)
-    let status = Command::new("git")
+    let output = Command::new("git")
         .current_dir(data_dir)
         .args(["merge", "origin/main"])
-        .status()
+        .output()
         .context("Failed to run git merge")?;
 
-    if !status.success() {
+    if !output.status.success() {
         bail!("git merge failed. You may need to resolve conflicts manually.");
     }
 
-    Ok(())
+    // Check if merge actually changed anything
+    // If output contains "Already up to date", no changes were pulled
+    let output_str = String::from_utf8_lossy(&output.stdout);
+    let changed =
+        !output_str.contains("Already up to date") && !output_str.contains("Already up-to-date");
+
+    Ok(changed)
 }
 
 /// Get git status (staged, unstaged, ahead/behind).

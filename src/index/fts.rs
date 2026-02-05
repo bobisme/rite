@@ -183,6 +183,14 @@ impl SearchIndex {
             .query_row("SELECT COUNT(*) FROM messages_fts", [], |row| row.get(0))?;
         Ok(count as usize)
     }
+
+    /// Clear all messages from the FTS index.
+    pub fn clear(&self) -> Result<()> {
+        self.conn
+            .execute("DELETE FROM messages_fts", [])
+            .with_context(|| "Failed to clear FTS index")?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]

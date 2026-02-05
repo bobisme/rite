@@ -63,12 +63,41 @@ pub fn pull() -> Result<()> {
 
     println!("{} Pulling from remote...", "Sync:".cyan());
 
-    git::pull(&dir)?;
+    let changed = git::pull(&dir)?;
 
     println!("{} Pulled from remote", "Success:".green());
-    println!();
-    println!("Note: SQLite index may be out of sync. Index rebuild is not yet implemented.");
-    println!("      (This will be added in Phase 2)");
+
+    // Auto-rebuild index if JSONL files changed
+    if changed {
+        println!();
+        println!("{} Rebuilding search index...", "Sync:".cyan());
+
+        match crate::index::IndexSyncer::new() {
+            Ok(mut syncer) => match syncer.rebuild() {
+                Ok(stats) => {
+                    println!("{} Index rebuilt", "Success:".green());
+                    println!("  - Channels synced: {}", stats.channels_synced);
+                    println!("  - Messages indexed: {}", stats.messages_indexed);
+
+                    if !stats.errors.is_empty() {
+                        println!();
+                        println!("{} Index errors:", "Warning:".yellow());
+                        for err in &stats.errors {
+                            println!("  - {}", err);
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{} Failed to rebuild index: {}", "Warning:".yellow(), e);
+                    eprintln!("  You can manually rebuild with: bus index rebuild");
+                }
+            },
+            Err(e) => {
+                eprintln!("{} Failed to open index: {}", "Warning:".yellow(), e);
+                eprintln!("  You can manually rebuild with: bus index rebuild");
+            }
+        }
+    }
 
     Ok(())
 }

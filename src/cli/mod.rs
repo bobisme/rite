@@ -10,6 +10,7 @@ pub mod format;
 pub mod history;
 pub mod hooks;
 pub mod inbox;
+pub mod index;
 pub mod init;
 pub mod mark_read;
 pub mod messages;
@@ -324,6 +325,12 @@ pub enum Commands {
         #[command(subcommand)]
         command: Option<SyncCommands>,
     },
+
+    /// Manage search index
+    Index {
+        #[command(subcommand)]
+        command: IndexCommands,
+    },
 }
 
 #[derive(Subcommand)]
@@ -569,5 +576,18 @@ pub enum SyncCommands {
     Pull,
 
     /// Show git status (uncommitted changes, ahead/behind)
+    Status,
+}
+
+#[derive(Subcommand)]
+pub enum IndexCommands {
+    /// Rebuild the search index from JSONL files
+    Rebuild {
+        /// Only rebuild if JSONL files are newer than index
+        #[arg(long)]
+        if_needed: bool,
+    },
+
+    /// Show index status (whether rebuild is needed)
     Status,
 }

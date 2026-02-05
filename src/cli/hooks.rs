@@ -1,7 +1,7 @@
 //! Channel hooks — trigger commands when messages are sent to channels.
 
 use anyhow::{Context, Result, bail};
-use chrono::Utc;
+use chrono::{DateTime, Utc};
 use colored::Colorize;
 use serde::Serialize;
 use std::collections::HashMap;
@@ -395,29 +395,27 @@ fn build_active_hooks(all_hooks: &[Hook]) -> HashMap<String, Hook> {
     map
 }
 
+/// Check if a pattern is held by any active claim in the given claims list.
+/// This properly deduplicates claims by ID (latest state wins) before checking.
+fn is_pattern_held(pattern: &str, existing_claims: &[FileClaim], now: DateTime<Utc>) -> bool {
+    // Build active claims map (latest state per ID wins)
+    let mut active: HashMap<ulid::Ulid, &FileClaim> = HashMap::new();
+    for claim in existing_claims {
+        active.insert(claim.id, claim);
+    }
+
+    // Check if ANY active, non-expired claim holds this exact pattern
+    active.values().any(|claim| {
+        claim.active && claim.expires_at > now && claim.patterns.iter().any(|p| p == pattern)
+    })
+}
+
 /// Check if a claim pattern has NO active holder.
 /// Returns true if the pattern is available (no one holds it).
 fn is_claim_available(pattern: &str) -> Result<bool> {
     let all_claims: Vec<FileClaim> = read_records(&claims_path()).unwrap_or_default();
     let now = Utc::now();
-
-    // Build active claims map (latest state per ID wins)
-    let mut active: HashMap<ulid::Ulid, FileClaim> = HashMap::new();
-    for claim in all_claims {
-        active.insert(claim.id, claim);
-    }
-
-    // Check if ANY active, non-expired claim holds this exact pattern
-    for claim in active.values() {
-        if !claim.active || claim.expires_at < now {
-            continue;
-        }
-        if claim.patterns.iter().any(|p| p == pattern) {
-            return Ok(false); // Someone holds it
-        }
-    }
-
-    Ok(true) // No one holds it — available
+    Ok(!is_pattern_held(pattern, &all_claims, now))
 }
 
 /// Evaluate a hook condition.
@@ -527,12 +525,8 @@ fn evaluate_hooks_inner(
                         // Atomic check-and-stake: only append if pattern is still available
                         let acquired = append_if(&claims_path(), &c, |existing_claims| {
                             let now = Utc::now();
-                            // Check if ANY active, non-expired claim holds this pattern
-                            !existing_claims.iter().any(|claim: &FileClaim| {
-                                claim.active
-                                    && claim.expires_at > now
-                                    && claim.patterns.iter().any(|p| p == &pattern_clone)
-                            })
+                            // Check if pattern is available (properly deduplicates by claim ID)
+                            !is_pattern_held(&pattern_clone, existing_claims, now)
                         })
                         .unwrap_or(false);
 
@@ -559,11 +553,8 @@ fn evaluate_hooks_inner(
                         // Atomic check-and-stake
                         let acquired = append_if(&claims_path(), &c, |existing_claims| {
                             let now = Utc::now();
-                            !existing_claims.iter().any(|claim: &FileClaim| {
-                                claim.active
-                                    && claim.expires_at > now
-                                    && claim.patterns.iter().any(|p| p == &pattern_clone)
-                            })
+                            // Check if pattern is available (properly deduplicates by claim ID)
+                            !is_pattern_held(&pattern_clone, existing_claims, now)
                         })
                         .unwrap_or(false);
 
@@ -634,14 +625,10 @@ fn evaluate_hooks_inner(
                             let c = FileClaim::new(claim_agent, vec![claim_pattern.clone()], ttl);
                             let pattern_for_check = claim_pattern.clone();
 
-                            // Atomic check-and-stake
+                            // Atomic check-and-stake (properly deduplicates by claim ID)
                             let acquired = append_if(&claims_path(), &c, |existing_claims| {
                                 let now = Utc::now();
-                                !existing_claims.iter().any(|claim: &FileClaim| {
-                                    claim.active
-                                        && claim.expires_at > now
-                                        && claim.patterns.iter().any(|p| p == &pattern_for_check)
-                                })
+                                !is_pattern_held(&pattern_for_check, existing_claims, now)
                             })
                             .unwrap_or(false);
 
@@ -666,13 +653,10 @@ fn evaluate_hooks_inner(
                             let c = FileClaim::new(claim_agent, vec![claim_pattern.clone()], 86400);
                             let pattern_for_check = claim_pattern.clone();
 
+                            // Atomic check-and-stake (properly deduplicates by claim ID)
                             let acquired = append_if(&claims_path(), &c, |existing_claims| {
                                 let now = Utc::now();
-                                !existing_claims.iter().any(|claim: &FileClaim| {
-                                    claim.active
-                                        && claim.expires_at > now
-                                        && claim.patterns.iter().any(|p| p == &pattern_for_check)
-                                })
+                                !is_pattern_held(&pattern_for_check, existing_claims, now)
                             })
                             .unwrap_or(false);
 

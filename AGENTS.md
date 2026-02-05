@@ -86,6 +86,7 @@ Channel names: lowercase alphanumeric with hyphens (e.g., `my-channel`, not `my.
 ### Message Conventions
 
 Keep messages concise and actionable:
+
 - "Starting work on bd-xyz: Add foo feature"
 - "Blocked: need database credentials to proceed"
 - "Question: should auth middleware go in src/api or src/auth?"
@@ -109,6 +110,7 @@ bus wait --mention -t 120
 BotBus outputs are designed to be parsed by AI agents. Commands default to TOON format (token-efficient key-value structure) and support `--format json` and `--format text`.
 
 **For detailed guidance on interpreting command output**, see [.agents/cli-output.md](.agents/cli-output.md), which covers:
+
 - Output format differences (TOON, JSON, Text)
 - Common field meanings and what actions they suggest
 - Time specifications (relative like "2h ago", absolute like "2026-01-30")
@@ -174,14 +176,14 @@ jj git push
 
 #### Quick Reference
 
-| Task | Command |
-|------|---------|
-| See current state | `jj log --limit 5` |
-| Commit changes | `jj commit -m "message"` |
-| Move main to last commit | `jj bookmark set main -r @-` |
-| Push to GitHub | `jj git push` (output looks like preview but actually pushes!) |
-| Verify push succeeded | `git log origin/main --oneline -1` |
-| Sync from GitHub | `jj git fetch` then `jj rebase -d main@origin` |
+| Task                     | Command                                                        |
+| ------------------------ | -------------------------------------------------------------- |
+| See current state        | `jj log --limit 5`                                             |
+| Commit changes           | `jj commit -m "message"`                                       |
+| Move main to last commit | `jj bookmark set main -r @-`                                   |
+| Push to GitHub           | `jj git push` (output looks like preview but actually pushes!) |
+| Verify push succeeded    | `git log origin/main --oneline -1`                             |
+| Sync from GitHub         | `jj git fetch` then `jj rebase -d main@origin`                 |
 
 ### Commit Conventions
 
@@ -202,6 +204,7 @@ Co-Authored-By: Claude <noreply@anthropic.com>
 **Always include** the `Co-Authored-By` trailer when AI assists with commits.
 
 Examples:
+
 - `feat(tui): add mouse support and help overlay`
 - `fix(storage): hold lock across read-modify-write in state update`
 - `docs: update README with new screenshot`
@@ -308,21 +311,21 @@ just install
 # Verify
 bus --version
 
-# Announce on botbus
-bus --agent <your-agent> send bus"Released vX.Y.Z - [summary of changes]"
+# Announce on botbus using --no-hooks
+bus --agent <your-agent> send --no-hooks botbus "Released vX.Y.Z - [summary of changes]"
 ```
 
 ### Quick Reference
 
-| Stage | Key Commands |
-|-------|--------------|
-| Start feature | `jj new -m "wip: ..."` then `jj bookmark create name` |
-| Create review | `crit reviews create --title "..."` |
-| View threads | `crit threads list <review_id>` |
-| Respond | `crit comments add <thread_id> "..."` |
-| Resolve | `crit threads resolve <thread_id> --reason "..."` |
-| Approve/merge | `crit reviews approve <id> && crit reviews merge <id>` |
-| Release | bump version -> `jj bookmark set main` -> push -> tag -> `just install` |
+| Stage         | Key Commands                                                            |
+| ------------- | ----------------------------------------------------------------------- |
+| Start feature | `jj new -m "wip: ..."` then `jj bookmark create name`                   |
+| Create review | `crit reviews create --title "..."`                                     |
+| View threads  | `crit threads list <review_id>`                                         |
+| Respond       | `crit comments add <thread_id> "..."`                                   |
+| Resolve       | `crit threads resolve <thread_id> --reason "..."`                       |
+| Approve/merge | `crit reviews approve <id> && crit reviews merge <id>`                  |
+| Release       | bump version -> `jj bookmark set main` -> push -> tag -> `just install` |
 
 ---
 
@@ -363,6 +366,7 @@ git add .beads/ && git commit -m "Update beads" && git push  # Manual git steps
 #### Issue Quality
 
 When creating or updating issues, always include:
+
 - **Description**: What the issue is about, context, and acceptance criteria
 - **Labels**: Use `--add-label` to categorize (e.g., `cli`, `agent-ux`, `data-model`, `bug`, `enhancement`)
 
@@ -442,6 +446,7 @@ Integration tests use **isolated temp directories** to avoid touching real data 
 **Key mechanism**: Set `BOTBUS_DATA_DIR` to a temp directory. All botbus commands will use that directory instead of the default location.
 
 **Test harness** (`tests/common/mod.rs`):
+
 - `TestProject::new()` — creates a temp dir, sets up `data/` and `project/` subdirectories
 - `project.agent("name")` — returns an `Agent` handle that runs commands with `BOTBUS_DATA_DIR` and `BOTBUS_AGENT` set
 - `agent.run(&["send", "general", "hello"])` — runs any botbus command in isolation
@@ -491,8 +496,8 @@ When making visual changes to the TUI, update the README screenshot:
 
 Requires: Hyprland, kitty, grim, pngquant. The script spawns a floating window, captures it, and compresses the image.
 
-
 <!-- botbox:managed-start -->
+
 ## Botbox Workflow
 
 **New here?** Read [worker-loop.md](.agents/botbox/worker-loop.md) first — it covers the complete triage → start → work → finish cycle.
@@ -501,37 +506,38 @@ Requires: Hyprland, kitty, grim, pngquant. The script spawns a floating window, 
 
 ### Beads Quick Reference
 
-| Operation | Command |
-|-----------|---------|
-| View ready work | `br ready` |
-| Show bead | `br show <id>` |
-| Create | `br create --actor $AGENT --owner $AGENT --title="..." --type=task --priority=2` |
-| Start work | `br update --actor $AGENT <id> --status=in_progress` |
-| Add comment | `br comments add --actor $AGENT --author $AGENT <id> "message"` |
-| Close | `br close --actor $AGENT <id>` |
-| Add dependency | `br dep add --actor $AGENT <blocked> <blocker>` |
-| Sync | `br sync --flush-only` |
+| Operation       | Command                                                                          |
+| --------------- | -------------------------------------------------------------------------------- |
+| View ready work | `br ready`                                                                       |
+| Show bead       | `br show <id>`                                                                   |
+| Create          | `br create --actor $AGENT --owner $AGENT --title="..." --type=task --priority=2` |
+| Start work      | `br update --actor $AGENT <id> --status=in_progress`                             |
+| Add comment     | `br comments add --actor $AGENT --author $AGENT <id> "message"`                  |
+| Close           | `br close --actor $AGENT <id>`                                                   |
+| Add dependency  | `br dep add --actor $AGENT <blocked> <blocker>`                                  |
+| Sync            | `br sync --flush-only`                                                           |
 
 **Required flags**: `--actor $AGENT` on mutations, `--author $AGENT` on comments.
 
 ### Workspace Quick Reference
 
-| Operation | Command |
-|-----------|---------|
-| Create workspace | `maw ws create <name>` |
-| List workspaces | `maw ws list` |
-| Merge to main | `maw ws merge <name> --destroy` |
-| Destroy (no merge) | `maw ws destroy <name>` |
+| Operation           | Command                         |
+| ------------------- | ------------------------------- |
+| Create workspace    | `maw ws create <name>`          |
+| List workspaces     | `maw ws list`                   |
+| Merge to main       | `maw ws merge <name> --destroy` |
+| Destroy (no merge)  | `maw ws destroy <name>`         |
 | Run jj in workspace | `maw ws jj <name> <jj-args...>` |
 
 **Avoiding divergent commits**: Each workspace owns ONE commit. Only modify your own.
 
-| Safe | Dangerous |
-|------|-----------|
-| `jj describe` (your working copy) | `jj describe main -m "..."` |
+| Safe                                    | Dangerous                       |
+| --------------------------------------- | ------------------------------- |
+| `jj describe` (your working copy)       | `jj describe main -m "..."`     |
 | `maw ws jj <your-ws> describe -m "..."` | `jj describe <other-change-id>` |
 
 If you see `(divergent)` in `jj log`:
+
 ```bash
 jj abandon <change-id>/0   # keep one, abandon the divergent copy
 ```
@@ -581,7 +587,6 @@ This includes: bugs, feature requests, confusion about APIs, UX problems, or jus
 ### Session Search (optional)
 
 Use `cass search "error or problem"` to find how similar issues were solved in past sessions.
-
 
 ### Design Guidelines
 

@@ -14,6 +14,7 @@ use super::format::to_toon;
 use crate::core::identity::resolve_agent;
 use crate::core::names::is_valid_name;
 use crate::core::project::{channels_dir, claims_path, data_dir, index_path, state_path};
+use crate::sync::git;
 
 /// A single check result.
 #[derive(Debug, Clone, Serialize)]
@@ -90,6 +91,9 @@ pub fn run(format: OutputFormat) -> Result<()> {
 
     // Check 7: Data directory permissions (security)
     check_permissions(&mut report);
+
+    // Check 8: Git availability (for sync features)
+    check_git_available(&mut report);
 
     match format {
         OutputFormat::Json => {
@@ -323,6 +327,26 @@ fn is_writable(path: &Path) -> bool {
             (mode & 0o200) != 0 || (mode & 0o020) != 0 || (mode & 0o002) != 0
         }
         Err(_) => false,
+    }
+}
+
+fn check_git_available(report: &mut DoctorReport) {
+    if git::check_git_available() {
+        report.add(Check {
+            name: "git_available".to_string(),
+            status: CheckStatus::Pass,
+            message: "Git is installed and available".to_string(),
+            suggestion: None,
+        });
+    } else {
+        report.add(Check {
+            name: "git_available".to_string(),
+            status: CheckStatus::Warn,
+            message: "Git is not installed or not in PATH".to_string(),
+            suggestion: Some(
+                "Install git to use sync features (bus sync init/push/pull)".to_string(),
+            ),
+        });
     }
 }
 

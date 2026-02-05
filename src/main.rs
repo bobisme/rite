@@ -309,7 +309,9 @@ fn main() -> Result<()> {
                 Some(SyncCommands::Init { remote }) => cli::sync::init(remote.clone()),
                 Some(SyncCommands::Push) => cli::sync::push(),
                 Some(SyncCommands::Pull) => cli::sync::pull(),
-                Some(SyncCommands::Status) => cli::sync::status(),
+                Some(SyncCommands::Status) => cli::sync::status(format),
+                Some(SyncCommands::Log { count }) => cli::sync::log(*count, format),
+                Some(SyncCommands::Check) => cli::sync::check(format),
                 None => {
                     // Default: push
                     cli::sync::push()

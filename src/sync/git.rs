@@ -183,18 +183,48 @@ pub fn commit_files(data_dir: &Path, files: &[&str], message: &str) -> Result<()
 
 /// Push local commits to remote.
 pub fn push(data_dir: &Path) -> Result<()> {
+    if !check_git_available() {
+        bail!("git is not installed or not in PATH. Please install git to use sync features.");
+    }
+
     if !is_git_repo(data_dir) {
         bail!("Not a git repository. Run 'bus sync init' first.");
     }
 
-    let status = Command::new("git")
+    // Check if remote is configured
+    let remote_check = Command::new("git")
+        .current_dir(data_dir)
+        .args(["remote", "get-url", "origin"])
+        .output();
+
+    if remote_check.is_err() || !remote_check.as_ref().unwrap().status.success() {
+        bail!(
+            "No remote configured. Add a remote with: cd {} && git remote add origin <url>",
+            data_dir.display()
+        );
+    }
+
+    let output = Command::new("git")
         .current_dir(data_dir)
         .args(["push", "origin", "main"])
-        .status()
+        .output()
         .context("Failed to run git push")?;
 
-    if !status.success() {
-        bail!("git push failed. Check your network connection and remote configuration.");
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        // Provide helpful error messages based on git output
+        if stderr.contains("Could not resolve host") || stderr.contains("unable to access") {
+            bail!(
+                "Network error: Could not reach remote server. Check your internet connection and try again."
+            );
+        } else if stderr.contains("authentication failed") || stderr.contains("Permission denied") {
+            bail!("Authentication failed. Check your credentials or SSH keys.");
+        } else if stderr.contains("rejected") {
+            bail!("Push rejected. Try pulling first with 'bus sync pull'.");
+        } else {
+            bail!("git push failed: {}", stderr.trim());
+        }
     }
 
     Ok(())
@@ -204,19 +234,46 @@ pub fn push(data_dir: &Path) -> Result<()> {
 ///
 /// Returns true if changes were pulled and merged, false if already up to date.
 pub fn pull(data_dir: &Path) -> Result<bool> {
+    if !check_git_available() {
+        bail!("git is not installed or not in PATH. Please install git to use sync features.");
+    }
+
     if !is_git_repo(data_dir) {
         bail!("Not a git repository. Run 'bus sync init' first.");
     }
 
+    // Check if remote is configured
+    let remote_check = Command::new("git")
+        .current_dir(data_dir)
+        .args(["remote", "get-url", "origin"])
+        .output();
+
+    if remote_check.is_err() || !remote_check.as_ref().unwrap().status.success() {
+        bail!(
+            "No remote configured. Add a remote with: cd {} && git remote add origin <url>",
+            data_dir.display()
+        );
+    }
+
     // Fetch from remote
-    let status = Command::new("git")
+    let fetch_output = Command::new("git")
         .current_dir(data_dir)
         .args(["fetch", "origin"])
-        .status()
+        .output()
         .context("Failed to run git fetch")?;
 
-    if !status.success() {
-        bail!("git fetch failed. Check your network connection.");
+    if !fetch_output.status.success() {
+        let stderr = String::from_utf8_lossy(&fetch_output.stderr);
+
+        if stderr.contains("Could not resolve host") || stderr.contains("unable to access") {
+            bail!(
+                "Network error: Could not reach remote server. Check your internet connection and try again."
+            );
+        } else if stderr.contains("authentication failed") || stderr.contains("Permission denied") {
+            bail!("Authentication failed. Check your credentials or SSH keys.");
+        } else {
+            bail!("git fetch failed: {}", stderr.trim());
+        }
     }
 
     // Merge with union strategy (configured in .gitattributes)
@@ -227,7 +284,23 @@ pub fn pull(data_dir: &Path) -> Result<bool> {
         .context("Failed to run git merge")?;
 
     if !output.status.success() {
-        bail!("git merge failed. You may need to resolve conflicts manually.");
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+
+        if stderr.contains("CONFLICT") || stdout.contains("CONFLICT") {
+            // Abort the merge to leave repo in clean state
+            let _ = Command::new("git")
+                .current_dir(data_dir)
+                .args(["merge", "--abort"])
+                .status();
+
+            bail!(
+                "Merge conflict detected. The merge has been aborted.\nPlease resolve conflicts manually:\n  cd {}\n  git merge origin/main\n  # resolve conflicts\n  git commit",
+                data_dir.display()
+            );
+        } else {
+            bail!("git merge failed: {}", stderr.trim());
+        }
     }
 
     // Check if merge actually changed anything
@@ -257,6 +330,131 @@ pub fn status(data_dir: &Path) -> Result<String> {
     }
 
     Ok(String::from_utf8_lossy(&output.stdout).to_string())
+}
+
+/// Get detailed status info (uncommitted changes, ahead/behind, remote).
+#[derive(Debug, serde::Serialize)]
+pub struct StatusInfo {
+    pub uncommitted_changes: usize,
+    pub ahead: usize,
+    pub behind: usize,
+    pub remote_url: Option<String>,
+    pub is_git_repo: bool,
+    pub has_conflicts: bool,
+}
+
+pub fn get_status_info(data_dir: &Path) -> Result<StatusInfo> {
+    if !is_git_repo(data_dir) {
+        return Ok(StatusInfo {
+            uncommitted_changes: 0,
+            ahead: 0,
+            behind: 0,
+            remote_url: None,
+            is_git_repo: false,
+            has_conflicts: false,
+        });
+    }
+
+    // Count uncommitted changes
+    let status_output = Command::new("git")
+        .current_dir(data_dir)
+        .args(["status", "--short"])
+        .output()
+        .context("Failed to run git status")?;
+
+    let uncommitted_changes = String::from_utf8_lossy(&status_output.stdout)
+        .lines()
+        .count();
+
+    // Check for merge conflicts
+    let has_conflicts = String::from_utf8_lossy(&status_output.stdout)
+        .lines()
+        .any(|line| line.starts_with("UU ") || line.starts_with("AA ") || line.starts_with("DD "));
+
+    // Get ahead/behind counts
+    let rev_list_output = Command::new("git")
+        .current_dir(data_dir)
+        .args(["rev-list", "--left-right", "--count", "origin/main...HEAD"])
+        .output();
+
+    let (behind, ahead) = if let Ok(output) = rev_list_output {
+        let output_str = String::from_utf8_lossy(&output.stdout);
+        let parts: Vec<&str> = output_str.split_whitespace().collect();
+        if parts.len() == 2 {
+            (parts[0].parse().unwrap_or(0), parts[1].parse().unwrap_or(0))
+        } else {
+            (0, 0)
+        }
+    } else {
+        (0, 0)
+    };
+
+    // Get remote URL
+    let remote_output = Command::new("git")
+        .current_dir(data_dir)
+        .args(["remote", "get-url", "origin"])
+        .output();
+
+    let remote_url = if let Ok(output) = remote_output
+        && output.status.success()
+    {
+        let url = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if url.is_empty() { None } else { Some(url) }
+    } else {
+        None
+    };
+
+    Ok(StatusInfo {
+        uncommitted_changes,
+        ahead,
+        behind,
+        remote_url,
+        is_git_repo: true,
+        has_conflicts,
+    })
+}
+
+/// Get recent git log entries.
+#[derive(Debug, serde::Serialize)]
+pub struct LogEntry {
+    pub hash: String,
+    pub date: String,
+    pub message: String,
+}
+
+pub fn get_log(data_dir: &Path, count: usize) -> Result<Vec<LogEntry>> {
+    if !is_git_repo(data_dir) {
+        bail!("Not a git repository. Run 'bus sync init' first.");
+    }
+
+    let output = Command::new("git")
+        .current_dir(data_dir)
+        .args(["log", &format!("-n{}", count), "--pretty=format:%h|%ai|%s"])
+        .output()
+        .context("Failed to run git log")?;
+
+    if !output.status.success() {
+        bail!("git log failed");
+    }
+
+    let log_output = String::from_utf8_lossy(&output.stdout);
+    let entries: Vec<LogEntry> = log_output
+        .lines()
+        .filter_map(|line| {
+            let parts: Vec<&str> = line.splitn(3, '|').collect();
+            if parts.len() == 3 {
+                Some(LogEntry {
+                    hash: parts[0].to_string(),
+                    date: parts[1].to_string(),
+                    message: parts[2].to_string(),
+                })
+            } else {
+                None
+            }
+        })
+        .collect();
+
+    Ok(entries)
 }
 
 #[cfg(test)]

@@ -577,6 +577,16 @@ pub enum SyncCommands {
 
     /// Show git status (uncommitted changes, ahead/behind)
     Status,
+
+    /// Show recent git commits in the data directory
+    Log {
+        /// Number of commits to show (default: 10)
+        #[arg(short = 'n', long, default_value = "10")]
+        count: usize,
+    },
+
+    /// Check sync repository health
+    Check,
 }
 
 #[derive(Subcommand)]

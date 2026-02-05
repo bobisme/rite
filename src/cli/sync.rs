@@ -2,7 +2,10 @@
 
 use anyhow::Result;
 use colored::Colorize;
+use serde::Serialize;
 
+use super::OutputFormat;
+use super::format::{to_toon, to_toon_list};
 use crate::core::project::data_dir;
 use crate::sync::git;
 
@@ -103,16 +106,312 @@ pub fn pull() -> Result<()> {
 }
 
 /// Show git status.
-pub fn status() -> Result<()> {
+pub fn status(format: OutputFormat) -> Result<()> {
     let dir = data_dir();
 
-    let status_output = git::status(&dir)?;
+    let info = git::get_status_info(&dir)?;
 
-    println!("{}", "Git Status:".bold());
-    println!();
-    print!("{}", status_output);
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&info)?);
+        }
+        OutputFormat::Toon => {
+            println!("{}", to_toon(&info));
+        }
+        OutputFormat::Text => {
+            if !info.is_git_repo {
+                println!("{}", "Git Status:".bold());
+                println!();
+                println!("{} Not a git repository", "Status:".yellow());
+                println!("  Run: bus sync init");
+                return Ok(());
+            }
+
+            println!("{}", "Git Status:".bold());
+            println!();
+
+            // Remote info
+            if let Some(ref url) = info.remote_url {
+                println!("{} {}", "Remote:".cyan(), url);
+            } else {
+                println!("{} Not configured", "Remote:".yellow());
+            }
+
+            // Uncommitted changes
+            if info.uncommitted_changes > 0 {
+                println!(
+                    "{} {} file(s)",
+                    "Uncommitted:".yellow(),
+                    info.uncommitted_changes
+                );
+            } else {
+                println!("{} None", "Uncommitted:".green());
+            }
+
+            // Ahead/behind
+            if info.ahead > 0 || info.behind > 0 {
+                println!(
+                    "{} {} ahead, {} behind",
+                    "Sync:".cyan(),
+                    info.ahead,
+                    info.behind
+                );
+
+                if info.ahead > 0 {
+                    println!("  → Run: bus sync push");
+                }
+                if info.behind > 0 {
+                    println!("  → Run: bus sync pull");
+                }
+            } else if info.remote_url.is_some() {
+                println!("{} Up to date with remote", "Sync:".green());
+            }
+
+            // Conflicts
+            if info.has_conflicts {
+                println!(
+                    "{} Merge conflicts detected!",
+                    "Conflicts:".red().bold()
+                );
+            }
+        }
+    }
 
     Ok(())
+}
+
+/// Show recent git log entries.
+pub fn log(count: usize, format: OutputFormat) -> Result<()> {
+    let dir = data_dir();
+
+    let entries = git::get_log(&dir, count)?;
+
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&entries)?);
+        }
+        OutputFormat::Toon => {
+            println!("{}", to_toon_list(&entries));
+        }
+        OutputFormat::Text => {
+            println!("{}", "Recent Sync Commits:".bold());
+            println!();
+
+            if entries.is_empty() {
+                println!("No commits yet");
+                return Ok(());
+            }
+
+            for entry in entries {
+                println!(
+                    "{} {} {}",
+                    entry.hash.yellow(),
+                    entry.date.dimmed(),
+                    entry.message
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Check sync repository health.
+#[derive(Debug, Serialize)]
+pub struct SyncCheckResult {
+    pub is_git_repo: bool,
+    pub git_available: bool,
+    pub uncommitted_changes: usize,
+    pub has_conflicts: bool,
+    pub remote_configured: bool,
+    pub index_up_to_date: bool,
+    pub ahead: usize,
+    pub behind: usize,
+    pub healthy: bool,
+}
+
+pub fn check(format: OutputFormat) -> Result<()> {
+    let dir = data_dir();
+
+    let git_available = git::check_git_available();
+    let is_git_repo = git::is_git_repo(&dir);
+
+    let info = if is_git_repo {
+        git::get_status_info(&dir)?
+    } else {
+        git::StatusInfo {
+            uncommitted_changes: 0,
+            ahead: 0,
+            behind: 0,
+            remote_url: None,
+            is_git_repo: false,
+            has_conflicts: false,
+        }
+    };
+
+    // Check if index needs rebuild (reuse logic from index.rs)
+    let index_up_to_date = check_index_up_to_date();
+
+    let result = SyncCheckResult {
+        is_git_repo,
+        git_available,
+        uncommitted_changes: info.uncommitted_changes,
+        has_conflicts: info.has_conflicts,
+        remote_configured: info.remote_url.is_some(),
+        index_up_to_date,
+        ahead: info.ahead,
+        behind: info.behind,
+        healthy: git_available
+            && is_git_repo
+            && !info.has_conflicts
+            && info.remote_url.is_some()
+            && index_up_to_date,
+    };
+
+    match format {
+        OutputFormat::Json => {
+            println!("{}", serde_json::to_string_pretty(&result)?);
+        }
+        OutputFormat::Toon => {
+            println!("{}", to_toon(&result));
+        }
+        OutputFormat::Text => {
+            println!("{}", "Sync Health Check:".bold());
+            println!();
+
+            // Git availability
+            if result.git_available {
+                println!("{} Git is installed", "✓".green());
+            } else {
+                println!("{} Git is not installed", "✗".red());
+                println!("  → Install git to use sync features");
+            }
+
+            // Git repo initialized
+            if result.is_git_repo {
+                println!("{} Git repository initialized", "✓".green());
+            } else {
+                println!("{} Git repository not initialized", "✗".yellow());
+                println!("  → Run: bus sync init");
+            }
+
+            if !result.is_git_repo {
+                return Ok(());
+            }
+
+            // Remote configured
+            if result.remote_configured {
+                println!("{} Remote configured", "✓".green());
+            } else {
+                println!("{} No remote configured", "!".yellow());
+                println!(
+                    "  → Add remote: cd {} && git remote add origin <url>",
+                    dir.display()
+                );
+            }
+
+            // Uncommitted changes
+            if result.uncommitted_changes == 0 {
+                println!("{} No uncommitted changes", "✓".green());
+            } else {
+                println!(
+                    "{} {} uncommitted file(s)",
+                    "!".yellow(),
+                    result.uncommitted_changes
+                );
+            }
+
+            // Conflicts
+            if result.has_conflicts {
+                println!("{} Merge conflicts detected!", "✗".red().bold());
+                println!("  → Resolve conflicts: cd {} && git status", dir.display());
+            } else {
+                println!("{} No merge conflicts", "✓".green());
+            }
+
+            // Ahead/behind
+            if result.ahead > 0 {
+                println!("{} {} commits ahead of remote", "!".yellow(), result.ahead);
+                println!("  → Run: bus sync push");
+            }
+            if result.behind > 0 {
+                println!("{} {} commits behind remote", "!".yellow(), result.behind);
+                println!("  → Run: bus sync pull");
+            }
+            if result.ahead == 0 && result.behind == 0 && result.remote_configured {
+                println!("{} In sync with remote", "✓".green());
+            }
+
+            // Index status
+            if result.index_up_to_date {
+                println!("{} Search index is up to date", "✓".green());
+            } else {
+                println!("{} Search index needs rebuild", "!".yellow());
+                println!("  → Run: bus index rebuild --if-needed");
+            }
+
+            println!();
+            if result.healthy {
+                println!("{}", "Sync is healthy!".green().bold());
+            } else {
+                println!("{}", "Sync has issues (see above)".yellow().bold());
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Check if index is up to date (helper function).
+fn check_index_up_to_date() -> bool {
+    use crate::core::project::{channels_dir, index_path};
+
+    let index_db = index_path();
+    let channels = channels_dir();
+
+    // If index doesn't exist, rebuild is needed
+    if !index_db.exists() {
+        return false;
+    }
+
+    // Get index mtime
+    let Ok(index_metadata) = std::fs::metadata(&index_db) else {
+        return false;
+    };
+    let Ok(index_mtime) = index_metadata.modified() else {
+        return false;
+    };
+
+    // Check if channels directory exists
+    if !channels.exists() {
+        // No channels, no rebuild needed
+        return true;
+    }
+
+    // Find newest JSONL file
+    let mut newest_jsonl_mtime = None;
+
+    if let Ok(entries) = std::fs::read_dir(&channels) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+
+            if path.extension().is_some_and(|ext| ext == "jsonl")
+                && let Ok(metadata) = std::fs::metadata(&path)
+                && let Ok(mtime) = metadata.modified()
+                && (newest_jsonl_mtime.is_none() || Some(mtime) > newest_jsonl_mtime)
+            {
+                newest_jsonl_mtime = Some(mtime);
+            }
+        }
+    }
+
+    // If we have JSONL files and the newest is newer than index, rebuild is needed
+    if let Some(jsonl_mtime) = newest_jsonl_mtime {
+        jsonl_mtime <= index_mtime
+    } else {
+        // No JSONL files, no rebuild needed
+        true
+    }
 }
 
 /// Pull and push (sync both ways).

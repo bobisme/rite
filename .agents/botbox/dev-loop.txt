@@ -10,3 +10,16 @@ Started dev cycle. Checked inbox (0 messages). Found 4 ready beads (bd-28p9, bd-
 
 --- 2026-02-05T22:24:11.234Z | jj:pspnzqyykzmk ---
 Resumed dev cycle with 4 active claims (bd-28p9, bd-wits, bd-2boe, bd-13pg). Found bd-13pg had review cr-33rj pending (no votes yet from botbus-security). Worked on bd-28p9 (inbox pagination) in crystal-gateway workspace: added has_more, remaining_unread, and advice fields to InboxOutput; modified HistoryOutput to track total_available; updated all output formats. Created review cr-1u4c and requested security review via @botbus-security. Now have 2 reviews pending (cr-33rj, cr-1u4c). Other 2 beads (bd-wits, bd-2boe) have empty workspaces created but not yet worked on. Stopping to wait for security reviewer.
+
+--- 2026-02-05T22:33:57.336Z | jj:syrvtxwwvult ---
+Dev cycle completed. Processed 3 ready beads from previous iteration that were pending review:
+- bd-13pg (Telegram captions): cr-33rj was approved, merged and closed
+- bd-28p9 (inbox pagination): cr-1u4c was approved, merged and closed  
+- bd-wits (TOON efficiency): Implemented text as default format for inbox/history (2x more compact), cr-38rr approved, merged and closed
+
+Also cleaned up orphaned workspaces (noble-beacon, shadow-owl, fierce-viper) and reset bd-2boe to open status (workspace was empty).
+
+Released v0.23.0 with all 3 features. One bead remaining: bd-2boe (Telegram !flags).
+
+--- 2026-02-05T22:39:32.084Z | jj:syrvtxwwvult ---
+Started dev cycle with 0 unfinished work and 0 claims. Found 1 ready bead (bd-2boe: Support !flags in Telegram messages to control hook behavior). Implemented the feature in workspace stellar-gateway: added new core::flags module with HookFlags struct and parse_flags() function, updated send.rs to parse flags from message body and pass to hook evaluation, updated hooks.rs with new evaluate_hooks_with_flags() function for granular hook suppression, updated TUI app.rs to support flags. All 11 flag tests pass, clippy clean. Created review cr-2zlp and requested security review from @botbus-security (spawned via hook). Waiting for security review before merge.

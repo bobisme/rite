@@ -465,10 +465,22 @@ fn format_message(msg: &crate::core::message::Message, max_width: usize) -> Vec<
 
     // Add attachment indicator after labels if present
     if !msg.attachments.is_empty() {
-        header_spans.push(Span::styled(
-            format!(" [{}]", msg.attachments.len()),
-            Style::default().fg(Color::Magenta),
-        ));
+        // Check if any attachments are missing
+        let missing_count = msg.attachments.iter().filter(|a| !a.is_available()).count();
+
+        if missing_count > 0 {
+            // Some attachments are missing - show with warning color
+            header_spans.push(Span::styled(
+                format!(" [{}⚠]", msg.attachments.len()),
+                Style::default().fg(Color::Yellow),
+            ));
+        } else {
+            // All attachments available
+            header_spans.push(Span::styled(
+                format!(" [{}]", msg.attachments.len()),
+                Style::default().fg(Color::Magenta),
+            ));
+        }
     }
 
     result_lines.push(Line::from(header_spans));

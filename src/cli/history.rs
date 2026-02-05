@@ -311,6 +311,17 @@ fn print_message(msg: &Message) {
         attach_str,
         msg.body
     );
+
+    // Show attachment details if present
+    for attachment in &msg.attachments {
+        if !attachment.is_available() {
+            println!(
+                "    {} {}",
+                "⚠".dimmed(),
+                format!("Attachment: {} — not available locally", attachment.name).dimmed()
+            );
+        }
+    }
 }
 
 fn colorize_agent(name: &str) -> colored::ColoredString {

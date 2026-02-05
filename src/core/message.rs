@@ -150,6 +150,19 @@ impl Attachment {
             content: AttachmentContent::Url { url: url.into() },
         }
     }
+
+    /// Check if the attachment content is available locally.
+    ///
+    /// Returns `true` for inline content and URLs (always available).
+    /// For file attachments, checks if the file exists on disk.
+    /// This is useful after git sync, where attachments may be missing.
+    pub fn is_available(&self) -> bool {
+        match &self.content {
+            AttachmentContent::File { path } => std::path::Path::new(path).exists(),
+            AttachmentContent::Inline { .. } => true,
+            AttachmentContent::Url { .. } => true,
+        }
+    }
 }
 
 /// Structured metadata for special message types.
@@ -321,5 +334,24 @@ mod tests {
         // Empty vecs should not appear in JSON output
         assert!(!json.contains("\"labels\""));
         assert!(!json.contains("\"attachments\""));
+    }
+
+    #[test]
+    fn test_attachment_is_available() {
+        // Inline content is always available
+        let inline = Attachment::inline("code", "fn main() {}", Some("rust".to_string()));
+        assert!(inline.is_available());
+
+        // URLs are always available
+        let url = Attachment::url("docs", "https://example.com");
+        assert!(url.is_available());
+
+        // File attachment that doesn't exist
+        let missing = Attachment::file("missing", "/nonexistent/path/to/file.txt");
+        assert!(!missing.is_available());
+
+        // File attachment that exists (use this test file)
+        let existing = Attachment::file("message.rs", file!());
+        assert!(existing.is_available());
     }
 }

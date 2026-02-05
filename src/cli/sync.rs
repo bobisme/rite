@@ -169,10 +169,7 @@ pub fn status(format: OutputFormat) -> Result<()> {
 
             // Conflicts
             if info.has_conflicts {
-                println!(
-                    "{} Merge conflicts detected!",
-                    "Conflicts:".red().bold()
-                );
+                println!("{} Merge conflicts detected!", "Conflicts:".red().bold());
             }
         }
     }

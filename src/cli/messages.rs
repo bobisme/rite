@@ -135,8 +135,12 @@ fn print_message(output: &MessageOutput, msg: &Message, format: OutputFormat) ->
                     "Attachments".dimmed(),
                     output.attachments.len()
                 );
-                for attach in &output.attachments {
-                    println!("  - {}", attach.name);
+                for attach in &msg.attachments {
+                    if attach.is_available() {
+                        println!("  - {}", attach.name);
+                    } else {
+                        println!("  - {} {}", attach.name, "(not available locally)".dimmed());
+                    }
                 }
             }
 

@@ -5,6 +5,7 @@ use colored::Colorize;
 
 use crate::attachments::{AttachmentCache, AttachmentSource, attachments_dir};
 use crate::core::channel::{dm_channel_name, is_valid_channel_name};
+use crate::core::flags::parse_flags;
 use crate::core::identity::require_agent;
 use crate::core::message::{Attachment, Message};
 use crate::core::project::{channel_path, data_dir};
@@ -47,7 +48,12 @@ pub fn run_with_attachments(
         target_str.to_string()
     };
 
-    let mut msg = Message::new(&agent_name, &channel, &message);
+    // Parse !flags from message body
+    let parsed = parse_flags(&message);
+    let hook_flags = parsed.flags;
+
+    // Create message with flags stripped from body
+    let mut msg = Message::new(&agent_name, &channel, &parsed.body);
 
     if !labels.is_empty() {
         msg = msg.with_labels(labels);
@@ -63,13 +69,15 @@ pub fn run_with_attachments(
 
     auto_commit::auto_commit_after_send(&data_dir(), &channel);
 
-    if !no_hooks {
-        super::hooks::evaluate_hooks(
+    // Evaluate hooks unless suppressed by CLI flag or !flags in message
+    if !no_hooks && !hook_flags.suppress_all() {
+        super::hooks::evaluate_hooks_with_flags(
             &channel,
             &msg.id.to_string(),
             msg.meta.as_ref(),
             &agent_name,
             &msg.mentions,
+            &hook_flags,
         );
     }
 
@@ -122,11 +130,15 @@ pub fn run(
         target.to_string()
     };
 
+    // Parse !flags from message body
+    let parsed = parse_flags(&message);
+    let hook_flags = parsed.flags;
+
     // Parse attachments (format: "name:path" or just "path")
     let parsed_attachments = parse_attachments(&attachments)?;
 
-    // Create and send the message
-    let mut msg = Message::new(&agent_name, &channel, &message);
+    // Create message with flags stripped from body
+    let mut msg = Message::new(&agent_name, &channel, &parsed.body);
 
     if !labels.is_empty() {
         msg = msg.with_labels(labels);
@@ -144,15 +156,17 @@ pub fn run(
     auto_commit::auto_commit_after_send(&data_dir(), &channel);
 
     // Evaluate channel hooks (may block briefly for --release-on-exit hooks)
-    let hook_results = if no_hooks {
+    // Skip if CLI --no-hooks flag is set or !nohooks flag is in message
+    let hook_results = if no_hooks || hook_flags.suppress_all() {
         vec![]
     } else {
-        super::hooks::evaluate_hooks(
+        super::hooks::evaluate_hooks_with_flags(
             &channel,
             &msg.id.to_string(),
             msg.meta.as_ref(),
             &agent_name,
             &msg.mentions,
+            &hook_flags,
         )
     };
 

@@ -820,6 +820,7 @@ impl App {
     }
 
     fn send_input_message(&mut self) -> Result<()> {
+        use crate::core::flags::parse_flags;
         use crate::core::identity::require_agent;
         use crate::core::message::Message;
         use crate::core::project::channel_path;
@@ -839,25 +840,39 @@ impl App {
             None => return Ok(()), // No channel selected
         };
 
+        // Parse !flags from message body
+        let parsed = parse_flags(&text);
+        let hook_flags = parsed.flags;
+
         // Get user from $USER environment variable
         let user = std::env::var("USER").unwrap_or_else(|_| "unknown".to_string());
         let agent_name = require_agent(Some(&user))?;
 
         // Create and send message directly (without CLI output)
-        let msg = Message::new(&agent_name, &channel, &text).with_labels(vec!["human".to_string()]);
+        // Use the cleaned body with flags stripped
+        let msg = Message::new(&agent_name, &channel, &parsed.body)
+            .with_labels(vec!["human".to_string()]);
         let path = channel_path(&channel);
         append_record(&path, &msg)?;
 
         // Evaluate channel hooks in a background thread so OnExit hooks
         // don't freeze the TUI event loop.
-        {
+        // Skip if !nohooks flag was in the message
+        if !hook_flags.suppress_all() {
             let ch = channel.clone();
             let mid = msg.id.to_string();
             let meta = msg.meta.clone();
             let agent = agent_name.clone();
             let mentions = msg.mentions.clone();
             std::thread::spawn(move || {
-                crate::cli::hooks::evaluate_hooks(&ch, &mid, meta.as_ref(), &agent, &mentions);
+                crate::cli::hooks::evaluate_hooks_with_flags(
+                    &ch,
+                    &mid,
+                    meta.as_ref(),
+                    &agent,
+                    &mentions,
+                    &hook_flags,
+                );
             });
         }
 

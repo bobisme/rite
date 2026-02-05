@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use super::OutputFormat;
 use super::format::{to_toon, to_toon_list};
 use crate::core::claim::FileClaim;
+use crate::core::flags::HookFlags;
 use crate::core::hook::{ClaimRelease, Hook, HookCondition, HookFiring, shell_display};
 use crate::core::message::{Message, MessageMeta, SystemEvent};
 use crate::core::project::{channel_path, claims_path, hooks_audit_path, hooks_path};
@@ -443,7 +444,27 @@ pub fn evaluate_hooks(
     agent: &str,
     mentions: &[String],
 ) -> Vec<HookFireResult> {
-    match evaluate_hooks_inner(channel, message_id, meta, agent, mentions) {
+    evaluate_hooks_with_flags(
+        channel,
+        message_id,
+        meta,
+        agent,
+        mentions,
+        &HookFlags::default(),
+    )
+}
+
+/// Evaluate hooks with explicit flag control.
+/// Flags can suppress channel hooks, mention hooks, or both.
+pub fn evaluate_hooks_with_flags(
+    channel: &str,
+    message_id: &str,
+    meta: Option<&MessageMeta>,
+    agent: &str,
+    mentions: &[String],
+    flags: &HookFlags,
+) -> Vec<HookFireResult> {
+    match evaluate_hooks_inner(channel, message_id, meta, agent, mentions, flags) {
         Ok(results) => results,
         Err(e) => {
             eprintln!("Warning: hook evaluation failed: {}", e);
@@ -458,6 +479,7 @@ fn evaluate_hooks_inner(
     meta: Option<&MessageMeta>,
     agent: &str,
     mentions: &[String],
+    flags: &HookFlags,
 ) -> Result<Vec<HookFireResult>> {
     // Skip hook evaluation for system messages to prevent recursive loops
     if matches!(meta, Some(MessageMeta::System { .. })) {
@@ -478,6 +500,17 @@ fn evaluate_hooks_inner(
     hooks_to_process.sort_by_key(|h| h.priority);
 
     for hook in hooks_to_process {
+        // Check if hook is suppressed by flags
+        let is_channel_hook = matches!(hook.condition, HookCondition::ClaimAvailable { .. });
+        let is_mention_hook = matches!(hook.condition, HookCondition::MentionReceived { .. });
+
+        if is_channel_hook && flags.suppress_channel_hooks() {
+            continue;
+        }
+        if is_mention_hook && flags.suppress_mention_hooks() {
+            continue;
+        }
+
         // Match hook channel: exact match OR wildcard "*" (except DMs)
         let channel_matches = if hook.channel == "*" {
             !crate::core::channel::is_dm_channel(channel)

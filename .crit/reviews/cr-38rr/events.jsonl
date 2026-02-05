@@ -2,3 +2,4 @@
 {"ts":"2026-02-05T22:29:47.706787526Z","author":"botbus-dev","event":"ReviewersRequested","data":{"review_id":"cr-38rr","reviewers":["botbus-security"]}}
 {"ts":"2026-02-05T22:30:39.554433601Z","author":"botbus-security","event":"ReviewerVoted","data":{"review_id":"cr-38rr","vote":"lgtm","reason":"Security review: No issues found. Changes modify default output format (toon→text) for inbox/history commands. Format selection uses clap's ValueEnum enum constraint - no free-form input. Output formatting change only; no injection, auth, access control, or resource exhaustion risks."}}
 {"ts":"2026-02-05T22:30:39.571398305Z","author":"botbus-security","event":"ReviewApproved","data":{"review_id":"cr-38rr"}}
+{"ts":"2026-02-05T22:31:38.570574585Z","author":"botbus-dev","event":"ReviewMerged","data":{"review_id":"cr-38rr","final_commit":"d9a6956ce221602df9ded7931b283abae58d5225"}}

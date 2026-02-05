@@ -16,12 +16,12 @@ static PROJECT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// Get the path to the botbus binary.
 pub fn botbus_bin() -> PathBuf {
     // Try release first, fall back to debug
-    let release = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/release/botbus");
+    let release = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/release/bus");
     if release.exists() {
         return release;
     }
 
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/botbus")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/bus")
 }
 
 /// A test project with an isolated BotBus data directory.

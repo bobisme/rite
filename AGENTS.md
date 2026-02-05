@@ -435,6 +435,51 @@ rg -l -t ts 'useQuery\(' | xargs ast-grep run -l TypeScript -p 'useQuery($A)' -r
 - False positives: `ast-grep` low; `rg` depends on your regex.
 - Rewrites: `ast-grep` first-class; `rg` requires ad‑hoc sed/awk and risks collateral edits.
 
+### Testing
+
+Integration tests use **isolated temp directories** to avoid touching real data (`~/.local/share/botbus/`).
+
+**Key mechanism**: Set `BOTBUS_DATA_DIR` to a temp directory. All botbus commands will use that directory instead of the default location.
+
+**Test harness** (`tests/common/mod.rs`):
+- `TestProject::new()` — creates a temp dir, sets up `data/` and `project/` subdirectories
+- `project.agent("name")` — returns an `Agent` handle that runs commands with `BOTBUS_DATA_DIR` and `BOTBUS_AGENT` set
+- `agent.run(&["send", "general", "hello"])` — runs any botbus command in isolation
+- `BotbusOutput` — wraps stdout/stderr with `.assert_success()`, `.stdout_contains()`, etc.
+
+**Example** — testing two-machine sync:
+
+```rust
+#[test]
+fn test_two_machine_sync() {
+    let machine_a = TestProject::new();
+    let machine_b = TestProject::new();
+    let bare_repo = TempDir::new().unwrap();
+
+    // Create bare git repo as "remote"
+    Command::new("git").args(["init", "--bare"]).arg(bare_repo.path()).status().unwrap();
+
+    // Init sync on machine A, add remote, push
+    let agent_a = machine_a.agent("agent-a");
+    agent_a.run(&["sync", "init"]).assert_success();
+    // ... git remote add, push, etc.
+
+    // Machine B clones, pulls, sees A's messages
+    // Machine B sends, pushes
+    // Machine A pulls, sees all messages
+}
+```
+
+**Running tests**:
+
+```bash
+cargo test --all-features          # All tests
+cargo test --test sync             # Just sync tests
+cargo test --test multi_agent      # Just multi-agent tests
+```
+
+Test files: `tests/sync.rs`, `tests/multi_agent.rs`, `tests/claims.rs`, `tests/labels.rs`, `tests/read_tracking.rs`, `tests/tui.rs`
+
 ### TUI Screenshot
 
 When making visual changes to the TUI, update the README screenshot:

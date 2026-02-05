@@ -1,11 +1,13 @@
 use anyhow::Result;
 use std::collections::{HashMap, HashSet};
+use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
 use tokio::sync::{Mutex, watch};
 
+use crate::attachments::{AttachmentCache, AttachmentSource, attachments_dir};
 use crate::cli::send;
-use crate::core::message::{Message, MessageMeta};
+use crate::core::message::{Attachment, AttachmentContent, Message, MessageMeta};
 use crate::core::project::{channel_path, channels_dir, state_path};
 use crate::storage::jsonl::read_records_from_offset;
 use crate::storage::state::ProjectState;
@@ -152,9 +154,20 @@ async fn handle_update(
         return Ok(());
     };
 
-    let Some(text) = message.text.clone() else {
+    // Get text from either `text` or `caption` (media messages use caption)
+    let text = message
+        .text
+        .clone()
+        .or_else(|| message.caption.clone())
+        .unwrap_or_default();
+
+    // Extract media info if present
+    let media_info = extract_media_info(&message);
+
+    // If no text and no media, skip
+    if text.is_empty() && media_info.is_none() {
         return Ok(());
-    };
+    }
 
     let Some(from) = &message.from else {
         return Ok(());
@@ -185,7 +198,10 @@ async fn handle_update(
         return Ok(());
     };
 
-    if let Some(command) = parse_command(&text) {
+    // Only parse commands from text messages (not captions)
+    if message.text.is_some()
+        && let Some(command) = parse_command(&text)
+    {
         return handle_command(client, config, store, chat_id, thread_id, command).await;
     }
 
@@ -201,25 +217,165 @@ async fn handle_update(
         return Ok(());
     };
 
-    // Validate incoming message
-    if let Some(error_msg) = validate_incoming_message(&text) {
+    // Validate incoming text
+    if !text.is_empty()
+        && let Some(error_msg) = validate_incoming_message(&text)
+    {
         client
             .send_message(chat_id, Some(thread_id), &error_msg)
             .await?;
         return Ok(());
     }
 
-    // Send to bus (this is sync, but quick)
-    send::run(
+    // Download media attachment if present
+    let mut attachments = Vec::new();
+    if let Some(info) = media_info {
+        match download_telegram_media(client, &info, &channel).await {
+            Ok(attachment) => {
+                attachments.push(attachment);
+            }
+            Err(err) => {
+                eprintln!(
+                    "Failed to download Telegram media (file_id={}): {err}",
+                    info.file_id
+                );
+                // Continue without attachment rather than dropping the message
+            }
+        }
+    }
+
+    // Build the message body (use text or a default for media-only messages)
+    let body = if text.is_empty() {
+        "[attachment]".to_string()
+    } else {
+        text
+    };
+
+    // Send to bus using the lower-level send function
+    send::run_with_attachments(
         channel,
-        text,
+        body,
         None,
         vec!["human".to_string(), "telegram".to_string()],
-        vec![],
+        attachments,
         false,
         Some(&agent_name),
     )?;
     Ok(())
+}
+
+/// Media info extracted from a Telegram message.
+struct MediaInfo {
+    file_id: String,
+    file_unique_id: String,
+    filename: String,
+}
+
+/// Extract the best media info from a Telegram message.
+///
+/// Priority: document > video > audio > animation > voice > photo
+/// (Document is preferred because it preserves original filename.)
+fn extract_media_info(msg: &TelegramMessage) -> Option<MediaInfo> {
+    // Document (preserves original filename)
+    if let Some(doc) = &msg.document {
+        return Some(MediaInfo {
+            file_id: doc.file_id.clone(),
+            file_unique_id: doc.file_unique_id.clone(),
+            filename: doc
+                .file_name
+                .clone()
+                .unwrap_or_else(|| "document".to_string()),
+        });
+    }
+
+    // Video
+    if let Some(video) = &msg.video {
+        return Some(MediaInfo {
+            file_id: video.file_id.clone(),
+            file_unique_id: video.file_unique_id.clone(),
+            filename: video
+                .file_name
+                .clone()
+                .unwrap_or_else(|| "video.mp4".to_string()),
+        });
+    }
+
+    // Audio
+    if let Some(audio) = &msg.audio {
+        return Some(MediaInfo {
+            file_id: audio.file_id.clone(),
+            file_unique_id: audio.file_unique_id.clone(),
+            filename: audio
+                .file_name
+                .clone()
+                .unwrap_or_else(|| "audio.mp3".to_string()),
+        });
+    }
+
+    // Animation (GIF)
+    if let Some(anim) = &msg.animation {
+        return Some(MediaInfo {
+            file_id: anim.file_id.clone(),
+            file_unique_id: anim.file_unique_id.clone(),
+            filename: anim
+                .file_name
+                .clone()
+                .unwrap_or_else(|| "animation.mp4".to_string()),
+        });
+    }
+
+    // Voice
+    if let Some(voice) = &msg.voice {
+        return Some(MediaInfo {
+            file_id: voice.file_id.clone(),
+            file_unique_id: voice.file_unique_id.clone(),
+            filename: "voice.ogg".to_string(),
+        });
+    }
+
+    // Photo (pick the largest resolution)
+    if !msg.photo.is_empty() {
+        let best = msg
+            .photo
+            .iter()
+            .max_by_key(|p| p.file_size.unwrap_or(0))
+            .unwrap();
+        return Some(MediaInfo {
+            file_id: best.file_id.clone(),
+            file_unique_id: best.file_unique_id.clone(),
+            filename: "photo.jpg".to_string(),
+        });
+    }
+
+    None
+}
+
+/// Download a Telegram media file and store it in the attachment cache.
+async fn download_telegram_media(
+    client: &TelegramClient,
+    info: &MediaInfo,
+    channel: &str,
+) -> Result<Attachment> {
+    let bytes = client.download_file(&info.file_id).await?;
+
+    let cache = AttachmentCache::new(attachments_dir())?;
+    let stored = cache.store(
+        &bytes,
+        &info.filename,
+        AttachmentSource::Telegram {
+            file_id: info.file_id.clone(),
+            file_unique_id: info.file_unique_id.clone(),
+            message_id: String::new(), // Not yet assigned
+            channel: channel.to_string(),
+        },
+    )?;
+
+    Ok(Attachment {
+        name: info.filename.clone(),
+        content: AttachmentContent::File {
+            path: stored.path.to_string_lossy().to_string(),
+        },
+    })
 }
 
 async fn handle_command(
@@ -433,8 +589,21 @@ async fn publish_message(
         return Ok(());
     }
 
+    // Send text message first
     let text = format_outbound_message(msg);
-    client.send_message(chat_id, Some(topic_id), &text).await
+    client.send_message(chat_id, Some(topic_id), &text).await?;
+
+    // Send file attachments as separate media messages
+    for attachment in &msg.attachments {
+        if let Err(err) = send_attachment_to_telegram(client, chat_id, topic_id, attachment).await {
+            eprintln!(
+                "Failed to send attachment '{}' to Telegram: {err}",
+                attachment.name
+            );
+        }
+    }
+
+    Ok(())
 }
 
 fn format_outbound_message(msg: &Message) -> String {
@@ -445,13 +614,103 @@ fn format_outbound_message(msg: &Message) -> String {
         text.push_str(&msg.labels.join(", "));
     }
 
-    if !msg.attachments.is_empty() {
-        let names: Vec<String> = msg.attachments.iter().map(|a| a.name.clone()).collect();
-        text.push_str("\nattachments: ");
-        text.push_str(&names.join(", "));
+    // Show inline and URL attachments in the text body
+    for attachment in &msg.attachments {
+        match &attachment.content {
+            AttachmentContent::Inline {
+                content, language, ..
+            } => {
+                if content.len() > TELEGRAM_MAX_CHARS / 2 {
+                    // Too large for inline display, mention it
+                    text.push_str(&format!(
+                        "\n[inline: {} ({} bytes)]",
+                        attachment.name,
+                        content.len()
+                    ));
+                } else {
+                    let lang = language.as_deref().unwrap_or("");
+                    text.push_str(&format!("\n```{}\n{}\n```", lang, content));
+                }
+            }
+            AttachmentContent::Url { url } => {
+                text.push_str(&format!("\n{}: {}", attachment.name, url));
+            }
+            AttachmentContent::File { .. } => {
+                // File attachments are sent separately as media messages
+            }
+        }
     }
 
     truncate_text(&text, TELEGRAM_MAX_CHARS)
+}
+
+/// Send a single attachment to Telegram, routing by MIME type.
+async fn send_attachment_to_telegram(
+    client: &TelegramClient,
+    chat_id: i64,
+    thread_id: i64,
+    attachment: &Attachment,
+) -> Result<()> {
+    match &attachment.content {
+        AttachmentContent::File { path } => {
+            let file_path = Path::new(path);
+            if !file_path.exists() {
+                eprintln!("Attachment file not found: {}", path);
+                return Ok(());
+            }
+
+            // Read file and detect MIME type
+            let bytes = std::fs::read(file_path)?;
+            let mime_type = infer::get(&bytes)
+                .map(|t| t.mime_type())
+                .unwrap_or("application/octet-stream");
+
+            let caption = Some(attachment.name.as_str());
+
+            // Route based on MIME type
+            match mime_type {
+                "image/jpeg" | "image/png" | "image/webp" | "image/gif" => {
+                    client
+                        .send_photo(chat_id, Some(thread_id), file_path, caption)
+                        .await?;
+                }
+                "video/mp4" | "video/webm" | "video/x-matroska" => {
+                    client
+                        .send_video(chat_id, Some(thread_id), file_path, caption)
+                        .await?;
+                }
+                "audio/mpeg" | "audio/wav" | "audio/flac" | "audio/ogg" => {
+                    client
+                        .send_audio(chat_id, Some(thread_id), file_path, caption)
+                        .await?;
+                }
+                _ => {
+                    // Everything else goes as a document
+                    client
+                        .send_document(chat_id, Some(thread_id), file_path, caption)
+                        .await?;
+                }
+            }
+        }
+        AttachmentContent::Inline { content, .. } => {
+            // Large inline content: send as a document
+            if content.len() > TELEGRAM_MAX_CHARS / 2 {
+                let tmp_dir = std::env::temp_dir();
+                let tmp_path = tmp_dir.join(&attachment.name);
+                std::fs::write(&tmp_path, content)?;
+                client
+                    .send_document(chat_id, Some(thread_id), &tmp_path, Some(&attachment.name))
+                    .await?;
+                let _ = std::fs::remove_file(&tmp_path);
+            }
+            // Small inline content is already embedded in the text message
+        }
+        AttachmentContent::Url { .. } => {
+            // URLs are embedded in the text message body
+        }
+    }
+
+    Ok(())
 }
 
 fn truncate_text(text: &str, max_chars: usize) -> String {

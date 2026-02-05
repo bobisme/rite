@@ -3,6 +3,7 @@
 use anyhow::{Context, Result, bail};
 use colored::Colorize;
 
+use crate::attachments::{AttachmentCache, AttachmentSource, attachments_dir};
 use crate::core::channel::{dm_channel_name, is_valid_channel_name};
 use crate::core::identity::require_agent;
 use crate::core::message::{Attachment, Message};
@@ -13,6 +14,66 @@ use crate::sync::auto_commit;
 /// Simple message send (no labels or attachments) - for internal use and tests.
 pub fn run_simple(target: String, message: String, agent: Option<&str>) -> Result<()> {
     run(target, message, None, vec![], vec![], false, agent)
+}
+
+/// Send a message with pre-parsed Attachment structs (for Telegram bridge).
+pub fn run_with_attachments(
+    target: String,
+    message: String,
+    _meta: Option<String>,
+    labels: Vec<String>,
+    attachments: Vec<Attachment>,
+    no_hooks: bool,
+    agent: Option<&str>,
+) -> Result<()> {
+    let agent_name = require_agent(agent)?;
+
+    let target_str = target.strip_prefix('#').unwrap_or(&target);
+
+    if target_str == "claims" {
+        bail!("Cannot send messages to #claims - this is a system channel.");
+    }
+
+    let channel = if target_str.starts_with('@') {
+        let other_agent = target_str.trim_start_matches('@');
+        if other_agent.is_empty() {
+            bail!("Invalid DM target: {}", target_str);
+        }
+        dm_channel_name(&agent_name, other_agent)
+    } else {
+        if !is_valid_channel_name(target_str) {
+            bail!("Invalid channel name: '{}'", target_str);
+        }
+        target_str.to_string()
+    };
+
+    let mut msg = Message::new(&agent_name, &channel, &message);
+
+    if !labels.is_empty() {
+        msg = msg.with_labels(labels);
+    }
+
+    if !attachments.is_empty() {
+        msg = msg.with_attachments(attachments);
+    }
+
+    let path = channel_path(&channel);
+    append_record(&path, &msg)
+        .with_context(|| format!("Failed to send message to #{}", channel))?;
+
+    auto_commit::auto_commit_after_send(&data_dir(), &channel);
+
+    if !no_hooks {
+        super::hooks::evaluate_hooks(
+            &channel,
+            &msg.id.to_string(),
+            msg.meta.as_ref(),
+            &agent_name,
+            &msg.mentions,
+        );
+    }
+
+    Ok(())
 }
 
 /// Send a message to a channel or agent.
@@ -132,13 +193,21 @@ pub fn run(
     Ok(())
 }
 
-/// Parse attachment specifications.
+/// Parse attachment specifications and store file attachments in the cache.
+///
 /// Format: "name:path", "path" (name derived from filename), or "url:https://..."
+///
+/// File attachments are copied into the content-addressed cache (SHA256-based),
+/// providing deduplication and consistent paths for the Telegram bridge.
 ///
 /// # Security
 /// File paths are canonicalized to prevent path traversal issues and ensure
 /// consistent path representation across different working directories.
 fn parse_attachments(specs: &[String]) -> Result<Vec<Attachment>> {
+    parse_attachments_for_channel(specs, "unknown")
+}
+
+fn parse_attachments_for_channel(specs: &[String], channel: &str) -> Result<Vec<Attachment>> {
     let mut attachments = Vec::new();
     let cwd = std::env::current_dir().unwrap_or_default();
 
@@ -148,37 +217,57 @@ fn parse_attachments(specs: &[String]) -> Result<Vec<Attachment>> {
             let name = spec.rsplit('/').next().unwrap_or("link");
             Attachment::url(name, spec)
         } else if let Some((name, path)) = spec.split_once(':') {
-            // Named file attachment
+            // Named file attachment - store in cache
             let full_path = cwd.join(path);
             if !full_path.exists() {
                 bail!("Attachment file not found: {}", path);
             }
-            // Canonicalize to resolve symlinks and normalize path
-            let canonical_path = full_path
-                .canonicalize()
-                .with_context(|| format!("Failed to resolve path: {}", path))?;
-            Attachment::file(name, canonical_path.to_string_lossy())
+            store_file_in_cache(&full_path, name, channel)?
         } else {
-            // Just a path - derive name from filename
+            // Just a path - derive name from filename, store in cache
             let path = spec;
             let full_path = cwd.join(path);
             if !full_path.exists() {
                 bail!("Attachment file not found: {}", path);
             }
-            // Canonicalize to resolve symlinks and normalize path
-            let canonical_path = full_path
-                .canonicalize()
-                .with_context(|| format!("Failed to resolve path: {}", path))?;
             let name = std::path::Path::new(path)
                 .file_name()
                 .and_then(|s| s.to_str())
                 .unwrap_or(path);
-            Attachment::file(name, canonical_path.to_string_lossy())
+            store_file_in_cache(&full_path, name, channel)?
         };
         attachments.push(attachment);
     }
 
     Ok(attachments)
+}
+
+/// Read a file, store it in the attachment cache, and return a File attachment.
+fn store_file_in_cache(
+    file_path: &std::path::Path,
+    name: &str,
+    channel: &str,
+) -> Result<Attachment> {
+    let canonical_path = file_path
+        .canonicalize()
+        .with_context(|| format!("Failed to resolve path: {}", file_path.display()))?;
+
+    let bytes = std::fs::read(&canonical_path)
+        .with_context(|| format!("Failed to read attachment: {}", canonical_path.display()))?;
+
+    let agent = crate::core::identity::resolve_agent(None).unwrap_or_else(|| "cli".to_string());
+
+    let cache = AttachmentCache::new(attachments_dir())?;
+    let stored = cache.store(
+        &bytes,
+        name,
+        AttachmentSource::Cli {
+            agent,
+            channel: channel.to_string(),
+        },
+    )?;
+
+    Ok(Attachment::file(name, stored.path.to_string_lossy()))
 }
 
 #[cfg(test)]

@@ -1,3 +1,4 @@
+pub mod attachments;
 pub mod cli;
 pub mod core;
 pub mod index;

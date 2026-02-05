@@ -48,6 +48,8 @@ pub struct HistoryOutput {
     pub next_offset: u64,
     /// ID of the last message returned (if any)
     pub last_id: Option<String>,
+    /// Total messages available before count limit was applied (for pagination awareness)
+    pub total_available: usize,
 }
 
 /// View message history.
@@ -141,6 +143,7 @@ pub fn run_with_output(options: HistoryOptions) -> Result<HistoryOutput> {
             messages: Vec::new(),
             next_offset: 0,
             last_id: None,
+            total_available: 0,
         });
     }
 
@@ -183,6 +186,9 @@ pub fn run_with_output(options: HistoryOptions) -> Result<HistoryOutput> {
         (msgs, file_size)
     };
 
+    // Track total available before applying count limit
+    let total_available = messages.len();
+
     // Apply count limit if we used after_offset or after_id
     let messages = if (options.after_offset.is_some() || options.after_id.is_some())
         && messages.len() > options.count
@@ -198,6 +204,7 @@ pub fn run_with_output(options: HistoryOptions) -> Result<HistoryOutput> {
         messages,
         next_offset,
         last_id,
+        total_available,
     })
 }
 

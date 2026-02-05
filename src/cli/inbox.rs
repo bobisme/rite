@@ -47,6 +47,15 @@ pub struct ChannelInbox {
 pub struct InboxOutput {
     pub total_unread: usize,
     pub channels: Vec<ChannelInbox>,
+    /// True if there are more unread messages beyond what was shown
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub has_more: bool,
+    /// Count of remaining unread messages not shown
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub remaining_unread: Option<usize>,
+    /// Suggested command to run to see more messages
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub advice: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -92,6 +101,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
     // Collect inbox data for each channel
     let mut channel_inboxes: Vec<ChannelInbox> = Vec::new();
     let mut total_unread = 0;
+    let mut total_remaining = 0usize; // Track messages truncated by count limit
 
     for channel in channels_to_check {
         let cursor = manager.get_read_cursor(&channel)?;
@@ -126,6 +136,12 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
 
         let output: HistoryOutput = history::run_with_output(history_options)?;
 
+        // Track if history truncated results due to count limit
+        // (total_available is the count before the limit was applied)
+        if output.total_available > output.messages.len() {
+            total_remaining += output.total_available - output.messages.len();
+        }
+
         // Filter out the current agent's own messages and system messages
         let filtered_messages: Vec<_> = output
             .messages
@@ -154,6 +170,9 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
         };
 
         let was_truncated = displayed_messages.len() < total_filtered;
+        if was_truncated {
+            total_remaining += total_filtered - displayed_messages.len();
+        }
         let unread_count = displayed_messages.len();
         total_unread += unread_count;
 
@@ -192,18 +211,37 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
         return Ok(());
     }
 
+    // Calculate pagination info
+    let has_more = total_remaining > 0;
+    let advice = if has_more {
+        Some(build_advice_command(&options))
+    } else {
+        None
+    };
+
     // Handle output format
     match options.format {
         OutputFormat::Json => {
             let json_output = InboxOutput {
                 total_unread,
                 channels: channel_inboxes,
+                has_more,
+                remaining_unread: if has_more {
+                    Some(total_remaining)
+                } else {
+                    None
+                },
+                advice,
             };
             println!("{}", serde_json::to_string_pretty(&json_output)?);
         }
         OutputFormat::Toon => {
             println!("total_unread: {}", total_unread);
             println!("channel_count: {}", channel_inboxes.len());
+            if has_more {
+                println!("has_more: true");
+                println!("remaining_unread: {}", total_remaining);
+            }
             println!();
             for inbox in &channel_inboxes {
                 println!("channel: {}", inbox.channel);
@@ -219,6 +257,12 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
                     println!("      body: {}", msg.body);
                 }
                 println!();
+            }
+            if has_more {
+                println!(
+                    "advice: run `{}` to see more",
+                    build_advice_command(&options)
+                );
             }
         }
         OutputFormat::Text => {
@@ -243,13 +287,28 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
                 print_channel_inbox(inbox, &agent);
             }
 
+            if has_more {
+                println!();
+                println!(
+                    "{} {} more unread message{} remaining",
+                    "---".dimmed(),
+                    total_remaining,
+                    if total_remaining == 1 { "" } else { "s" }
+                );
+                println!(
+                    "{} run `{}` to see more",
+                    "advice:".dimmed(),
+                    build_advice_command(&options)
+                );
+            }
+
             if options.mark_read {
                 println!();
                 println!("{} Marked all as read", "✓".green());
-            } else {
+            } else if !has_more {
                 println!();
                 println!(
-                    "{} Run 'botbus inbox --mark-read' to mark all as read",
+                    "{} Run 'bus inbox --mark-read' to mark all as read",
                     "Tip:".dimmed()
                 );
             }
@@ -257,6 +316,35 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
     }
 
     Ok(())
+}
+
+/// Build the advice command based on the options used.
+/// Reconstructs the command with the same flags so users can copy-paste it.
+fn build_advice_command(options: &InboxOptions) -> String {
+    let mut cmd = String::from("bus inbox");
+
+    // Add channels if specified
+    if !options.channels.is_empty() {
+        cmd.push_str(" --channels ");
+        cmd.push_str(&options.channels.join(","));
+    }
+
+    // Add --all if it was used
+    if options.all {
+        cmd.push_str(" --all");
+    }
+
+    // Add --mentions if it was used
+    if options.mentions {
+        cmd.push_str(" --mentions");
+    }
+
+    // Add --mark-read if it was used
+    if options.mark_read {
+        cmd.push_str(" --mark-read");
+    }
+
+    cmd
 }
 
 /// Get all DM channels that involve the specified agent.

@@ -243,8 +243,8 @@ pub enum Commands {
         #[arg(long)]
         all: bool,
 
-        /// Maximum total messages to show across all channels
-        #[arg(short = 'n', long, default_value = "50")]
+        /// Maximum total messages to show across all channels (default: 10)
+        #[arg(short = 'n', long, default_value = "10")]
         count: usize,
 
         /// Maximum messages to show per channel

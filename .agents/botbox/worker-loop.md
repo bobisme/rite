@@ -100,7 +100,7 @@ See [review-request](review-request.md) for full details.
 
 If a review was conducted:
 - Verify approval: `crit review <review-id>` — confirm LGTM, no blocks
-- Mark review as merged: `crit reviews merge <review-id> --agent $AGENT`
+- Mark review as merged: `crit reviews mark-merged <review-id> --agent $AGENT`
 
 Then proceed with teardown:
 - `br comments add --actor $AGENT --author $AGENT <bead-id> "Completed by $AGENT"`

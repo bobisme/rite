@@ -253,7 +253,7 @@ At the end of your work, output exactly one of these completion signals:
    IMPORTANT: Run ALL finish commands from the project root, not from inside the workspace.
    If your shell is cd'd into .workspaces/, cd back to the project root first.
    If a review was conducted:
-     crit reviews merge <review-id> --agent ${AGENT}.
+     crit reviews mark-merged <review-id> --agent ${AGENT}.
    br comments add --actor ${AGENT} --author ${AGENT} <id> "Completed by ${AGENT}".
    br close --actor ${AGENT} <id> --reason="Completed" --suggest-next.
    maw ws merge \$WS --destroy (if conflict, preserve and announce).
@@ -313,6 +313,17 @@ async function runClaude(prompt) {
 // --- Cleanup handler ---
 async function cleanup() {
 	console.log('Cleaning up...');
+	try {
+		await runCommand('bus', [
+			'send',
+			'--agent',
+			AGENT,
+			PROJECT,
+			`Agent ${AGENT} signing off.`,
+			'-L',
+			'agent-idle',
+		]);
+	} catch {}
 	try {
 		await runCommand('bus', ['statuses', 'clear', '--agent', AGENT]);
 	} catch {}

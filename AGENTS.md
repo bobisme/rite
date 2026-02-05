@@ -469,6 +469,28 @@ Requires: Hyprland, kitty, grim, pngquant. The script spawns a floating window, 
 
 **Required flags**: `--actor $AGENT` on mutations, `--author $AGENT` on comments.
 
+### Workspace Quick Reference
+
+| Operation | Command |
+|-----------|---------|
+| Create workspace | `maw ws create <name>` |
+| List workspaces | `maw ws list` |
+| Merge to main | `maw ws merge <name> --destroy` |
+| Destroy (no merge) | `maw ws destroy <name>` |
+| Run jj in workspace | `maw ws jj <name> <jj-args...>` |
+
+**Avoiding divergent commits**: Each workspace owns ONE commit. Only modify your own.
+
+| Safe | Dangerous |
+|------|-----------|
+| `jj describe` (your working copy) | `jj describe main -m "..."` |
+| `maw ws jj <your-ws> describe -m "..."` | `jj describe <other-change-id>` |
+
+If you see `(divergent)` in `jj log`:
+```bash
+jj abandon <change-id>/0   # keep one, abandon the divergent copy
+```
+
 ### Beads Conventions
 
 - Create a bead before starting work. Update status: `open` → `in_progress` → `closed`.
@@ -505,7 +527,7 @@ The @mention triggers the auto-spawn hook for the reviewer.
 
 When you have questions, feedback, or issues with tools from other projects:
 
-1. Find the project: `bus inbox --agent $AGENT --channels projects --all`
+1. Find the project: `bus history projects -n 50` (the #projects channel has project registry entries)
 2. Post to their channel: `bus send <project> "..." -L feedback`
 3. For bugs/features, create beads in their repo (see [report-issue.md](.agents/botbox/report-issue.md))
 

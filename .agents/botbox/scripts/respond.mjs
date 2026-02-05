@@ -310,19 +310,19 @@ async function main() {
     "10m",
   ])
 
-  // Get unread messages from the channel to find the triggering message
+  // Get unread @mentions from the channel
   let inboxResult
   try {
     inboxResult = await runCommand("bus", [
       "inbox",
       "--agent",
       AGENT,
+      "--mentions",
       "--channels",
       channel,
       "--format",
       "json",
-      "-n",
-      "5",
+      "--mark-read",
     ])
   } catch (err) {
     console.error("Error reading inbox:", err.message)
@@ -341,19 +341,19 @@ async function main() {
   }
 
   if (messages.length === 0) {
-    console.log("No unread messages in channel")
+    console.log("No unread @mentions in channel")
     await cleanup()
     process.exit(0)
   }
 
-  // Find the triggering message (most recent, or by ID if available)
+  // Find the triggering message by ID, or use most recent @mention
   let targetMessageId = process.env.BOTBUS_MESSAGE_ID
   let triggerMessage = targetMessageId
     ? messages.find((m) => m.id === targetMessageId)
     : messages[messages.length - 1]
 
   if (!triggerMessage) {
-    // Fallback to most recent
+    // Fallback to most recent @mention
     triggerMessage = messages[messages.length - 1]
   }
 

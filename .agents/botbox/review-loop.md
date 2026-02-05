@@ -7,11 +7,10 @@ Your identity is `$AGENT`. All bus commands must include `--agent $AGENT`. Run `
 ## Loop
 
 1. Read new review requests:
-   - `bus inbox --agent $AGENT --channel $BOTBOX_PROJECT -n 50`
+   - `bus inbox --agent $AGENT --channels $BOTBOX_PROJECT --mark-read`
    - `bus wait --agent $AGENT -L review-request -t 5` (optional)
-2. Find open reviews: `crit inbox --agent $AGENT --format=json`
-   - **Reviews may exist in workspaces.** Check all open workspaces: `maw ws list --format json`
-   - For each workspace, run: `crit inbox --agent $AGENT --path <workspace-path> --format json`
+2. Find open reviews: `crit inbox --agent $AGENT --all-workspaces --format=json`
+   - The `--all-workspaces` flag searches both the repo root and all jj workspaces
 3. For each review, gather context before commenting:
    a. Read the review and diff: `crit review <id> --path $WS_PATH` and `crit diff <id> --path $WS_PATH`
       - `crit review <id> --format=json --path $WS_PATH` includes `workspace.path` for reading source files

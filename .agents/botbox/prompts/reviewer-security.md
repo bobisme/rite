@@ -9,12 +9,12 @@ At the end of your work, output exactly one of these completion signals:
 - <promise>BLOCKED</promise> if you encountered an error
 
 1. INBOX:
-   Run: bus inbox --agent {{AGENT}} --channels {{PROJECT}} --mark-read
+   Run: bus inbox --agent {{AGENT}} --mentions --channels {{PROJECT}} --mark-read
    Note any review-request or review-response messages. Ignore task-claim, task-done, spawn-ack, etc.
 
 2. FIND REVIEWS:
-   Run: crit inbox --agent {{AGENT}} --format json
-   This shows reviews awaiting YOUR response (hides reviews you've already voted on).
+   Run: crit inbox --agent {{AGENT}} --all-workspaces --format json
+   This shows reviews awaiting YOUR response across the repo and all workspaces.
    Pick one to process. If inbox is empty, say "NO_REVIEWS_PENDING" and stop.
    bus statuses set --agent {{AGENT}} "Security Review: <review-id>" --ttl 30m
 

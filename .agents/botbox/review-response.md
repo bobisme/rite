@@ -12,7 +12,7 @@ Your identity is `$AGENT`. All crit and bus commands must include `--agent $AGEN
 ## When to Use
 
 Run this when:
-- `crit inbox --agent $AGENT --path $WS_PATH` shows threads with new comments on your review
+- `crit inbox --agent $AGENT --all-workspaces` shows threads with new comments on your review
 - `bus inbox` contains a `review-done` message indicating your review was blocked
 - You previously requested review and are checking back for feedback
 
@@ -47,7 +47,7 @@ Run this when:
 When the reviewer approves:
 
 1. Verify approval: `crit review <review-id> --path $WS_PATH` — confirm LGTM vote, no blocks
-2. Mark review as merged: `crit reviews merge <review-id> --agent $AGENT --path $WS_PATH`
+2. Mark review as merged: `crit reviews mark-merged <review-id> --agent $AGENT --path $WS_PATH`
 3. Continue with [finish](finish.md) to close the bead and merge the workspace
 
 The actual code merge is handled by `maw ws merge` in the finish step — do not run `jj squash` manually.

@@ -216,25 +216,25 @@ fn parse_attachments_for_channel(specs: &[String], channel: &str) -> Result<Vec<
             // URL attachment
             let name = spec.rsplit('/').next().unwrap_or("link");
             Attachment::url(name, spec)
-        } else if let Some((name, path)) = spec.split_once(':') {
-            // Named file attachment - store in cache
-            let full_path = cwd.join(path);
-            if !full_path.exists() {
-                bail!("Attachment file not found: {}", path);
-            }
-            store_file_in_cache(&full_path, name, channel)?
         } else {
-            // Just a path - derive name from filename, store in cache
-            let path = spec;
-            let full_path = cwd.join(path);
-            if !full_path.exists() {
-                bail!("Attachment file not found: {}", path);
+            // Try the whole spec as a path first (handles colons in filenames)
+            let full_path = cwd.join(spec);
+            if full_path.exists() {
+                let name = std::path::Path::new(spec)
+                    .file_name()
+                    .and_then(|s| s.to_str())
+                    .unwrap_or(spec);
+                store_file_in_cache(&full_path, name, channel)?
+            } else if let Some((name, path)) = spec.split_once(':') {
+                // Fall back to name:path syntax
+                let full_path = cwd.join(path);
+                if !full_path.exists() {
+                    bail!("Attachment file not found: {}", spec);
+                }
+                store_file_in_cache(&full_path, name, channel)?
+            } else {
+                bail!("Attachment file not found: {}", spec);
             }
-            let name = std::path::Path::new(path)
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or(path);
-            store_file_in_cache(&full_path, name, channel)?
         };
         attachments.push(attachment);
     }

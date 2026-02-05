@@ -293,5 +293,12 @@ fn main() -> Result<()> {
         }
 
         Commands::Telegram => cli::telegram::run(),
+
+        Commands::Messages { command } => {
+            use cli::MessagesCommands;
+            match command {
+                MessagesCommands::Get { id } => cli::messages::get(&id, format),
+            }
+        }
     }
 }

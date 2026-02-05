@@ -12,6 +12,7 @@ pub mod hooks;
 pub mod inbox;
 pub mod init;
 pub mod mark_read;
+pub mod messages;
 pub mod names;
 pub mod search;
 pub mod send;
@@ -310,6 +311,21 @@ pub enum Commands {
 
     /// Run the Telegram bridge (headless bot)
     Telegram,
+
+    /// Message operations
+    Messages {
+        #[command(subcommand)]
+        command: MessagesCommands,
+    },
+}
+
+#[derive(Subcommand)]
+pub enum MessagesCommands {
+    /// Get a message by ID
+    Get {
+        /// Message ID (ULID)
+        id: String,
+    },
 }
 
 #[derive(Subcommand)]

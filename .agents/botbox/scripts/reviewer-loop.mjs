@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'child_process';
-import { readFile } from 'fs/promises';
+import { readFile, appendFile, truncate, stat } from 'fs/promises';
 import { existsSync, readFileSync } from 'fs';
 import { join } from 'path';
 import { parseArgs } from 'util';
@@ -49,6 +49,66 @@ function loadPrompt(promptName, variables, promptsDir) {
 	}
 
 	return template;
+}
+
+// --- Journal functions ---
+let JOURNAL_PATH = '';
+
+function getJournalPath(agentName) {
+	// Extract role from agent name (e.g., "myproject-security" -> "security")
+	const role = deriveRoleFromAgentName(agentName);
+	return `.agents/botbox/review-loop-${role || 'reviewer'}.txt`;
+}
+
+async function truncateJournal() {
+	if (!JOURNAL_PATH || !existsSync(JOURNAL_PATH)) return;
+	try {
+		await truncate(JOURNAL_PATH, 0);
+	} catch {
+		// Ignore errors - file may not exist
+	}
+}
+
+// --- Get jj change ID for current working copy ---
+async function getJjChangeId() {
+	try {
+		const { stdout } = await runCommand('jj', ['log', '-r', '@', '--no-graph', '-T', 'change_id.short()']);
+		return stdout.trim();
+	} catch {
+		return null;
+	}
+}
+
+async function appendJournal(entry) {
+	if (!JOURNAL_PATH) return;
+	try {
+		const timestamp = new Date().toISOString();
+		const changeId = await getJjChangeId();
+		let header = `\n--- ${timestamp}`;
+		if (changeId) {
+			header += ` | jj:${changeId}`;
+		}
+		header += ' ---\n';
+		await appendFile(JOURNAL_PATH, header + entry.trim() + '\n');
+	} catch (err) {
+		console.error('Warning: Failed to append to journal:', err.message);
+	}
+}
+
+async function readLastIteration() {
+	if (!JOURNAL_PATH || !existsSync(JOURNAL_PATH)) return null;
+
+	try {
+		const content = await readFile(JOURNAL_PATH, 'utf-8');
+		const stats = await stat(JOURNAL_PATH);
+		const ageMs = Date.now() - stats.mtime.getTime();
+		const ageMinutes = Math.floor(ageMs / 60000);
+		const ageHours = Math.floor(ageMinutes / 60);
+		const ageStr = ageHours > 0 ? `${ageHours}h ago` : `${ageMinutes}m ago`;
+		return { content: content.trim(), age: ageStr };
+	} catch {
+		return null;
+	}
 }
 
 // --- Defaults ---
@@ -193,7 +253,7 @@ async function findWork() {
 }
 
 // --- Build reviewer prompt ---
-function buildPrompt() {
+function buildPrompt(lastIteration) {
 	// Derive role from agent name (e.g., "myproject-security" -> "security")
 	const role = deriveRoleFromAgentName(AGENT);
 	const promptName = getReviewerPromptName(role);
@@ -217,6 +277,11 @@ function buildPrompt() {
 		} else {
 			throw err;
 		}
+	}
+
+	// Append previous iteration context if available
+	if (lastIteration) {
+		basePrompt += `\n\n## PREVIOUS ITERATION (${lastIteration.age}, may be stale)\n\n${lastIteration.content}\n`;
 	}
 
 	return basePrompt;
@@ -296,11 +361,15 @@ async function main() {
 	await loadConfig();
 	parseCliArgs();
 
+	// Set up journal path now that we know the agent name
+	JOURNAL_PATH = getJournalPath(AGENT);
+
 	console.log(`Reviewer:  ${AGENT}`);
 	console.log(`Project:   ${PROJECT}`);
 	console.log(`Max loops: ${MAX_LOOPS}`);
 	console.log(`Pause:     ${LOOP_PAUSE}s`);
 	console.log(`Model:     ${MODEL || 'opus'}`);
+	console.log(`Journal:   ${JOURNAL_PATH}`);
 
 	// Confirm identity
 	try {
@@ -344,6 +413,9 @@ async function main() {
 	// Set starting status
 	await runCommand('bus', ['statuses', 'set', '--agent', AGENT, 'Starting loop', '--ttl', '10m']);
 
+	// Truncate journal at start of loop session
+	await truncateJournal();
+
 	// Main loop
 	for (let i = 1; i <= MAX_LOOPS; i++) {
 		console.log(`\n--- Review loop ${i}/${MAX_LOOPS} ---`);
@@ -371,7 +443,8 @@ async function main() {
 
 		// Run Claude
 		try {
-			const prompt = buildPrompt();
+			const lastIteration = await readLastIteration();
+			const prompt = buildPrompt(lastIteration);
 			const result = await runClaude(prompt);
 
 			// Check for completion signals
@@ -381,6 +454,12 @@ async function main() {
 				console.log('⚠ Reviewer blocked');
 			} else {
 				console.log('Warning: No completion signal found in output');
+			}
+
+			// Extract and append iteration summary to journal
+			const summaryMatch = result.output.match(/<iteration-summary>([\s\S]*?)<\/iteration-summary>/);
+			if (summaryMatch) {
+				await appendJournal(summaryMatch[1]);
 			}
 		} catch (err) {
 			console.error('Error running Claude:', err.message);

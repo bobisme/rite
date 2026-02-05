@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn } from 'child_process';
-import { readFile, writeFile, stat } from 'fs/promises';
+import { readFile, writeFile, stat, appendFile, truncate } from 'fs/promises';
 import { existsSync } from 'fs';
 import { parseArgs } from 'util';
 
@@ -184,14 +184,52 @@ async function hasWork() {
 	}
 }
 
+// --- Journal file for iteration history ---
+const JOURNAL_PATH = '.agents/botbox/dev-loop.txt';
+
+// --- Truncate journal at start of loop session ---
+async function truncateJournal() {
+	if (!existsSync(JOURNAL_PATH)) return;
+	try {
+		await truncate(JOURNAL_PATH, 0);
+	} catch {
+		// Ignore errors - file may not exist
+	}
+}
+
+// --- Get jj change ID for current working copy ---
+async function getJjChangeId() {
+	try {
+		const { stdout } = await runCommand('jj', ['log', '-r', '@', '--no-graph', '-T', 'change_id.short()']);
+		return stdout.trim();
+	} catch {
+		return null;
+	}
+}
+
+// --- Append entry to journal ---
+async function appendJournal(entry) {
+	try {
+		const timestamp = new Date().toISOString();
+		const changeId = await getJjChangeId();
+		let header = `\n--- ${timestamp}`;
+		if (changeId) {
+			header += ` | jj:${changeId}`;
+		}
+		header += ' ---\n';
+		await appendFile(JOURNAL_PATH, header + entry.trim() + '\n');
+	} catch (err) {
+		console.error('Warning: Failed to append to journal:', err.message);
+	}
+}
+
 // --- Read previous iteration summary ---
 async function readLastIteration() {
-	const path = '.agents/botbox/last-iteration.txt';
-	if (!existsSync(path)) return null;
+	if (!existsSync(JOURNAL_PATH)) return null;
 
 	try {
-		const content = await readFile(path, 'utf-8');
-		const stats = await stat(path);
+		const content = await readFile(JOURNAL_PATH, 'utf-8');
+		const stats = await stat(JOURNAL_PATH);
 		const ageMs = Date.now() - stats.mtime.getTime();
 		const ageMinutes = Math.floor(ageMs / 60000);
 		const ageHours = Math.floor(ageMinutes / 60);
@@ -499,6 +537,9 @@ async function main() {
 	// Capture baseline commits for release tracking
 	const baselineCommits = await getCommitsSinceOrigin();
 
+	// Truncate journal at start of loop session
+	await truncateJournal();
+
 	// Main loop
 	for (let i = 1; i <= MAX_LOOPS; i++) {
 		console.log(`\n--- Dev loop ${i}/${MAX_LOOPS} ---`);
@@ -534,14 +575,10 @@ async function main() {
 				console.log('Warning: No completion signal found in output');
 			}
 
-			// Extract and save iteration summary for next time
-			try {
-				const summaryMatch = result.output.match(/<iteration-summary>([\s\S]*?)<\/iteration-summary>/);
-				if (summaryMatch) {
-					await writeFile('.agents/botbox/last-iteration.txt', summaryMatch[1].trim());
-				}
-			} catch (err) {
-				console.error('Warning: Failed to save iteration summary:', err.message);
+			// Extract and append iteration summary to journal
+			const summaryMatch = result.output.match(/<iteration-summary>([\s\S]*?)<\/iteration-summary>/);
+			if (summaryMatch) {
+				await appendJournal(summaryMatch[1]);
 			}
 		} catch (err) {
 			console.error('Error running Claude:', err.message);

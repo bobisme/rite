@@ -79,6 +79,7 @@ fn main() -> Result<()> {
             after_offset,
             after_id,
             show_offset,
+            format: local_format,
         } => cli::history::run(cli::history::HistoryOptions {
             channel,
             count,
@@ -92,7 +93,12 @@ fn main() -> Result<()> {
             after_offset,
             after_id,
             show_offset,
-            format,
+            // Deprecated --json flag overrides local format
+            format: if cli.json {
+                OutputFormat::Json
+            } else {
+                local_format
+            },
             agent: cli.agent.clone(),
         }),
 
@@ -197,13 +203,19 @@ fn main() -> Result<()> {
             mark_read,
             mentions,
             count_only,
+            format: local_format,
         } => cli::inbox::run(
             cli::inbox::InboxOptions {
                 channels,
                 count,
                 limit_per_channel,
                 mark_read,
-                format,
+                // Deprecated --json flag overrides local format
+                format: if cli.json {
+                    OutputFormat::Json
+                } else {
+                    local_format
+                },
                 all,
                 mentions,
                 count_only,

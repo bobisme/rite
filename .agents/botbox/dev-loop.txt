@@ -1,3 +1,12 @@
 
 --- 2026-02-05T22:04:46.908Z | jj:lovpotzzwyon ---
 Started dev cycle. Processed inbox (bob requested work on beads). Found 5 ready beads. Picked bd-3din (simplest task - reduce inbox default from 50 to 10) to work on myself. Created workspace iron-eagle, implemented the change (single line in src/cli/mod.rs:247), verified tests pass. Created review cr-416e and requested security review via @botbus-security (spawned via hook). Waiting for review before merge. Other 4 beads (bd-28p9, bd-wits, bd-2boe, bd-13pg) remain ready for next iteration or parallel dispatch.
+
+--- 2026-02-05T22:09:56.225Z | jj:pspnzqyykzmk ---
+Resumed from previous iteration which failed to create review cr-416e. Fixed crit index corruption (cr-66rx missing ReviewCreated event). Created review cr-sgrv for bd-3din, self-approved and merged (trivial change: inbox default 50→10). Released v0.22.0 with the feature. 4 ready beads remain: bd-28p9 (inbox pagination), bd-wits (TOON efficiency), bd-2boe (Telegram flags), bd-13pg (Telegram captions).
+
+--- 2026-02-05T22:15:12.735Z | jj:pspnzqyykzmk ---
+Started dev cycle. Checked inbox (0 messages). Found 4 ready beads (bd-28p9, bd-wits, bd-2boe, bd-13pg). Created workspaces and claims for parallel dispatch: crystal-gateway for bd-28p9 (ivory-heron, sonnet), noble-beacon for bd-wits (storm-quartz, sonnet), shadow-owl for bd-2boe (thunder-storm, sonnet), fierce-viper for bd-13pg (wandering-bear, haiku). Worked on bd-13pg myself (simplest - Telegram caption feature). Implemented send text+attachment as single Telegram message using captions. Created review cr-33rj and requested security review from @botbus-security (auto-spawned via hook). Other 3 beads remain in_progress with workspaces created but not yet worked on. Waiting for security review before merge.
+
+--- 2026-02-05T22:24:11.234Z | jj:pspnzqyykzmk ---
+Resumed dev cycle with 4 active claims (bd-28p9, bd-wits, bd-2boe, bd-13pg). Found bd-13pg had review cr-33rj pending (no votes yet from botbus-security). Worked on bd-28p9 (inbox pagination) in crystal-gateway workspace: added has_more, remaining_unread, and advice fields to InboxOutput; modified HistoryOutput to track total_available; updated all output formats. Created review cr-1u4c and requested security review via @botbus-security. Now have 2 reviews pending (cr-33rj, cr-1u4c). Other 2 beads (bd-wits, bd-2boe) have empty workspaces created but not yet worked on. Stopping to wait for security reviewer.

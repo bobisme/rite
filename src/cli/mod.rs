@@ -160,6 +160,10 @@ pub enum Commands {
         /// Show offset info for next read
         #[arg(long)]
         show_offset: bool,
+
+        /// Output format (default: text for history, more compact than toon)
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
     },
 
     /// Stream new messages in real-time
@@ -262,6 +266,10 @@ pub enum Commands {
         /// Only show the count of unread messages (no message content)
         #[arg(long)]
         count_only: bool,
+
+        /// Output format (default: text for inbox, more compact than toon)
+        #[arg(long, value_enum, default_value = "text")]
+        format: OutputFormat,
     },
 
     /// Show status overview

@@ -262,6 +262,7 @@ fn main() -> Result<()> {
                     ttl,
                     release_on_exit,
                     claim_owner,
+                    priority,
                 } => cli::hooks::add(
                     channel,
                     claim,
@@ -272,6 +273,7 @@ fn main() -> Result<()> {
                     ttl,
                     release_on_exit,
                     claim_owner,
+                    priority,
                     cli.agent.as_deref(),
                     format,
                 ),

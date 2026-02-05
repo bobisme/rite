@@ -52,6 +52,7 @@ pub fn add(
     ttl: Option<u64>,
     release_on_exit: bool,
     claim_owner: Option<String>,
+    priority: i32,
     agent: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
@@ -144,6 +145,7 @@ pub fn add(
         created_by: agent.map(|s| s.to_string()),
         claim_release,
         claim_owner,
+        priority,
         active: true,
     };
 
@@ -177,6 +179,7 @@ struct HookInfo {
     command: Vec<String>,
     cwd: String,
     cooldown_secs: u64,
+    priority: i32,
     last_fired: Option<String>,
     active: bool,
 }
@@ -198,6 +201,7 @@ pub fn list(format: OutputFormat) -> Result<()> {
             command: h.command.clone(),
             cwd: h.cwd.to_string_lossy().to_string(),
             cooldown_secs: h.cooldown_secs,
+            priority: h.priority,
             last_fired: h.last_fired.map(|t| t.to_rfc3339()),
             active: h.active,
         })
@@ -225,10 +229,11 @@ pub fn list(format: OutputFormat) -> Result<()> {
                         .map(|t| t.to_rfc3339())
                         .unwrap_or_else(|| "never".to_string());
                     println!(
-                        "  {} #{} → {:?} (cooldown: {}s, last: {})",
+                        "  {} #{} → {:?} (priority: {}, cooldown: {}s, last: {})",
                         h.id.cyan(),
                         h.channel,
                         h.command,
+                        h.priority,
                         h.cooldown_secs,
                         last.dimmed()
                     );
@@ -470,7 +475,11 @@ fn evaluate_hooks_inner(
     let now = Utc::now();
     let mut results = Vec::new();
 
-    for hook in active.values() {
+    // Collect hooks into a vector and sort by priority (lower priority runs first)
+    let mut hooks_to_process: Vec<&Hook> = active.values().collect();
+    hooks_to_process.sort_by_key(|h| h.priority);
+
+    for hook in hooks_to_process {
         // Match hook channel: exact match OR wildcard "*" (except DMs)
         let channel_matches = if hook.channel == "*" {
             !crate::core::channel::is_dm_channel(channel)
@@ -811,6 +820,7 @@ mod tests {
                 created_by: None,
                 claim_release: Some(ClaimRelease::OnExit),
                 claim_owner: None,
+                priority: 0,
                 active: true,
             },
             Hook {
@@ -827,6 +837,7 @@ mod tests {
                 created_by: None,
                 claim_release: Some(ClaimRelease::OnExit),
                 claim_owner: None,
+                priority: 0,
                 active: false, // Deactivated
             },
         ];
@@ -844,5 +855,73 @@ mod tests {
         let result = is_claim_available("agent://nonexistent-test-pattern-12345");
         assert!(result.is_ok());
         assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_priority_sorting() {
+        // Create hooks with different priorities
+        let hooks = vec![
+            Hook {
+                id: "hk-high".to_string(),
+                channel: "test".to_string(),
+                condition: HookCondition::ClaimAvailable {
+                    pattern: "p1".to_string(),
+                },
+                command: vec!["echo".to_string(), "high".to_string()],
+                cwd: PathBuf::from("/tmp"),
+                cooldown_secs: 30,
+                last_fired: None,
+                created_at: Utc::now(),
+                created_by: None,
+                claim_release: Some(ClaimRelease::OnExit),
+                claim_owner: None,
+                priority: 10,
+                active: true,
+            },
+            Hook {
+                id: "hk-low".to_string(),
+                channel: "test".to_string(),
+                condition: HookCondition::ClaimAvailable {
+                    pattern: "p2".to_string(),
+                },
+                command: vec!["echo".to_string(), "low".to_string()],
+                cwd: PathBuf::from("/tmp"),
+                cooldown_secs: 30,
+                last_fired: None,
+                created_at: Utc::now(),
+                created_by: None,
+                claim_release: Some(ClaimRelease::OnExit),
+                claim_owner: None,
+                priority: -5,
+                active: true,
+            },
+            Hook {
+                id: "hk-mid".to_string(),
+                channel: "test".to_string(),
+                condition: HookCondition::ClaimAvailable {
+                    pattern: "p3".to_string(),
+                },
+                command: vec!["echo".to_string(), "mid".to_string()],
+                cwd: PathBuf::from("/tmp"),
+                cooldown_secs: 30,
+                last_fired: None,
+                created_at: Utc::now(),
+                created_by: None,
+                claim_release: Some(ClaimRelease::OnExit),
+                claim_owner: None,
+                priority: 0,
+                active: true,
+            },
+        ];
+
+        let active = build_active_hooks(&hooks);
+        let mut hooks_to_process: Vec<&Hook> = active.values().collect();
+        hooks_to_process.sort_by_key(|h| h.priority);
+
+        // Verify order: low (-5), mid (0), high (10)
+        assert_eq!(hooks_to_process.len(), 3);
+        assert_eq!(hooks_to_process[0].id, "hk-low");
+        assert_eq!(hooks_to_process[1].id, "hk-mid");
+        assert_eq!(hooks_to_process[2].id, "hk-high");
     }
 }

@@ -405,6 +405,10 @@ pub enum HooksCommands {
         #[arg(long)]
         claim_owner: Option<String>,
 
+        /// Priority for hook execution (lower runs first, Unix convention; default: 0)
+        #[arg(long, default_value = "0")]
+        priority: i32,
+
         /// Command to execute (place after --)
         #[arg(last = true, required = true)]
         command: Vec<String>,

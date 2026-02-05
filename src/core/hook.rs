@@ -44,6 +44,11 @@ pub struct Hook {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub claim_owner: Option<String>,
 
+    /// Priority for hook execution (lower runs first, Unix convention).
+    /// Default: 0
+    #[serde(default)]
+    pub priority: i32,
+
     /// Whether this hook is active
     pub active: bool,
 }
@@ -174,6 +179,7 @@ mod tests {
             created_by: Some("test-agent".to_string()),
             claim_release: Some(ClaimRelease::OnExit),
             claim_owner: None,
+            priority: 0,
             active: true,
         };
 
@@ -243,11 +249,12 @@ mod tests {
 
     #[test]
     fn test_hook_backward_compat_no_claim_release() {
-        // Simulate old hook JSON without claim_release or created_by fields
+        // Simulate old hook JSON without claim_release, created_by, or priority fields
         let json = r#"{"id":"hk-old","channel":"test","condition":{"type":"claim_available","pattern":"x"},"command":["echo"],"cwd":"/tmp","cooldown_secs":30,"created_at":"2025-01-01T00:00:00Z","active":true}"#;
         let hook: Hook = serde_json::from_str(json).unwrap();
         assert!(hook.claim_release.is_none());
         assert!(hook.created_by.is_none());
+        assert_eq!(hook.priority, 0);
     }
 
     #[test]

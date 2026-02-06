@@ -239,6 +239,7 @@ jj abandon <change-id>/0   # keep one, abandon the divergent copy
 - Create a bead before starting work. Update status: `open` → `in_progress` → `closed`.
 - Post progress comments during work for crash recovery.
 - **Push to main** after completing beads (see [finish.md](.agents/botbox/finish.md)).
+- **Install locally** after releasing: `just install`
 
 ### Identity
 

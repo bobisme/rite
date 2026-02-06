@@ -2,11 +2,10 @@
   "version": "1.0.6",
   "project": {
     "name": "botbus",
-    "type": [
-      "cli"
-    ],
+    "type": ["cli"],
     "default_agent": "botbus-dev",
-    "channel": "botbus"
+    "channel": "botbus",
+    "installCommand": "just install"
   },
   "tools": {
     "beads": true,
@@ -17,9 +16,7 @@
   },
   "review": {
     "enabled": true,
-    "reviewers": [
-      "security"
-    ]
+    "reviewers": ["security"]
   },
   "pushMain": false,
   "agents": {

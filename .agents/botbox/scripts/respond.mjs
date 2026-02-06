@@ -24,6 +24,7 @@ let AGENT = ""
 let DEFAULT_MODEL = "sonnet"
 let WAIT_TIMEOUT = 300 // 5 minutes
 let CLAUDE_TIMEOUT = 300 // 5 minutes for response
+let MAX_CONVERSATIONS = 10 // max back-and-forth responses
 
 // --- Model mapping for question prefixes ---
 const MODEL_MAP = {
@@ -46,6 +47,7 @@ async function loadConfig() {
       DEFAULT_MODEL = responder.model || "sonnet"
       WAIT_TIMEOUT = responder.wait_timeout || 300
       CLAUDE_TIMEOUT = responder.timeout || 300
+      MAX_CONVERSATIONS = responder.max_conversations || 10
     } catch (err) {
       console.error("Warning: Failed to load .botbox.json:", err.message)
     }
@@ -59,6 +61,7 @@ function parseCliArgs() {
       model: { type: "string" },
       timeout: { type: "string" },
       "wait-timeout": { type: "string" },
+      "max-conversations": { type: "string" },
       help: { type: "boolean", short: "h" },
     },
     allowPositionals: true,
@@ -76,10 +79,11 @@ Parses messages for question prefixes to select model:
   q(model): -> explicit model selection
 
 Options:
-  --model M         Default model (default: ${DEFAULT_MODEL})
-  --timeout N       Claude timeout in seconds (default: ${CLAUDE_TIMEOUT})
-  --wait-timeout N  Follow-up wait timeout in seconds (default: ${WAIT_TIMEOUT})
-  -h, --help        Show this help
+  --model M              Default model (default: ${DEFAULT_MODEL})
+  --timeout N            Claude timeout in seconds (default: ${CLAUDE_TIMEOUT})
+  --wait-timeout N       Follow-up wait timeout in seconds (default: ${WAIT_TIMEOUT})
+  --max-conversations N  Max back-and-forth responses (default: ${MAX_CONVERSATIONS})
+  -h, --help             Show this help
 
 Arguments:
   project      Project name (default: from .botbox.json)
@@ -94,6 +98,7 @@ Environment (from hook):
   if (values.model) DEFAULT_MODEL = values.model
   if (values.timeout) CLAUDE_TIMEOUT = parseInt(values.timeout, 10)
   if (values["wait-timeout"]) WAIT_TIMEOUT = parseInt(values["wait-timeout"], 10)
+  if (values["max-conversations"]) MAX_CONVERSATIONS = parseInt(values["max-conversations"], 10)
 
   if (positionals.length >= 1) PROJECT = positionals[0]
   if (positionals.length >= 2) AGENT = positionals[1]
@@ -385,7 +390,7 @@ async function main() {
 
   // Conversation loop
   let conversationCount = 0
-  let maxConversations = 5
+  let maxConversations = MAX_CONVERSATIONS
   let currentMessage = triggerMessage
 
   while (conversationCount < maxConversations) {

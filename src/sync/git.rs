@@ -90,7 +90,13 @@ pub fn init_repo(data_dir: &Path, remote_url: Option<&str>) -> Result<()> {
 
     let status = Command::new("git")
         .current_dir(data_dir)
-        .args(["commit", "-m", "chore: initialize botbus data repo"])
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-m",
+            "chore: initialize botbus data repo",
+        ])
         .status()
         .context("Failed to commit git config files")?;
 
@@ -109,7 +115,13 @@ pub fn init_repo(data_dir: &Path, remote_url: Option<&str>) -> Result<()> {
         // Commit existing data if any
         let status = Command::new("git")
             .current_dir(data_dir)
-            .args(["commit", "-m", "chore: add existing botbus data"])
+            .args([
+                "-c",
+                "commit.gpgsign=false",
+                "commit",
+                "-m",
+                "chore: add existing botbus data",
+            ])
             .status();
 
         // It's OK if this fails (nothing to commit)
@@ -166,10 +178,10 @@ pub fn commit_files(data_dir: &Path, files: &[&str], message: &str) -> Result<()
         return Ok(());
     }
 
-    // Commit
+    // Commit (disable GPG signing to avoid interactive prompts)
     let status = Command::new("git")
         .current_dir(data_dir)
-        .args(["commit", "-m", message])
+        .args(["-c", "commit.gpgsign=false", "commit", "-m", message])
         .status();
 
     if status.is_err() || !status.unwrap().success() {

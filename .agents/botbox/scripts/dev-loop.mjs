@@ -291,11 +291,13 @@ For EACH unfinished bead:
 1. Read the bead and its comments: br show <id> and br comments <id>
 2. Check if you still hold claims: bus claims list --agent ${AGENT} --mine
 3. Determine state:
-   - If "Review requested: <review-id>" comment exists:
-     * Check review status: crit review <review-id>
+   - If "Review created: <review-id>" comment exists:
+     * Find the review: crit reviews list --all-workspaces | grep <review-id>
+     * Check review status: crit reviews show <review-id> --path <workspace-path>
      * If LGTM (approved): Proceed to merge/finish (step 6)
      * If BLOCKED (changes requested): Follow review-response.md to fix issues, re-request review, then STOP
      * If PENDING (no votes yet): STOP this iteration — wait for reviewer
+     * If review not found: Check if workspace still exists and create new review if needed
    - If workspace comment exists but no review comment (work was in progress when session died):
      * Extract workspace name and path from comments
      * Verify workspace still exists: maw ws list
@@ -360,11 +362,15 @@ Same as the standard worker loop:
 10. Describe: maw ws jj \$WS describe -m "<id>: <summary>"
 
 If REVIEW is true:
-  11. Create review: crit reviews create --agent ${AGENT} --title "<title>" --description "<summary>"
-  12. br comments add --actor ${AGENT} --author ${AGENT} <id> "Review requested: <review-id>, workspace: \$WS (\$WS_PATH)"
+  11. CHECK for existing review first:
+      - Run: br comments <id> | grep "Review created:"
+      - If found, extract <review-id> and skip to step 13 (don't create duplicate)
+  12. Create review (only if none exists):
+      - crit reviews create --agent ${AGENT} --title "<id>: <title>" --description "<summary>" --path \$WS_PATH
+      - IMMEDIATELY record: br comments add --actor ${AGENT} --author ${AGENT} <id> "Review created: <review-id> in workspace \$WS"
   13. bus statuses set --agent ${AGENT} "Review: <review-id>"
   14. Request security review (if project has security reviewer):
-      - Assign: crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT}
+      - Assign: crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT} --path \$WS_PATH
       - Spawn via @mention: bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id> @${PROJECT}-security" -L review-request
       (The @mention triggers the auto-spawn hook — without it, no reviewer spawns!)
   15. STOP this iteration — wait for reviewer.
@@ -416,10 +422,14 @@ For each completed worker:
 For each completed bead with a workspace:
 
 If REVIEW is true:
-  1. crit reviews create --agent ${AGENT} --title "<title>" --description "<summary of changes>"
-  2. br comments add --actor ${AGENT} --author ${AGENT} <id> "Review requested: <review-id>"
+  1. CHECK for existing review first:
+     - Run: br comments <id> | grep "Review created:"
+     - If found, extract <review-id> and skip to step 3 (don't create duplicate)
+  2. Create review (only if none exists):
+     - crit reviews create --agent ${AGENT} --title "<id>: <title>" --description "<summary of changes>" --path <ws-path>
+     - IMMEDIATELY record: br comments add --actor ${AGENT} --author ${AGENT} <id> "Review created: <review-id> in workspace <ws-name>"
   3. Request security review (if project has security reviewer):
-     - Assign: crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT}
+     - Assign: crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT} --path <ws-path>
      - Spawn via @mention: bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id> @${PROJECT}-security" -L review-request
      (The @mention triggers the auto-spawn hook — without it, no reviewer spawns!)
   4. STOP — wait for reviewer

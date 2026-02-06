@@ -180,12 +180,14 @@ At the end of your work, output exactly one of these completion signals:
    If you hold a bead:// claim, you have an in-progress bead from a previous iteration.
    - Run: br comments <bead-id> to understand what was done before and what remains.
    - Look for workspace info in comments (workspace name and path).
-   - If a "Review requested: <review-id>" comment exists:
-     * Check review status: crit review <review-id>
+   - If a "Review created: <review-id>" comment exists:
+     * Find the review: crit reviews list --all-workspaces | grep <review-id>
+     * Check review status: crit reviews show <review-id> --path <workspace-path>
      * If LGTM (approved): proceed to FINISH (step 7) — merge the review and close the bead.
      * If BLOCKED (changes requested): follow .agents/botbox/review-response.md to fix issues
        in the workspace, re-request review, then STOP this iteration.
      * If PENDING (no votes yet): STOP this iteration. Wait for the reviewer.
+     * If review not found: Check if workspace still exists and create new review if needed
    - If no review comment (work was in progress when session ended):
      * Read the workspace code to see what's already done.
      * Complete the remaining work in the EXISTING workspace — do NOT create a new one.
@@ -236,11 +238,15 @@ At the end of your work, output exactly one of these completion signals:
 
 6. REVIEW REQUEST:
    Describe the change: maw ws jj \$WS describe -m "<id>: <summary>".
-   Create review: crit reviews create --agent ${AGENT} --title "<title>" --description "<summary>".
-   Add bead comment: br comments add --actor ${AGENT} --author ${AGENT} <id> "Review requested: <review-id>, workspace: \$WS (\$WS_PATH)".
+   CHECK for existing review first:
+     - Run: br comments <id> | grep "Review created:"
+     - If found, extract <review-id> and skip to requesting security review (don't create duplicate)
+   Create review (only if none exists):
+     - crit reviews create --agent ${AGENT} --title "<id>: <title>" --description "<summary>" --path \$WS_PATH
+     - IMMEDIATELY record: br comments add --actor ${AGENT} --author ${AGENT} <id> "Review created: <review-id> in workspace \$WS"
    bus statuses set --agent ${AGENT} "Review: <review-id>".
    Request security review (if project has security reviewer):
-     - Assign: crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT}
+     - Assign: crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT} --path \$WS_PATH
      - Spawn via @mention: bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id> @${PROJECT}-security" -L review-request
      (The @mention triggers the auto-spawn hook — without it, no reviewer spawns!)
    Do NOT close the bead. Do NOT merge the workspace. Do NOT release claims.

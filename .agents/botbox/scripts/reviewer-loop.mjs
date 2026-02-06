@@ -323,20 +323,25 @@ async function runClaude(prompt) {
 	});
 }
 
+// Track if we already announced sign-off (to avoid duplicate messages)
+let alreadySignedOff = false;
+
 // --- Cleanup handler ---
 async function cleanup() {
 	console.log('Cleaning up...');
-	try {
-		await runCommand('bus', [
-			'send',
-			'--agent',
-			AGENT,
-			PROJECT,
-			`Reviewer ${AGENT} signing off.`,
-			'-L',
-			'agent-idle',
-		]);
-	} catch {}
+	if (!alreadySignedOff) {
+		try {
+			await runCommand('bus', [
+				'send',
+				'--agent',
+				AGENT,
+				PROJECT,
+				`Reviewer ${AGENT} signing off.`,
+				'-L',
+				'agent-idle',
+			]);
+		} catch {}
+	}
 	try {
 		await runCommand('bus', ['statuses', 'clear', '--agent', AGENT]);
 	} catch {}
@@ -433,6 +438,7 @@ async function main() {
 				'-L',
 				'agent-idle',
 			]);
+			alreadySignedOff = true;
 			break;
 		}
 

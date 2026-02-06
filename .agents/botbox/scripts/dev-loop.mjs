@@ -258,9 +258,7 @@ async function readLastIteration() {
 
 // --- Build dev lead prompt ---
 function buildPrompt(lastIteration) {
-	const pushMainStep = PUSH_MAIN
-		? '\n  14. Push to GitHub: jj bookmark set main -r @- && jj git push (if fails, announce issue).'
-		: '';
+	const pushMainStep = PUSH_MAIN ? '\n  14. Push to GitHub: maw push (if fails, announce issue).' : '';
 
 	const reviewInstructions = REVIEW ? 'REVIEW is true' : 'REVIEW is false';
 
@@ -434,7 +432,21 @@ If REVIEW is false:
 
 After finishing all ready work:
   bus claims release --agent ${AGENT} --all
-  Output: <promise>END_OF_STORY</promise> if more beads remain, else <promise>COMPLETE</promise>
+
+## 8. RELEASE CHECK (before signaling COMPLETE)
+
+Before outputting COMPLETE, check if a release is needed:
+
+1. Check for unreleased commits: jj log -r 'tags()..main' --no-graph -T 'description.first_line() ++ "\\n"'
+2. If any commits start with "feat:" or "fix:" (user-visible changes), a release is needed:
+   - Bump version in Cargo.toml/package.json (semantic versioning)
+   - Update changelog if one exists
+   - maw push (if not already pushed)
+   - Tag: jj tag create vX.Y.Z -r main && jj git push --remote origin
+   - Announce: bus send --agent ${AGENT} ${PROJECT} "<project> vX.Y.Z released - <summary>" -L release
+3. If only "chore:", "docs:", "refactor:" commits, no release needed.
+
+Output: <promise>END_OF_STORY</promise> if more beads remain, else <promise>COMPLETE</promise>
 
 Key rules:
 - Triage first, then decide: sequential vs parallel
@@ -480,20 +492,25 @@ async function runClaude(prompt) {
 	});
 }
 
+// Track if we already announced sign-off (to avoid duplicate messages)
+let alreadySignedOff = false;
+
 // --- Cleanup handler ---
 async function cleanup() {
 	console.log('Cleaning up...');
-	try {
-		await runCommand('bus', [
-			'send',
-			'--agent',
-			AGENT,
-			PROJECT,
-			`Dev agent ${AGENT} signing off.`,
-			'-L',
-			'agent-idle',
-		]);
-	} catch {}
+	if (!alreadySignedOff) {
+		try {
+			await runCommand('bus', [
+				'send',
+				'--agent',
+				AGENT,
+				PROJECT,
+				`Dev agent ${AGENT} signing off.`,
+				'-L',
+				'agent-idle',
+			]);
+		} catch {}
+	}
 	try {
 		await runCommand('bus', ['statuses', 'clear', '--agent', AGENT]);
 	} catch {}
@@ -597,6 +614,7 @@ async function main() {
 				'-L',
 				'agent-idle',
 			]);
+			alreadySignedOff = true;
 			break;
 		}
 

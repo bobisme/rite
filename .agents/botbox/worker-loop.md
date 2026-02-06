@@ -136,11 +136,30 @@ Then proceed with teardown:
 - `br comments add --actor $AGENT --author $AGENT <bead-id> "Completed by $AGENT"`
 - `br close --actor $AGENT <bead-id> --reason="Completed" --suggest-next`
 - `maw ws merge $WS --destroy` (if merge conflict, preserve workspace and announce; maw v0.22.0+ produces linear squashed history and auto-moves main)
+- `maw push` (if pushMain enabled in `.botbox.json`; maw v0.24.0+ handles bookmark and push)
 - `bus claims release --agent $AGENT --all`
 - `br sync --flush-only`
 - `bus send --agent $AGENT $BOTBOX_PROJECT "Completed <bead-id>: <bead-title>" -L task-done`
 
-### 7. Repeat
+### 7. Release check — ship user-visible changes
+
+Before ending the loop, check if a release is needed:
+
+```bash
+# Check for unreleased commits
+jj log -r 'tags()..main' --no-graph -T 'description.first_line() ++ "\n"'
+```
+
+If any commits start with `feat:` or `fix:` (user-visible changes):
+1. Bump version in Cargo.toml/package.json (semantic versioning)
+2. Update changelog if one exists
+3. `maw push` (if not already pushed)
+4. Tag: `jj tag create vX.Y.Z -r main && jj git push --remote origin`
+5. Announce: `bus send --agent $AGENT $BOTBOX_PROJECT "<project> vX.Y.Z released - <summary>" -L release`
+
+If only `chore:`, `docs:`, `refactor:` commits, no release needed.
+
+### 8. Repeat
 
 Go back to step 0. The loop ends when triage finds no work and no reviews are pending.
 

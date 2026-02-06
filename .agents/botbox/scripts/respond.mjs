@@ -310,50 +310,64 @@ async function main() {
     "10m",
   ])
 
-  // Get unread @mentions from the channel
-  let inboxResult
-  try {
-    inboxResult = await runCommand("bus", [
-      "inbox",
-      "--agent",
-      AGENT,
-      "--mentions",
-      "--channels",
-      channel,
-      "--format",
-      "json",
-      "--mark-read",
-    ])
-  } catch (err) {
-    console.error("Error reading inbox:", err.message)
-    process.exit(1)
-  }
+  // Get the triggering message - prefer direct fetch by ID over inbox
+  let targetMessageId = process.env.BOTBUS_MESSAGE_ID
+  let triggerMessage = null
 
-  let inbox = JSON.parse(inboxResult.stdout || "{}")
-  let messages = []
-
-  // Extract messages from inbox structure
-  for (let ch of inbox.channels || []) {
-    if (ch.channel === channel) {
-      messages = ch.messages || []
-      break
+  if (targetMessageId) {
+    // Fetch the specific message by ID (works even if already read)
+    try {
+      let result = await runCommand("bus", [
+        "messages",
+        "get",
+        targetMessageId,
+        "--format",
+        "json",
+      ])
+      triggerMessage = JSON.parse(result.stdout)
+      console.log(`Fetched message ${targetMessageId} directly`)
+    } catch (err) {
+      console.error(`Warning: Could not fetch message ${targetMessageId}:`, err.message)
     }
   }
 
-  if (messages.length === 0) {
-    console.log("No unread @mentions in channel")
-    await cleanup()
-    process.exit(0)
-  }
-
-  // Find the triggering message by ID, or use most recent @mention
-  let targetMessageId = process.env.BOTBUS_MESSAGE_ID
-  let triggerMessage = targetMessageId
-    ? messages.find((m) => m.id === targetMessageId)
-    : messages[messages.length - 1]
-
+  // Fall back to inbox if direct fetch failed or no message ID
   if (!triggerMessage) {
-    // Fallback to most recent @mention
+    let inboxResult
+    try {
+      inboxResult = await runCommand("bus", [
+        "inbox",
+        "--agent",
+        AGENT,
+        "--mentions",
+        "--channels",
+        channel,
+        "--format",
+        "json",
+        "--mark-read",
+      ])
+    } catch (err) {
+      console.error("Error reading inbox:", err.message)
+      process.exit(1)
+    }
+
+    let inbox = JSON.parse(inboxResult.stdout || "{}")
+    let messages = []
+
+    // Extract messages from inbox structure
+    for (let ch of inbox.channels || []) {
+      if (ch.channel === channel) {
+        messages = ch.messages || []
+        break
+      }
+    }
+
+    if (messages.length === 0) {
+      console.log("No unread @mentions in channel and no message ID provided")
+      await cleanup()
+      process.exit(0)
+    }
+
     triggerMessage = messages[messages.length - 1]
   }
 

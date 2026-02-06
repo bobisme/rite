@@ -160,9 +160,7 @@ async function hasWork() {
 
 // --- Build worker prompt ---
 function buildPrompt() {
-	const pushMainStep = PUSH_MAIN
-		? '\n   Push to GitHub: jj bookmark set main -r @- && jj git push (if fails, announce issue).'
-		: '';
+	const pushMainStep = PUSH_MAIN ? '\n   Push to GitHub: maw push (if fails, announce issue).' : '';
 
 	return `You are worker agent "${AGENT}" for project "${PROJECT}".
 
@@ -260,6 +258,17 @@ At the end of your work, output exactly one of these completion signals:
    bus claims release --agent ${AGENT} --all.
    br sync --flush-only.${pushMainStep}
    bus send --agent ${AGENT} ${PROJECT} "Completed <id>: <title>" -L task-done.
+   Then proceed to step 8 (RELEASE CHECK).
+
+8. RELEASE CHECK (before signaling COMPLETE):
+   Check for unreleased commits: jj log -r 'tags()..main' --no-graph -T 'description.first_line() ++ "\\n"'
+   If any commits start with "feat:" or "fix:" (user-visible changes), a release is needed:
+   - Bump version in Cargo.toml/package.json (semantic versioning)
+   - Update changelog if one exists
+   - maw push (if not already pushed)
+   - Tag: jj tag create vX.Y.Z -r main && jj git push --remote origin
+   - Announce: bus send --agent ${AGENT} ${PROJECT} "<project> vX.Y.Z released - <summary>" -L release
+   If only "chore:", "docs:", "refactor:" commits, no release needed.
    Output: <promise>COMPLETE</promise>
 
 Key rules:
@@ -310,20 +319,25 @@ async function runClaude(prompt) {
 	});
 }
 
+// Track if we already announced sign-off (to avoid duplicate messages)
+let alreadySignedOff = false;
+
 // --- Cleanup handler ---
 async function cleanup() {
 	console.log('Cleaning up...');
-	try {
-		await runCommand('bus', [
-			'send',
-			'--agent',
-			AGENT,
-			PROJECT,
-			`Agent ${AGENT} signing off.`,
-			'-L',
-			'agent-idle',
-		]);
-	} catch {}
+	if (!alreadySignedOff) {
+		try {
+			await runCommand('bus', [
+				'send',
+				'--agent',
+				AGENT,
+				PROJECT,
+				`Agent ${AGENT} signing off.`,
+				'-L',
+				'agent-idle',
+			]);
+		} catch {}
+	}
 	try {
 		await runCommand('bus', ['statuses', 'clear', '--agent', AGENT]);
 	} catch {}
@@ -420,6 +434,7 @@ async function main() {
 				'-L',
 				'agent-idle',
 			]);
+			alreadySignedOff = true;
 			break;
 		}
 

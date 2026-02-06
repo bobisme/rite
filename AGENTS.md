@@ -497,7 +497,6 @@ When making visual changes to the TUI, update the README screenshot:
 Requires: Hyprland, kitty, grim, pngquant. The script spawns a floating window, captures it, and compresses the image.
 
 <!-- botbox:managed-start -->
-
 ## Botbox Workflow
 
 **New here?** Read [worker-loop.md](.agents/botbox/worker-loop.md) first — it covers the complete triage → start → work → finish cycle.
@@ -506,38 +505,37 @@ Requires: Hyprland, kitty, grim, pngquant. The script spawns a floating window, 
 
 ### Beads Quick Reference
 
-| Operation       | Command                                                                          |
-| --------------- | -------------------------------------------------------------------------------- |
-| View ready work | `br ready`                                                                       |
-| Show bead       | `br show <id>`                                                                   |
-| Create          | `br create --actor $AGENT --owner $AGENT --title="..." --type=task --priority=2` |
-| Start work      | `br update --actor $AGENT <id> --status=in_progress`                             |
-| Add comment     | `br comments add --actor $AGENT --author $AGENT <id> "message"`                  |
-| Close           | `br close --actor $AGENT <id>`                                                   |
-| Add dependency  | `br dep add --actor $AGENT <blocked> <blocker>`                                  |
-| Sync            | `br sync --flush-only`                                                           |
+| Operation | Command |
+|-----------|---------|
+| View ready work | `br ready` |
+| Show bead | `br show <id>` |
+| Create | `br create --actor $AGENT --owner $AGENT --title="..." --type=task --priority=2` |
+| Start work | `br update --actor $AGENT <id> --status=in_progress` |
+| Add comment | `br comments add --actor $AGENT --author $AGENT <id> "message"` |
+| Close | `br close --actor $AGENT <id>` |
+| Add dependency | `br dep add --actor $AGENT <blocked> <blocker>` |
+| Sync | `br sync --flush-only` |
 
 **Required flags**: `--actor $AGENT` on mutations, `--author $AGENT` on comments.
 
 ### Workspace Quick Reference
 
-| Operation           | Command                         |
-| ------------------- | ------------------------------- |
-| Create workspace    | `maw ws create <name>`          |
-| List workspaces     | `maw ws list`                   |
-| Merge to main       | `maw ws merge <name> --destroy` |
-| Destroy (no merge)  | `maw ws destroy <name>`         |
+| Operation | Command |
+|-----------|---------|
+| Create workspace | `maw ws create <name>` |
+| List workspaces | `maw ws list` |
+| Merge to main | `maw ws merge <name> --destroy` |
+| Destroy (no merge) | `maw ws destroy <name>` |
 | Run jj in workspace | `maw ws jj <name> <jj-args...>` |
 
 **Avoiding divergent commits**: Each workspace owns ONE commit. Only modify your own.
 
-| Safe                                    | Dangerous                       |
-| --------------------------------------- | ------------------------------- |
-| `jj describe` (your working copy)       | `jj describe main -m "..."`     |
+| Safe | Dangerous |
+|------|-----------|
+| `jj describe` (your working copy) | `jj describe main -m "..."` |
 | `maw ws jj <your-ws> describe -m "..."` | `jj describe <other-change-id>` |
 
 If you see `(divergent)` in `jj log`:
-
 ```bash
 jj abandon <change-id>/0   # keep one, abandon the divergent copy
 ```
@@ -588,6 +586,7 @@ This includes: bugs, feature requests, confusion about APIs, UX problems, or jus
 
 Use `cass search "error or problem"` to find how similar issues were solved in past sessions.
 
+
 ### Design Guidelines
 
 - [CLI tool design for humans, agents, and machines](.agents/botbox/design/cli-conventions.md)
@@ -599,6 +598,7 @@ Use `cass search "error or problem"` to find how similar issues were solved in p
 - [Verify approval before merge](.agents/botbox/merge-check.md)
 - [Turn specs/PRDs into actionable beads](.agents/botbox/planning.md)
 - [Validate toolchain health](.agents/botbox/preflight.md)
+- [Create and validate proposals before implementation](.agents/botbox/proposal.md)
 - [Report bugs/features to other projects](.agents/botbox/report-issue.md)
 - [Reviewer agent loop](.agents/botbox/review-loop.md)
 - [Request a review](.agents/botbox/review-request.md)

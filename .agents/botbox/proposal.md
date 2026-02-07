@@ -61,10 +61,9 @@ High-level breakdown of work (becomes child beads if accepted):
 
 ## Creating a Proposal
 
-1. Create bead: `br create --actor $AGENT --owner $AGENT --title="Proposal: <title>" --type=task --priority=4`
-2. Add label: `br label add --actor $AGENT -l proposal <id>`
-3. Create doc at `./notes/proposals/<slug>.md` using template above
-4. Update bead description to reference the doc: `br update --actor $AGENT <id> --description="See notes/proposals/<slug>.md"`
+1. Create bead: `br create --actor $AGENT --owner $AGENT --title="Proposal: <title>" --labels proposal --type=task --priority=4`
+2. Create doc at `./notes/proposals/<slug>.md` using template above
+3. Update bead description to reference the doc: `br update --actor $AGENT <id> --description="See notes/proposals/<slug>.md"`
 
 ## Validating a Proposal
 

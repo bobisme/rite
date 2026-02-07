@@ -98,7 +98,9 @@ You are stuck if: you attempted the same approach twice without progress, you ca
 If stuck:
 - Add a detailed comment with what you tried and where you got blocked: `br comments add --actor $AGENT --author $AGENT <bead-id> "Blocked: ..."`
 - Post in the project channel: `bus send --agent $AGENT $BOTBOX_PROJECT "Stuck on <bead-id>: <summary>" -L task-blocked`
-- If a tool behaved unexpectedly (e.g., command succeeded but had no effect), also report it: `bus send --agent $AGENT $BOTBOX_PROJECT "Tool issue: <tool> <what happened>" -L tool-issue`
+- **If a tool behaved unexpectedly**, ask the responsible project for help (see [cross-channel](cross-channel.md)):
+  1. Post to their channel: `bus send --agent $AGENT <tool-project> "Getting <error> when running <command>. Context: <details>. @<project>-dev" -L feedback`
+  2. Create a local tracking bead: `br create --actor $AGENT --owner $AGENT --title="[tracking] Asked #<project> about <issue>" --labels tracking --type=task --priority=3`
 - `br update --actor $AGENT <bead-id> --status=blocked`
 - Release the bead claim: `bus claims release --agent $AGENT "bead://$BOTBOX_PROJECT/<bead-id>"`
 - Move on to triage again (go to step 1).

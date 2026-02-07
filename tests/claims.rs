@@ -77,7 +77,7 @@ fn test_release_specific_pattern() {
     assert_eq!(claims_before.len(), 2);
 
     // Release just one pattern
-    agent.run(&["release", "src/**"]).assert_success();
+    agent.run(&["claims", "release", "src/**"]).assert_success();
 
     // Should have one claim left
     let claims_after = project.active_claims();
@@ -106,7 +106,7 @@ fn test_claim_with_ttl() {
 
     // Claim with short TTL
     agent
-        .run(&["claim", "src/**", "--ttl", "3600"])
+        .run(&["claims", "stake", "src/**", "--ttl", "3600"])
         .assert_success();
 
     let claims = project.active_claims();
@@ -195,7 +195,7 @@ fn test_claims_listing() {
     agent2.claim(&["tests/**"]).assert_success();
 
     // List claims
-    let output = agent1.run(&["claims"]);
+    let output = agent1.run(&["claims", "list"]);
     output.assert_success();
 
     // Should show both claims

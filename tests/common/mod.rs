@@ -243,14 +243,14 @@ impl Agent {
 
     /// Claim file patterns.
     pub fn claim(&self, patterns: &[&str]) -> BotbusOutput {
-        let mut args = vec!["claim"];
+        let mut args = vec!["claims", "stake"];
         args.extend(patterns);
         self.run(&args)
     }
 
     /// Claim with a message.
     pub fn claim_with_message(&self, patterns: &[&str], message: &str) -> BotbusOutput {
-        let mut args = vec!["claim"];
+        let mut args = vec!["claims", "stake"];
         args.extend(patterns);
         args.extend(&["-m", message]);
         self.run(&args)
@@ -258,12 +258,12 @@ impl Agent {
 
     /// Release all claims.
     pub fn release_all(&self) -> BotbusOutput {
-        self.run(&["release", "--all"])
+        self.run(&["claims", "release", "--all"])
     }
 
     /// Release specific patterns.
     pub fn release(&self, patterns: &[&str]) -> BotbusOutput {
-        let mut args = vec!["release"];
+        let mut args = vec!["claims", "release"];
         args.extend(patterns);
         self.run(&args)
     }

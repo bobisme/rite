@@ -28,7 +28,7 @@ fn test_send_without_identity() {
 fn test_claim_without_identity() {
     let project = TestProject::with_name("no-identity-claim");
 
-    let output = project.run_botbus(&["claim", "src/**"]);
+    let output = project.run_botbus(&["claims", "stake", "src/**"]);
 
     output.assert_failure();
     assert!(

@@ -302,17 +302,15 @@ function buildTriagePrompt(channel, message) {
 You received a message in channel #${channel} from ${message.agent}:
 "${message.body}"
 
-Decide how to handle this message:
-
-1. If it's casual chat (greeting, thanks, status update) — respond briefly and conversationally via bus send.
-2. If it's a question about the project — respond helpfully via bus send, then output <conversation/> so I know to wait for follow-ups.
-3. If it's a work request (bug report, feature request, task, "please fix/add/change X") — respond acknowledging the request via bus send, then output <escalate>one-line summary of the work</escalate> so I can create a bead and spawn the dev-loop.
+Respond to this message. If it's clearly a work request (bug report, feature request, task,
+"please fix/add/change X"), acknowledge it and output <escalate>one-line summary of the work</escalate>
+so I can create a bead and spawn the dev-loop. Otherwise, just respond helpfully — I'll wait
+for follow-ups automatically.
 
 RULES:
 - Use --agent ${AGENT} on ALL bus commands
 - RESPOND using: bus send --agent ${AGENT} ${channel} "your response"
 - Keep responses concise
-- When in doubt, treat it as a question (category 2)
 
 After posting your response, output: <promise>RESPONDED</promise>`
 }
@@ -717,16 +715,10 @@ async function handleTriage(route, channel, message) {
       return
     }
 
-    // Check for conversation signal (question)
-    if (result.output.includes("<conversation")) {
-      console.log("Triage → question: entering conversation mode")
-      // Continue in question mode — transcript already has the first exchange
-      await handleQuestionFollowUpLoop(channel, message)
-      return
-    }
-
-    // Otherwise it was chat — one-shot response, we're done
-    console.log("Triage → chat: one-shot response, exiting")
+    // No escalation — always enter conversation mode so user can follow up
+    console.log("Triage → responding, entering conversation mode")
+    await handleQuestionFollowUpLoop(channel, message)
+    return
   } catch (err) {
     console.error("Error in triage:", err.message)
   }

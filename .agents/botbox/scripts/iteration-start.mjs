@@ -68,7 +68,7 @@ if (!PROJECT || !AGENT) {
       let config = JSON.parse(readFileSync(".botbox.json", "utf-8"))
       let project = config.project || {}
       PROJECT = PROJECT || project.channel || project.name || ""
-      AGENT = AGENT || project.default_agent || ""
+      AGENT = AGENT || project.defaultAgent || project.default_agent || ""
     } catch {
       // Ignore config errors
     }

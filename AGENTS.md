@@ -204,7 +204,7 @@ Fast TUI for `.beads/issues.jsonl` with precomputed dependency metrics. For agen
 | View ready work | `br ready` |
 | Show bead | `br show <id>` |
 | Create | `br create --actor $AGENT --owner $AGENT --title="..." --type=task --priority=2` |
-| Start work | `br update --actor $AGENT <id> --status=in_progress` |
+| Start work | `br update --actor $AGENT <id> --status=in_progress --owner=$AGENT` |
 | Add comment | `br comments add --actor $AGENT --author $AGENT <id> "message"` |
 | Close | `br close --actor $AGENT <id>` |
 | Add dependency | `br dep add --actor $AGENT <blocked> <blocker>` |

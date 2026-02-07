@@ -75,7 +75,7 @@ Before triaging new work, check if you have unfinished work from a previous sess
 
 ### 2. Start — claim and set up
 
-- `br update --actor $AGENT <bead-id> --status=in_progress`
+- `br update --actor $AGENT <bead-id> --status=in_progress --owner=$AGENT`
 - `bus claims stake --agent $AGENT "bead://$BOTBOX_PROJECT/<bead-id>" -m "<bead-id>"`
 - `maw ws create --random` — note the workspace name (e.g., `frost-castle`) and the **absolute path** from the output. Store as `$WS` (name) and `$WS_PATH` (absolute path).
 - **All file operations must use the absolute workspace path** from `maw ws create` output. Use absolute paths for Read, Write, and Edit. For bash: `cd $WS_PATH && <command>`. For jj: `maw ws jj $WS <args>`. **Do not `cd` into the workspace and stay there** — the workspace will be destroyed during finish, breaking your shell session.
@@ -154,7 +154,7 @@ If any commits start with `feat:` or `fix:` (user-visible changes):
 1. Bump version in Cargo.toml/package.json (semantic versioning)
 2. Update changelog if one exists
 3. `maw push` (if not already pushed)
-4. Tag: `jj tag create vX.Y.Z -r main && jj git push --remote origin`
+4. Tag: `jj tag set vX.Y.Z -r main && jj git push --remote origin`
 5. Announce: `bus send --agent $AGENT $BOTBOX_PROJECT "<project> vX.Y.Z released - <summary>" -L release`
 
 If only `chore:`, `docs:`, `refactor:` commits, no release needed.

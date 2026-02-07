@@ -1,13 +1,13 @@
 {
-  "version": "1.0.8",
+  "version": "1.0.11",
   "project": {
     "name": "botbus",
     "type": [
       "cli"
     ],
-    "default_agent": "botbus-dev",
     "channel": "botbus",
-    "installCommand": "just install"
+    "installCommand": "just install",
+    "defaultAgent": "botbus-dev"
   },
   "tools": {
     "beads": true,
@@ -26,9 +26,9 @@
   "agents": {
     "dev": {
       "model": "opus",
-      "max_loops": 20,
       "pause": 2,
-      "timeout": 900
+      "timeout": 900,
+      "maxLoops": 20
     },
     "worker": {
       "model": "haiku",
@@ -36,9 +36,9 @@
     },
     "reviewer": {
       "model": "opus",
-      "max_loops": 20,
       "pause": 2,
-      "timeout": 600
+      "timeout": 600,
+      "maxLoops": 20
     }
   }
 }

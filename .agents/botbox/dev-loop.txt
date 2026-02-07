@@ -1,0 +1,13 @@
+
+--- 2026-02-07T11:19:46.435Z | jj:vynzskmmupmu ---
+[1mTriage[0m: No in-progress beads, no active bead claims, no actionable inbox messages (security reviewer signed on/off with nothing to review). No ready beads available.
+
+[1mRelease check[0m: Found 2 unreleased commits after v0.25.1 tag including a [36mfeat(hooks)[0m. Version already bumped to 0.26.0 in Cargo.toml with v0.26.0 tag created locally.
+
+[1mTest failures found and fixed[0m: Running pre-commit checks revealed 9 failing integration tests (8 in claims.rs, 1 in failures.rs) using deprecated [36mclaim[0m/[36mrelease[0m top-level subcommands. Fixed test helpers in [36mtests/common/mod.rs[0m and direct [36mrun()[0m calls in [36mclaims.rs[0m and [36mfailures.rs[0m to use current [36mclaims stake[0m/[36mclaims release[0m/[36mclaims list[0m CLI structure. All 9 tests now pass.
+
+[1mCommitted[0m: [36mfix(test): update integration tests for claims subcommand rename[0m — main bookmark moved forward.
+
+[1mBlocked[0m: Push to origin and v0.26.0 release blocked on SSH key passphrase. Local state is ready — just needs [36mjj git push[0m and tag push.
+
+[1mPre-existing[0m: 5 sync tests still fail (unrelated auto-commit behavior issue).

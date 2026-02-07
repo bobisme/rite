@@ -134,7 +134,7 @@ async function loadConfig() {
 
 			// Agent settings
 			MODEL = reviewer.model || '';
-			MAX_LOOPS = reviewer.max_loops || 20;
+			MAX_LOOPS = reviewer.maxLoops || reviewer.max_loops || 20;
 			LOOP_PAUSE = reviewer.pause || 2;
 			CLAUDE_TIMEOUT = reviewer.timeout || 600;
 		} catch (err) {
@@ -456,6 +456,7 @@ async function main() {
 			// Check for completion signals
 			if (result.output.includes('<promise>COMPLETE</promise>')) {
 				console.log('✓ Review cycle complete');
+				alreadySignedOff = true; // Agent likely sent its own sign-off
 			} else if (result.output.includes('<promise>BLOCKED</promise>')) {
 				console.log('⚠ Reviewer blocked');
 			} else {

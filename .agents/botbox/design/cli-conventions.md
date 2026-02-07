@@ -27,9 +27,9 @@ Support three output formats via `--format` flag:
 
 | Format | Audience | Description |
 |--------|----------|-------------|
-| `text` | Humans | Readable, colored, styled with unicode glyphs |
+| `text` | Humans + Agents | Concise, readable plain text. Default format. Should be token-efficient by design. |
 | `json` | Machines | Structured, parseable, stable schema |
-| `toon` | Agents | Token-efficient, information-dense plain text |
+| `toon` | Agents (optional) | Ultra-compact token-optimized format. Available but `text` is usually sufficient. |
 
 ```bash
 # Flag takes precedence
@@ -341,7 +341,7 @@ Next: tool items update item-123 --status in_progress
 
 **Don't assume agents have read help.** Give them the command to run next. Be a tl;dr, not a man page.
 
-The `toon` format should minimize tokens while preserving:
+The `text` format should be concise and token-efficient by default. Include:
 - IDs and references needed for follow-up commands
 - Status and error information
 - Key data fields
@@ -351,3 +351,5 @@ Omit:
 - Decorative prose ("Successfully completed!")
 - Redundant confirmations
 - Lengthy explanations (put those in --help)
+
+The `toon` format is an ultra-compact alternative when even text is too verbose, but text should be the design target for agent usability.

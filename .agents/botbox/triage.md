@@ -12,10 +12,10 @@ Find exactly one actionable bead, or determine there is no work available. Groom
 2. Check inbox for new messages:
    - `bus inbox --agent $AGENT --channels $BOTBOX_PROJECT --mark-read`
    - For each message that requests work (task request, bug report, feature ask), create a bead: `br create --actor $AGENT --owner $AGENT --title="..." --description="..." --type=task --priority=2`
-   - For messages with `-L feedback` (reports from other agents):
-     - Review the mentioned bead IDs with `br show <bead-id>`
-     - Triage the beads (accept, adjust priority, close if duplicate/out-of-scope)
-     - Respond on botbus: `bus send --agent $AGENT <channel> "Triaged N beads: <summary> @<reporter-agent>" -L triage-reply`
+   - For messages with `-L feedback` (reports from other agents or humans):
+     - If it contains a bug report, feature request, or actionable work: create a bead with `br create`
+     - If it references existing beads: review with `br show <bead-id>`, triage (accept, adjust priority, close if duplicate/out-of-scope)
+     - Acknowledge on botbus: `bus send --agent $AGENT <channel> "Triaged: <summary> @<reporter-agent>" -L triage-reply`
    - For messages that are questions or status checks, reply inline: `bus send --agent $AGENT <channel> "<response>" -L triage-reply`
 3. Check for ready beads: `br ready`
    - If no ready beads exist and no inbox messages created new beads, output `NO_WORK_AVAILABLE` and stop.

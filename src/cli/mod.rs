@@ -433,6 +433,10 @@ pub enum HooksCommands {
         #[arg(long, default_value = "0")]
         priority: i32,
 
+        /// Only fire this hook if the message contains the specified !flag (e.g., "dev" for !dev)
+        #[arg(long)]
+        require_flag: Option<String>,
+
         /// Command to execute (place after --)
         #[arg(last = true, required = true)]
         command: Vec<String>,

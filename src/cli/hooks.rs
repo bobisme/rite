@@ -54,6 +54,7 @@ pub fn add(
     release_on_exit: bool,
     claim_owner: Option<String>,
     priority: i32,
+    require_flag: Option<String>,
     agent: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
@@ -158,6 +159,7 @@ pub fn add(
         claim_pattern,
         claim_owner,
         priority,
+        require_flag: require_flag.map(|f| f.to_lowercase()),
         active: true,
     };
 
@@ -192,6 +194,8 @@ struct HookInfo {
     cwd: String,
     cooldown_secs: u64,
     priority: i32,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    require_flag: Option<String>,
     last_fired: Option<String>,
     active: bool,
 }
@@ -214,6 +218,7 @@ pub fn list(format: OutputFormat) -> Result<()> {
             cwd: h.cwd.to_string_lossy().to_string(),
             cooldown_secs: h.cooldown_secs,
             priority: h.priority,
+            require_flag: h.require_flag.clone(),
             last_fired: h.last_fired.map(|t| t.to_rfc3339()),
             active: h.active,
         })
@@ -259,6 +264,9 @@ pub fn list(format: OutputFormat) -> Result<()> {
                     }
                     if let Some(ref owner) = h.claim_owner {
                         println!("    claim-owner: {}", owner);
+                    }
+                    if let Some(ref flag) = h.require_flag {
+                        println!("    require-flag: !{}", flag);
                     }
                 }
             }
@@ -519,6 +527,13 @@ fn evaluate_hooks_inner(
             continue;
         }
         if is_mention_hook && flags.suppress_mention_hooks() {
+            continue;
+        }
+
+        // Check require_flag: if set, the message must contain the specified !flag
+        if let Some(ref required) = hook.require_flag
+            && !flags.has_custom_flag(required)
+        {
             continue;
         }
 
@@ -844,6 +859,7 @@ mod tests {
                 claim_pattern: None,
                 claim_owner: None,
                 priority: 0,
+                require_flag: None,
                 active: true,
             },
             Hook {
@@ -862,6 +878,7 @@ mod tests {
                 claim_pattern: None,
                 claim_owner: None,
                 priority: 0,
+                require_flag: None,
                 active: false, // Deactivated
             },
         ];
@@ -901,6 +918,7 @@ mod tests {
                 claim_pattern: None,
                 claim_owner: None,
                 priority: 10,
+                require_flag: None,
                 active: true,
             },
             Hook {
@@ -919,6 +937,7 @@ mod tests {
                 claim_pattern: None,
                 claim_owner: None,
                 priority: -5,
+                require_flag: None,
                 active: true,
             },
             Hook {
@@ -937,6 +956,7 @@ mod tests {
                 claim_pattern: None,
                 claim_owner: None,
                 priority: 0,
+                require_flag: None,
                 active: true,
             },
         ];

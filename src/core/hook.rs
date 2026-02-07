@@ -54,6 +54,11 @@ pub struct Hook {
     #[serde(default)]
     pub priority: i32,
 
+    /// Only fire this hook if the message contains the specified !flag.
+    /// E.g., require_flag = "dev" means the hook only fires on messages containing "!dev".
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub require_flag: Option<String>,
+
     /// Whether this hook is active
     pub active: bool,
 }
@@ -186,6 +191,7 @@ mod tests {
             claim_pattern: None,
             claim_owner: None,
             priority: 0,
+            require_flag: None,
             active: true,
         };
 
@@ -261,6 +267,7 @@ mod tests {
         assert!(hook.claim_release.is_none());
         assert!(hook.created_by.is_none());
         assert_eq!(hook.priority, 0);
+        assert!(hook.require_flag.is_none());
     }
 
     #[test]
@@ -298,5 +305,60 @@ mod tests {
                 panic!("Expected MentionReceived, got ClaimAvailable");
             }
         }
+    }
+
+    #[test]
+    fn test_require_flag_roundtrip() {
+        let hook = Hook {
+            id: "hk-flg".to_string(),
+            channel: "deploy".to_string(),
+            condition: HookCondition::ClaimAvailable {
+                pattern: "agent://test-dev".to_string(),
+            },
+            command: vec!["echo".to_string(), "fired".to_string()],
+            cwd: PathBuf::from("/tmp"),
+            cooldown_secs: 30,
+            last_fired: None,
+            created_at: Utc::now(),
+            created_by: None,
+            claim_release: Some(ClaimRelease::OnExit),
+            claim_pattern: None,
+            claim_owner: None,
+            priority: 0,
+            require_flag: Some("dev".to_string()),
+            active: true,
+        };
+
+        let json = serde_json::to_string(&hook).unwrap();
+        assert!(json.contains("require_flag"));
+        assert!(json.contains("dev"));
+        let parsed: Hook = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed.require_flag, Some("dev".to_string()));
+    }
+
+    #[test]
+    fn test_require_flag_omitted_when_none() {
+        let hook = Hook {
+            id: "hk-nfl".to_string(),
+            channel: "deploy".to_string(),
+            condition: HookCondition::ClaimAvailable {
+                pattern: "agent://test-dev".to_string(),
+            },
+            command: vec!["echo".to_string()],
+            cwd: PathBuf::from("/tmp"),
+            cooldown_secs: 30,
+            last_fired: None,
+            created_at: Utc::now(),
+            created_by: None,
+            claim_release: None,
+            claim_pattern: None,
+            claim_owner: None,
+            priority: 0,
+            require_flag: None,
+            active: true,
+        };
+
+        let json = serde_json::to_string(&hook).unwrap();
+        assert!(!json.contains("require_flag"));
     }
 }

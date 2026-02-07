@@ -398,13 +398,15 @@ pub enum HooksCommands {
         #[arg(long)]
         channel: Option<String>,
 
-        /// Claim pattern — fire when available, then acquire it
-        #[arg(long, conflicts_with = "mention")]
+        /// Claim pattern — acquire this claim when the hook fires (atomic check-and-stake).
+        /// For claim-only hooks, the hook fires when the pattern is available.
+        /// Can be combined with --mention to acquire a claim when the mention fires.
+        #[arg(long)]
         claim: Option<String>,
 
         /// Agent mention — fire when this agent is @mentioned.
-        /// Can be combined with --ttl and --claim-owner to acquire a claim when the mention fires.
-        #[arg(long, conflicts_with = "claim")]
+        /// Can be combined with --claim to acquire a claim when the mention fires.
+        #[arg(long)]
         mention: Option<String>,
 
         /// Working directory for the command

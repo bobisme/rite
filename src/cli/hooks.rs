@@ -66,12 +66,25 @@ pub fn add(
     // Determine which condition type to use
     let condition = match (claim.as_ref(), mention.as_ref()) {
         (Some(pattern), None) => {
-            // Claim-based hooks require explicit channel
+            // Claim-only hooks require explicit channel
             if channel.is_none() {
                 bail!("Claim-based hooks require --channel to be specified");
             }
             HookCondition::ClaimAvailable {
                 pattern: pattern.clone(),
+            }
+        }
+        (Some(_), Some(agent_name)) => {
+            // Mention + claim: fires on @mention, acquires claim atomically
+            if channel.is_none() {
+                bail!("Hooks with --claim require --channel to be specified");
+            }
+            // Condition is MentionReceived; claim pattern stored in hook.claim_pattern
+            HookCondition::MentionReceived {
+                agent: agent_name
+                    .strip_prefix('@')
+                    .unwrap_or(agent_name)
+                    .to_string(),
             }
         }
         (None, Some(agent_name)) => HookCondition::MentionReceived {
@@ -81,17 +94,15 @@ pub fn add(
                 .to_string(),
         },
         (None, None) => bail!("Must specify either --claim or --mention"),
-        (Some(_), Some(_)) => bail!("Cannot specify both --claim and --mention"),
     };
 
     // Default channel to "*" (all non-DM channels) if not specified
     let hook_channel = channel.unwrap_or_else(|| "*".to_string());
 
-    // Validate claim release strategy (required for ClaimAvailable hooks, optional for MentionReceived)
-    if matches!(condition, HookCondition::ClaimAvailable { .. })
-        && ttl.is_none()
-        && !release_on_exit
-    {
+    // Validate claim release strategy
+    // Required for ClaimAvailable hooks; required when --claim is used with --mention
+    let has_claim = claim.is_some();
+    if has_claim && ttl.is_none() && !release_on_exit {
         bail!("Must specify either --ttl <seconds> or --release-on-exit for claim acquisition");
     }
 
@@ -115,21 +126,20 @@ pub fn add(
         .map(|h| h.id.clone())
         .collect();
 
-    // Set claim_release for ClaimAvailable hooks (required) or MentionReceived hooks with ttl (optional)
-    let claim_release = if matches!(condition, HookCondition::ClaimAvailable { .. }) {
-        // ClaimAvailable hooks always need claim_release
+    // Set claim_release when --claim is used (required for claim hooks, optional otherwise)
+    let claim_release = if has_claim {
         if let Some(secs) = ttl {
             Some(ClaimRelease::Ttl { secs })
         } else {
             Some(ClaimRelease::OnExit)
         }
-    } else if ttl.is_some() || release_on_exit {
-        // MentionReceived hooks can optionally have claim_release to prevent duplicate spawns
-        if let Some(secs) = ttl {
-            Some(ClaimRelease::Ttl { secs })
-        } else {
-            Some(ClaimRelease::OnExit)
-        }
+    } else {
+        None
+    };
+
+    // For mention+claim hooks, store the explicit claim pattern
+    let claim_pattern = if matches!(condition, HookCondition::MentionReceived { .. }) {
+        claim
     } else {
         None
     };
@@ -145,6 +155,7 @@ pub fn add(
         created_at: Utc::now(),
         created_by: agent.map(|s| s.to_string()),
         claim_release,
+        claim_pattern,
         claim_owner,
         priority,
         active: true,
@@ -646,22 +657,19 @@ fn evaluate_hooks_inner(
                     continue;
                 }
 
-                // If hook has claim_release, acquire a claim to prevent duplicate spawns
-                // Auto-derive pattern: respond://<agent>
-                if let Some(ref release) = hook.claim_release {
-                    let claim_pattern = format!("respond://{}", mention_agent);
+                // If hook has an explicit --claim pattern, acquire it atomically
+                if let (Some(pattern), Some(release)) = (&hook.claim_pattern, &hook.claim_release) {
                     let claim_agent = hook.claim_owner.as_deref().unwrap_or(agent);
+                    let pattern_clone = pattern.clone();
 
                     match release {
                         ClaimRelease::Ttl { secs } => {
                             let ttl = *secs;
-                            let c = FileClaim::new(claim_agent, vec![claim_pattern.clone()], ttl);
-                            let pattern_for_check = claim_pattern.clone();
+                            let c = FileClaim::new(claim_agent, vec![pattern.clone()], ttl);
 
-                            // Atomic check-and-stake (properly deduplicates by claim ID)
                             let acquired = append_if(&claims_path(), &c, |existing_claims| {
                                 let now = Utc::now();
-                                !is_pattern_held(&pattern_for_check, existing_claims, now)
+                                !is_pattern_held(&pattern_clone, existing_claims, now)
                             })
                             .unwrap_or(false);
 
@@ -673,23 +681,20 @@ fn evaluate_hooks_inner(
                                     message_id: message_id.to_string(),
                                     condition_result: true,
                                     executed: false,
-                                    reason: Some("claim unavailable (mention hook)".to_string()),
+                                    reason: Some("claim unavailable".to_string()),
                                 };
                                 let _ = append_record(&hooks_audit_path(), &firing);
                                 continue;
                             }
 
-                            (Some(c), Some(ttl), Some(claim_pattern))
+                            (Some(c), Some(ttl), Some(pattern.clone()))
                         }
                         ClaimRelease::OnExit => {
-                            // Use large sentinel TTL; released explicitly after command exits
-                            let c = FileClaim::new(claim_agent, vec![claim_pattern.clone()], 86400);
-                            let pattern_for_check = claim_pattern.clone();
+                            let c = FileClaim::new(claim_agent, vec![pattern.clone()], 86400);
 
-                            // Atomic check-and-stake (properly deduplicates by claim ID)
                             let acquired = append_if(&claims_path(), &c, |existing_claims| {
                                 let now = Utc::now();
-                                !is_pattern_held(&pattern_for_check, existing_claims, now)
+                                !is_pattern_held(&pattern_clone, existing_claims, now)
                             })
                             .unwrap_or(false);
 
@@ -701,17 +706,17 @@ fn evaluate_hooks_inner(
                                     message_id: message_id.to_string(),
                                     condition_result: true,
                                     executed: false,
-                                    reason: Some("claim unavailable (mention hook)".to_string()),
+                                    reason: Some("claim unavailable".to_string()),
                                 };
                                 let _ = append_record(&hooks_audit_path(), &firing);
                                 continue;
                             }
 
-                            (Some(c), None, Some(claim_pattern))
+                            (Some(c), None, Some(pattern.clone()))
                         }
                     }
                 } else {
-                    // No claim needed for simple mention hooks
+                    // No claim — just fire on mention
                     (None, None, None)
                 }
             }
@@ -836,6 +841,7 @@ mod tests {
                 created_at: Utc::now(),
                 created_by: None,
                 claim_release: Some(ClaimRelease::OnExit),
+                claim_pattern: None,
                 claim_owner: None,
                 priority: 0,
                 active: true,
@@ -853,6 +859,7 @@ mod tests {
                 created_at: Utc::now(),
                 created_by: None,
                 claim_release: Some(ClaimRelease::OnExit),
+                claim_pattern: None,
                 claim_owner: None,
                 priority: 0,
                 active: false, // Deactivated
@@ -891,6 +898,7 @@ mod tests {
                 created_at: Utc::now(),
                 created_by: None,
                 claim_release: Some(ClaimRelease::OnExit),
+                claim_pattern: None,
                 claim_owner: None,
                 priority: 10,
                 active: true,
@@ -908,6 +916,7 @@ mod tests {
                 created_at: Utc::now(),
                 created_by: None,
                 claim_release: Some(ClaimRelease::OnExit),
+                claim_pattern: None,
                 claim_owner: None,
                 priority: -5,
                 active: true,
@@ -925,6 +934,7 @@ mod tests {
                 created_at: Utc::now(),
                 created_by: None,
                 claim_release: Some(ClaimRelease::OnExit),
+                claim_pattern: None,
                 claim_owner: None,
                 priority: 0,
                 active: true,

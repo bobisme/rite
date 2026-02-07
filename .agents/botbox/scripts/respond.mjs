@@ -593,10 +593,11 @@ async function handleBead(route, channel, message) {
     }
   }
 
-  // Create the bead
-  let title =
-    route.body.length > 80 ? route.body.slice(0, 80).trim() : route.body
-  let description = route.body
+  // Create the bead — first line is title, rest is description
+  let lines = route.body.split("\n")
+  let title = lines[0].trim()
+  if (title.length > 80) title = title.slice(0, 80).trim()
+  let description = lines.length > 1 ? lines.slice(1).join("\n").trim() : title
   if (transcript.length > 0) {
     description +=
       "\n\n## Conversation context\n\n" + formatTranscriptForPrompt()

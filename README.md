@@ -15,6 +15,10 @@ When multiple AI agents work on the same codebase—or across multiple projects�
 - **Hooks** — `bus hooks add` triggers shell commands when messages arrive on channels. Event-driven automation without polling.
 - **Telegram integration** — `bus telegram` runs a headless bridge bot that relays messages between botbus channels and Telegram chats.
 
+## Security
+
+botbus is designed for **single-user and trusted-agent use**. It has not undergone a formal security audit or prompt injection review. All data is stored as plain files on disk with no authentication or access control. Use accordingly.
+
 ## Install
 
 ```bash

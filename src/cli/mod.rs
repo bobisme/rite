@@ -277,13 +277,13 @@ pub enum Commands {
 
     /// Wait for a message (blocking, with optional timeout)
     Wait {
-        /// Wait for @mention of current agent
+        /// Wait for @mentions of current agent from any channel
         #[arg(long)]
-        mention: bool,
+        mentions: bool,
 
-        /// Wait for messages in specific channel
-        #[arg(short, long)]
-        channel: Option<String>,
+        /// Wait for messages in specific channel(s)
+        #[arg(short, long, action = clap::ArgAction::Append)]
+        channels: Vec<String>,
 
         /// Wait for messages with specific label(s) (can be used multiple times)
         #[arg(short = 'L', long = "label", action = clap::ArgAction::Append)]

@@ -226,14 +226,14 @@ fn main() -> Result<()> {
         Commands::Status => cli::status::run(format, cli.agent.as_deref()),
 
         Commands::Wait {
-            mention,
-            channel,
+            mentions,
+            channels,
             labels,
             timeout,
         } => cli::wait::run(
             cli::wait::WaitOptions {
-                mention,
-                channel,
+                mentions,
+                channels,
                 labels,
                 timeout,
                 json: format == OutputFormat::Json,

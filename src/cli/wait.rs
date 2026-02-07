@@ -14,10 +14,10 @@ use crate::storage::jsonl::read_records_from_offset;
 use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
 
 pub struct WaitOptions {
-    /// Wait for @mention of current agent
-    pub mention: bool,
-    /// Wait for messages in specific channel
-    pub channel: Option<String>,
+    /// Wait for @mentions of current agent from any channel
+    pub mentions: bool,
+    /// Wait for messages in specific channel(s)
+    pub channels: Vec<String>,
     /// Wait for messages with specific labels (any of them)
     pub labels: Vec<String>,
     /// Timeout in seconds (0 = no timeout)
@@ -42,15 +42,23 @@ pub struct WaitOutput {
 pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()> {
     let agent = resolve_agent(explicit_agent);
 
-    // For --mention, we need an agent identity
-    if options.mention && agent.is_none() {
-        anyhow::bail!("--mention requires agent identity. Set BOTBUS_AGENT or use --agent flag.");
+    // For --mentions, we need an agent identity
+    if options.mentions && agent.is_none() {
+        anyhow::bail!("--mentions requires agent identity. Set BOTBUS_AGENT or use --agent flag.");
     }
 
-    // Strip # prefix from channel if present (common user pattern)
-    if let Some(ref ch) = options.channel {
-        options.channel = Some(ch.strip_prefix('#').unwrap_or(ch).to_string());
-    }
+    // Strip # prefix from channels if present (common user pattern)
+    options.channels = options
+        .channels
+        .iter()
+        .map(|ch| ch.strip_prefix('#').unwrap_or(ch).to_string())
+        .collect();
+
+    let filter_channels: Option<Vec<&str>> = if options.channels.is_empty() {
+        None
+    } else {
+        Some(options.channels.iter().map(|s| s.as_str()).collect())
+    };
 
     let channels_path = channels_dir();
     if !channels_path.exists() {
@@ -58,7 +66,7 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
     }
 
     // Track current file offsets for all channels we're watching
-    let mut channel_offsets = collect_channel_offsets(&channels_path, options.channel.as_deref())?;
+    let mut channel_offsets = collect_channel_offsets(&channels_path, filter_channels.as_deref())?;
 
     // Set up file watcher
     let (_watcher, rx) =
@@ -73,9 +81,14 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
     let start = Instant::now();
 
     if !options.json {
-        if let Some(ch) = &options.channel {
-            eprint!("Waiting for messages in #{}...", ch.cyan());
-        } else if options.mention {
+        if !options.channels.is_empty() {
+            let ch_display: Vec<String> =
+                options.channels.iter().map(|c| format!("#{}", c)).collect();
+            eprint!(
+                "Waiting for messages in {}...",
+                ch_display.join(", ").cyan()
+            );
+        } else if options.mentions {
             eprint!("Waiting for @{}...", agent.as_ref().unwrap().cyan());
         } else if !options.labels.is_empty() {
             eprint!("Waiting for messages with labels {:?}...", options.labels);
@@ -118,9 +131,9 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
 
         // Check each changed channel for new messages
         for channel_name in changed_channels {
-            // Skip if we're filtering to a specific channel
-            if let Some(ref filter_channel) = options.channel
-                && &channel_name != filter_channel
+            // Skip if we're filtering to specific channels
+            if let Some(ref filter) = filter_channels
+                && !filter.contains(&channel_name.as_str())
             {
                 continue;
             }
@@ -143,7 +156,7 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
                 }
 
                 // Check if message matches our filter
-                let matches = if options.mention {
+                let matches = if options.mentions {
                     // Check for @mention in body
                     let mention = format!("@{}", agent.as_ref().unwrap());
                     msg.body.contains(&mention)
@@ -160,7 +173,7 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
                         received: true,
                         message: Some(msg.clone()),
                         channel: Some(channel_name.clone()),
-                        reason: if options.mention {
+                        reason: if options.mentions {
                             "mention".to_string()
                         } else {
                             "message".to_string()
@@ -188,7 +201,7 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
 
 fn collect_channel_offsets(
     channels_path: &Path,
-    filter_channel: Option<&str>,
+    filter_channels: Option<&[&str]>,
 ) -> Result<std::collections::HashMap<String, u64>> {
     let mut offsets = std::collections::HashMap::new();
 
@@ -198,9 +211,9 @@ fn collect_channel_offsets(
             if path.extension().is_some_and(|ext| ext == "jsonl")
                 && let Some(name) = path.file_stem().and_then(|s| s.to_str())
             {
-                // Skip if filtering to specific channel
-                if let Some(filter) = filter_channel
-                    && name != filter
+                // Skip if filtering to specific channels
+                if let Some(filters) = filter_channels
+                    && !filters.contains(&name)
                 {
                     continue;
                 }
@@ -211,9 +224,11 @@ fn collect_channel_offsets(
         }
     }
 
-    // If filtering to a channel that doesn't exist yet, add it with offset 0
-    if let Some(filter) = filter_channel {
-        offsets.entry(filter.to_string()).or_insert(0);
+    // If filtering to channels that don't exist yet, add them with offset 0
+    if let Some(filters) = filter_channels {
+        for filter in filters {
+            offsets.entry(filter.to_string()).or_insert(0);
+        }
     }
 
     Ok(offsets)
@@ -257,11 +272,26 @@ mod tests {
         std::fs::write(temp.path().join("general.jsonl"), "{}\n").unwrap();
         std::fs::write(temp.path().join("backend.jsonl"), "{}\n").unwrap();
 
-        let offsets = collect_channel_offsets(temp.path(), Some("backend")).unwrap();
+        let offsets = collect_channel_offsets(temp.path(), Some(&["backend"])).unwrap();
 
         // Should only have backend
         assert_eq!(offsets.len(), 1);
         assert!(offsets.contains_key("backend"));
+    }
+
+    #[test]
+    fn test_collect_channel_offsets_multiple() {
+        let temp = TempDir::new().unwrap();
+        std::fs::create_dir_all(temp.path()).unwrap();
+        std::fs::write(temp.path().join("general.jsonl"), "{}\n").unwrap();
+        std::fs::write(temp.path().join("backend.jsonl"), "{}\n").unwrap();
+        std::fs::write(temp.path().join("frontend.jsonl"), "{}\n").unwrap();
+
+        let offsets = collect_channel_offsets(temp.path(), Some(&["backend", "frontend"])).unwrap();
+
+        assert_eq!(offsets.len(), 2);
+        assert!(offsets.contains_key("backend"));
+        assert!(offsets.contains_key("frontend"));
     }
 
     #[test]

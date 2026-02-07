@@ -1,8 +1,10 @@
 {
-  "version": "1.0.6",
+  "version": "1.0.7",
   "project": {
     "name": "botbus",
-    "type": ["cli"],
+    "type": [
+      "cli"
+    ],
     "default_agent": "botbus-dev",
     "channel": "botbus",
     "installCommand": "just install"
@@ -16,7 +18,9 @@
   },
   "review": {
     "enabled": true,
-    "reviewers": ["security"]
+    "reviewers": [
+      "security"
+    ]
   },
   "pushMain": false,
   "agents": {

@@ -766,6 +766,11 @@ fn evaluate_hooks_inner(
                         if let Some(c) = &claim {
                             let _ = append_record(&claims_path(), &c.release());
                         }
+                    } else {
+                        // Reap child in background to prevent zombie processes
+                        std::thread::spawn(move || {
+                            let _ = child.wait();
+                        });
                     }
                     true
                 }

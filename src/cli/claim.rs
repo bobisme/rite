@@ -901,6 +901,13 @@ fn uri_patterns_overlap(a: &str, b: &str) -> bool {
         return false;
     }
 
+    // agent:// claims use hierarchy for parent/subagent relationships.
+    // agent://root and agent://root/sub are distinct presence claims that coexist.
+    // Only exact matches conflict (handled below via uri_matches_pattern).
+    if scheme_a == "agent" {
+        return a == b;
+    }
+
     // Check if either matches the other
     if uri_matches_pattern(a, b) || uri_matches_pattern(b, a) {
         return true;
@@ -1083,6 +1090,32 @@ mod tests {
         assert!(!uri_patterns_overlap(
             "bead://project-a/bd-123",
             "bead://project-b/bd-456"
+        ));
+
+        // agent:// claims: parent and subagent don't overlap
+        assert!(!uri_patterns_overlap(
+            "agent://leader",
+            "agent://leader/worker-1"
+        ));
+        assert!(!uri_patterns_overlap(
+            "agent://leader/worker-1",
+            "agent://leader"
+        ));
+
+        // agent:// claims: different subagents don't overlap
+        assert!(!uri_patterns_overlap(
+            "agent://leader/worker-1",
+            "agent://leader/worker-2"
+        ));
+
+        // agent:// claims: exact match still overlaps
+        assert!(uri_patterns_overlap(
+            "agent://leader",
+            "agent://leader"
+        ));
+        assert!(uri_patterns_overlap(
+            "agent://leader/worker-1",
+            "agent://leader/worker-1"
         ));
     }
 

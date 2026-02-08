@@ -193,51 +193,98 @@ fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
 
     let agents = app.agent_statuses();
 
-    let items: Vec<ListItem> = agents
+    // Separate root agents from subagents (name contains '/')
+    let mut root_agents: Vec<&_> = Vec::new();
+    let mut subagents: std::collections::HashMap<&str, Vec<&_>> =
+        std::collections::HashMap::new();
+
+    for agent_info in agents {
+        if let Some((root, _)) = agent_info.name.split_once('/') {
+            subagents.entry(root).or_default().push(agent_info);
+        } else {
+            root_agents.push(agent_info);
+        }
+    }
+
+    let render_agent = |agent_info: &super::app::AgentInfo, indent: &str| -> Vec<ListItem> {
+        let (indicator, name_style) = match agent_info.status {
+            AgentStatus::Online => (
+                Span::styled("● ", Style::default().fg(Color::Green)),
+                Style::default().fg(Color::White),
+            ),
+            AgentStatus::Afk => (
+                Span::styled("● ", Style::default().fg(Color::DarkGray)),
+                Style::default().fg(Color::DarkGray),
+            ),
+            AgentStatus::Offline => (
+                Span::styled("● ", Style::default().fg(Color::DarkGray)),
+                Style::default().fg(Color::DarkGray),
+            ),
+        };
+
+        // For subagents, show only the part after the '/'
+        let display_name = if let Some((_, sub)) = agent_info.name.split_once('/') {
+            sub
+        } else {
+            &agent_info.name
+        };
+
+        let name_line = Line::from(vec![
+            Span::raw(indent.to_string()),
+            indicator,
+            Span::styled(display_name.to_string(), name_style),
+        ]);
+
+        if let (AgentStatus::Online, Some(msg)) = (&agent_info.status, &agent_info.message) {
+            let msg_indent = format!("{indent}  ");
+            let truncated = if msg.len() > 32 {
+                format!("{}...", &msg[..29])
+            } else {
+                msg.clone()
+            };
+            let msg_line = Line::from(vec![
+                Span::raw(msg_indent),
+                Span::styled(
+                    truncated,
+                    Style::default()
+                        .fg(Color::Blue)
+                        .add_modifier(Modifier::ITALIC),
+                ),
+            ]);
+            vec![ListItem::new(name_line), ListItem::new(msg_line)]
+        } else {
+            vec![ListItem::new(name_line)]
+        }
+    };
+
+    let items: Vec<ListItem> = root_agents
         .iter()
         .flat_map(|agent_info| {
-            let (indicator, name_style) = match agent_info.status {
-                AgentStatus::Online => (
-                    Span::styled("● ", Style::default().fg(Color::Green)),
-                    Style::default().fg(Color::White),
-                ),
-                AgentStatus::Afk => (
-                    Span::styled("● ", Style::default().fg(Color::DarkGray)),
-                    Style::default().fg(Color::DarkGray),
-                ),
-                AgentStatus::Offline => (
-                    Span::styled("● ", Style::default().fg(Color::DarkGray)),
-                    Style::default().fg(Color::DarkGray),
-                ),
-            };
-
-            let name_line = Line::from(vec![
-                indicator,
-                Span::styled(agent_info.name.clone(), name_style),
-            ]);
-
-            // If there's a status message, add it on a second line (truncated to fit)
-            // Only show status messages for Online agents (AFK agents have stale statuses)
-            if let (AgentStatus::Online, Some(msg)) = (&agent_info.status, &agent_info.message) {
-                let truncated = if msg.len() > 32 {
-                    format!("{}...", &msg[..29])
-                } else {
-                    msg.clone()
-                };
-                let msg_line = Line::from(vec![
-                    Span::raw("  "),
-                    Span::styled(
-                        truncated,
-                        Style::default()
-                            .fg(Color::Blue)
-                            .add_modifier(Modifier::ITALIC),
-                    ),
-                ]);
-                vec![ListItem::new(name_line), ListItem::new(msg_line)]
-            } else {
-                vec![ListItem::new(name_line)]
+            let mut lines = render_agent(agent_info, "");
+            // Append any subagents belonging to this root
+            if let Some(subs) = subagents.get(agent_info.name.as_str()) {
+                for sub in subs {
+                    lines.extend(render_agent(sub, "  "));
+                }
             }
+            lines
         })
+        .chain(
+            // Render orphan subagents (root agent not present) under a dim root header
+            subagents
+                .iter()
+                .filter(|(root, _)| !root_agents.iter().any(|a| a.name == **root))
+                .flat_map(|(root, subs)| {
+                    let mut lines = vec![ListItem::new(Line::from(Span::styled(
+                        root.to_string(),
+                        Style::default().fg(Color::DarkGray),
+                    )))];
+                    for sub in subs {
+                        lines.extend(render_agent(sub, "  "));
+                    }
+                    lines
+                }),
+        )
         .collect();
 
     let list = List::new(items).block(

@@ -669,14 +669,16 @@ impl App {
                         let time_remaining = (claim.expires_at - now).num_seconds();
                         let time_since_update = (now - claim.ts).num_seconds();
 
+                        let is_subagent = agent_name.contains('/');
                         let status = if claim.active && time_remaining >= 0 {
                             // Active claim, not expired
                             AgentStatus::Online
-                        } else if time_since_update < 86400 {
+                        } else if !is_subagent && time_since_update < 86400 {
                             // Released or expired within last 24 hours
+                            // (subagents are ephemeral — skip them when not online)
                             AgentStatus::Afk
                         } else {
-                            // Too old, skip
+                            // Too old (or expired subagent), skip
                             continue;
                         };
                         // Newer claims override older ones (sorted oldest-first)

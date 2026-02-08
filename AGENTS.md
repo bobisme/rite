@@ -197,6 +197,30 @@ Fast TUI for `.beads/issues.jsonl` with precomputed dependency metrics. For agen
 
 **All tools have `--help`** with usage examples. When unsure, run `<tool> --help` or `<tool> <command> --help`.
 
+### Directory Structure (maw v2)
+
+This project uses a **bare repo** layout. Source files live in workspaces under `ws/`, not at the project root.
+
+```
+project-root/          ← bare repo (no source files here)
+├── ws/
+│   ├── default/       ← main working copy (AGENTS.md, .beads/, src/, etc.)
+│   ├── frost-castle/  ← agent workspace (isolated jj commit)
+│   └── amber-reef/    ← another agent workspace
+├── .jj/               ← jj repo data
+├── .git/              ← git data (core.bare=true)
+├── AGENTS.md          ← stub redirecting to ws/default/AGENTS.md
+└── CLAUDE.md          ← symlink → AGENTS.md
+```
+
+**Key rules:**
+- `ws/default/` is the main workspace — beads, config, and project files live here
+- Agent workspaces (`ws/<name>/`) are isolated jj commits for concurrent work
+- Use `maw exec <ws> -- <command>` to run commands in a workspace context
+- Use `maw exec default -- br|bv ...` for beads commands (always in default workspace)
+- Use `maw exec <ws> -- crit ...` for review commands (always in the review's workspace)
+- Never run `br`, `bv`, `crit`, or `jj` directly — always go through `maw exec`
+
 ### Beads Quick Reference
 
 | Operation | Command |
@@ -209,6 +233,8 @@ Fast TUI for `.beads/issues.jsonl` with precomputed dependency metrics. For agen
 | Close | `maw exec default -- br close --actor $AGENT <id>` |
 | Add dependency | `maw exec default -- br dep add --actor $AGENT <blocked> <blocker>` |
 | Sync | `maw exec default -- br sync --flush-only` |
+| Triage (scores) | `maw exec default -- bv --robot-triage` |
+| Next bead | `maw exec default -- bv --robot-next` |
 
 **Required flags**: `--actor $AGENT` on mutations, `--author $AGENT` on comments.
 

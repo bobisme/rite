@@ -1,16 +1,3 @@
 
---- 2026-02-07T11:19:46.435Z | jj:vynzskmmupmu ---
-Triage: No in-progress beads, no active bead claims, no actionable inbox messages (security reviewer signed on/off with nothing to review). No ready beads available.
-
-Release check: Found 2 unreleased commits after v0.25.1 tag including a feat(hooks). Version already bumped to 0.26.0 in Cargo.toml with v0.26.0 tag created locally.
-
-Test failures found and fixed: Running pre-commit checks revealed 9 failing integration tests (8 in claims.rs, 1 in failures.rs) using deprecated claim/release top-level subcommands. Fixed test helpers in tests/common/mod.rs and direct run() calls in claims.rs and failures.rs to use current claims stake/claims release/claims list CLI structure. All 9 tests now pass.
-
-Committed: fix(test): update integration tests for claims subcommand rename — main bookmark moved forward.
-
-Blocked: Push to origin and v0.26.0 release blocked on SSH key passphrase. Local state is ready — just needs jj git push and tag push.
-
-Pre-existing: 5 sync tests still fail (unrelated auto-commit behavior issue).
-
---- 2026-02-07T20:35:33.758Z | jj:puswpuqwvqsq ---
-Resumed crashed dev loop for bd-39f6 (refactor bus wait interface). Code in blue-falcon workspace was already correct from previous session. Fixed clippy manual_contains warning, ran fmt. All wait tests pass. Created review cr-y9kh and spawned botbus-security reviewer. Closed duplicate bead bd-2p3v. Waiting for security review.
+--- 2026-02-08T04:47:50.511Z | jj:xknmwnrxxxzx ---
+Picked up bd-2357 (zombie processes bug). Fixed in workspace gold-gateway by adding background thread to reap non-OnExit hook child processes in src/cli/hooks.rs. Created review cr-4cwd and requested security review from botbus-security. Waiting for reviewer.

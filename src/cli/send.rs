@@ -51,8 +51,8 @@ pub fn run_with_attachments(
     let parsed = parse_flags(&message);
     let hook_flags = parsed.flags;
 
-    // Create message with flags stripped from body
-    let mut msg = Message::new(&agent_name, &channel, &parsed.body);
+    // Store original body — flags are meaningful to downstream consumers
+    let mut msg = Message::new(&agent_name, &channel, &message);
 
     if !labels.is_empty() {
         msg = msg.with_labels(labels);
@@ -134,8 +134,8 @@ pub fn run(
     // Parse attachments (format: "name:path" or just "path")
     let parsed_attachments = parse_attachments(&attachments)?;
 
-    // Create message with flags stripped from body
-    let mut msg = Message::new(&agent_name, &channel, &parsed.body);
+    // Store original body — flags are meaningful to downstream consumers
+    let mut msg = Message::new(&agent_name, &channel, &message);
 
     if !labels.is_empty() {
         msg = msg.with_labels(labels);

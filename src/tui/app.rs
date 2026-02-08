@@ -851,8 +851,8 @@ impl App {
         let agent_name = require_agent(Some(&user))?;
 
         // Create and send message directly (without CLI output)
-        // Use the cleaned body with flags stripped
-        let msg = Message::new(&agent_name, &channel, &parsed.body)
+        // Store original body — flags are meaningful to downstream consumers
+        let msg = Message::new(&agent_name, &channel, &text)
             .with_labels(vec!["human".to_string()]);
         let path = channel_path(&channel);
         append_record(&path, &msg)?;

@@ -103,6 +103,16 @@ async function runCommand(cmd, args = []) {
 	});
 }
 
+// --- Helper: run command in default workspace (for br, bv) ---
+function runInDefault(cmd, args = []) {
+	return runCommand('maw', ['exec', 'default', '--', cmd, ...args]);
+}
+
+// --- Helper: run command in a named workspace (for crit, jj) ---
+function runInWorkspace(ws, cmd, args = []) {
+	return runCommand('maw', ['exec', ws, '--', cmd, ...args]);
+}
+
 // --- Helper: generate agent name if not provided ---
 async function getAgentName() {
 	if (AGENT) return AGENT;
@@ -118,13 +128,13 @@ async function getAgentName() {
 // --- Helper: check if a review is pending (don't run Claude, just wait) ---
 async function hasPendingReview() {
 	try {
-		let result = await runCommand('br', ['list', '--status', 'in_progress', '--assignee', AGENT, '--json']);
+		let result = await runInDefault('br', ['list', '--status', 'in_progress', '--assignee', AGENT, '--json']);
 		let beads = JSON.parse(result.stdout || '[]');
 		if (!Array.isArray(beads)) beads = [];
 
 		for (let bead of beads) {
 			try {
-				let commentsResult = await runCommand('br', ['comments', bead.id, '--json']);
+				let commentsResult = await runInDefault('br', ['comments', bead.id, '--json']);
 				let comments = JSON.parse(commentsResult.stdout || '[]');
 				let arr = Array.isArray(comments) ? comments : comments.comments || [];
 
@@ -186,7 +196,7 @@ async function hasWork() {
 		if (unreadCount > 0) return true;
 
 		// Check ready beads
-		const readyResult = await runCommand('br', ['ready', '--json']);
+		const readyResult = await runInDefault('br', ['ready', '--json']);
 		const ready = JSON.parse(readyResult.stdout || '[]');
 		const readyCount = Array.isArray(ready) ? ready.length : ready.issues?.length || ready.beads?.length || 0;
 		if (readyCount > 0) return true;
@@ -208,6 +218,12 @@ IMPORTANT: Use --agent ${AGENT} on ALL bus and crit commands. Use --actor ${AGEN
 
 CRITICAL - HUMAN MESSAGE PRIORITY: If you see a system reminder with "STOP:" showing unread botbus messages, these are from humans or other agents trying to reach you. IMMEDIATELY check inbox and respond before continuing your current task. Human questions, clarifications, and redirects take priority over heads-down work.
 
+COMMAND PATTERN — maw exec: All br/bv commands run in the default workspace. All crit/jj commands run in their workspace.
+  br/bv: maw exec default -- br <args>       or  maw exec default -- bv <args>
+  crit:  maw exec \$WS -- crit <args>
+  jj:    maw exec \$WS -- jj <args>
+  other: maw exec \$WS -- <command>           (cargo test, etc.)
+
 Execute exactly ONE cycle of the worker loop. Complete one task (or determine there is no work),
 then STOP. Do not start a second task — the outer loop handles iteration.
 
@@ -218,11 +234,11 @@ At the end of your work, output exactly one of these completion signals:
 0. RESUME CHECK (do this FIRST):
    Run: bus claims list --agent ${AGENT} --mine
    If you hold a bead:// claim, you have an in-progress bead from a previous iteration.
-   - Run: br comments <bead-id> to understand what was done before and what remains.
+   - Run: maw exec default -- br comments <bead-id> to understand what was done before and what remains.
    - Look for workspace info in comments (workspace name and path).
    - If a "Review created: <review-id>" comment exists:
-     * Find the review: crit reviews list --all-workspaces | grep <review-id>
-     * Check review status: crit reviews show <review-id> --path <workspace-path>
+     * Find the review: maw exec default -- crit reviews list --all-workspaces | grep <review-id>
+     * Check review status: maw exec \$WS -- crit review <review-id>
      * If LGTM (approved): proceed to FINISH (step 7) — merge the review and close the bead.
      * If BLOCKED (changes requested): follow .agents/botbox/review-response.md to fix issues
        in the workspace, re-request review, then STOP this iteration.
@@ -231,62 +247,62 @@ At the end of your work, output exactly one of these completion signals:
    - If no review comment (work was in progress when session ended):
      * Read the workspace code to see what's already done.
      * Complete the remaining work in the EXISTING workspace — do NOT create a new one.
-     * After completing: br comments add --actor ${AGENT} --author ${AGENT} <id> "Resumed and completed: <what you finished>".
+     * After completing: maw exec default -- br comments add --actor ${AGENT} --author ${AGENT} <id> "Resumed and completed: <what you finished>".
      * Then proceed to step 6 (REVIEW REQUEST) or step 7 (FINISH).
    If no active claims: proceed to step 1 (INBOX).
 
 1. INBOX (do this before triaging):
    Run: bus inbox --agent ${AGENT} --channels ${PROJECT} --mark-read
    For each message:
-   - Task request (-L task-request or asks for work): create a bead with br create.
+   - Task request (-L task-request or asks for work): create a bead with maw exec default -- br create.
    - Status check or question: reply on bus, do NOT create a bead.
    - Feedback (-L feedback): if it contains a bug report, feature request, or actionable work — create a bead. Evaluate critically: is this a real issue? Is it well-scoped? Set priority accordingly. Then acknowledge on bus.
    - Announcements from other agents ("Working on...", "Completed...", "online"): ignore, no action.
    - Duplicate of existing bead: do NOT create another bead, note it covers the request.
 
-2. TRIAGE: Check br ready. If no ready beads and inbox created none, say "NO_WORK_AVAILABLE" and stop.
-   GROOM each ready bead (br show <id>): ensure clear title, description with acceptance criteria
+2. TRIAGE: Check maw exec default -- br ready. If no ready beads and inbox created none, say "NO_WORK_AVAILABLE" and stop.
+   GROOM each ready bead (maw exec default -- br show <id>): ensure clear title, description with acceptance criteria
    and testing strategy, appropriate priority. Fix anything missing, comment what you changed.
-   Use bv --robot-next to pick exactly one small task. If the task is large, break it down with
-   br create + br dep add, then bv --robot-next again. If a bead is claimed
+   Use maw exec default -- bv --robot-next to pick exactly one small task. If the task is large, break it down with
+   maw exec default -- br create + br dep add, then bv --robot-next again. If a bead is claimed
    (bus claims check --agent ${AGENT} "bead://${PROJECT}/<id>"), skip it.
 
-3. START: br update --actor ${AGENT} <id> --status=in_progress --owner=${AGENT}.
+3. START: maw exec default -- br update --actor ${AGENT} <id> --status=in_progress --owner=${AGENT}.
    bus claims stake --agent ${AGENT} "bead://${PROJECT}/<id>" -m "<id>".
    Create workspace: run maw ws create --random. Note the workspace name AND absolute path
-   from the output (e.g., name "frost-castle", path "/abs/path/.workspaces/frost-castle").
+   from the output (e.g., name "frost-castle", path "/abs/path/ws/frost-castle").
    Store the name as WS and the absolute path as WS_PATH.
    IMPORTANT: All file operations (Read, Write, Edit) must use the absolute WS_PATH.
-   For bash commands: cd \$WS_PATH && <command>. For jj commands: maw ws jj \$WS <args>.
+   For commands in the workspace: maw exec \$WS -- <command>.
    Do NOT cd into the workspace and stay there — the workspace is destroyed during finish.
    bus claims stake --agent ${AGENT} "workspace://${PROJECT}/\$WS" -m "<id>".
-   br comments add --actor ${AGENT} --author ${AGENT} <id> "Started in workspace \$WS (\$WS_PATH)".
+   maw exec default -- br comments add --actor ${AGENT} --author ${AGENT} <id> "Started in workspace \$WS (\$WS_PATH)".
    bus statuses set --agent ${AGENT} "Working: <id>" --ttl 30m.
    Announce: bus send --agent ${AGENT} ${PROJECT} "Working on <id>: <title>" -L task-claim.
 
-4. WORK: br show <id>, then implement the task in the workspace.
-   Add at least one progress comment: br comments add --actor ${AGENT} --author ${AGENT} <id> "Progress: ...".
+4. WORK: maw exec default -- br show <id>, then implement the task in the workspace.
+   Add at least one progress comment: maw exec default -- br comments add --actor ${AGENT} --author ${AGENT} <id> "Progress: ...".
 
 5. STUCK CHECK: If same approach tried twice, info missing, or tool fails repeatedly — you are
-   stuck. br comments add --actor ${AGENT} --author ${AGENT} <id> "Blocked: <details>".
+   stuck. maw exec default -- br comments add --actor ${AGENT} --author ${AGENT} <id> "Blocked: <details>".
    bus statuses set --agent ${AGENT} "Blocked: <short reason>".
    bus send --agent ${AGENT} ${PROJECT} "Stuck on <id>: <reason>" -L task-blocked.
-   br update --actor ${AGENT} <id> --status=blocked.
+   maw exec default -- br update --actor ${AGENT} <id> --status=blocked.
    Release: bus claims release --agent ${AGENT} "bead://${PROJECT}/<id>".
    Output: <promise>BLOCKED</promise>
    Stop this cycle.
 
 6. REVIEW REQUEST:
-   Describe the change: maw ws jj \$WS describe -m "<id>: <summary>".
+   Describe the change: maw exec \$WS -- jj describe -m "<id>: <summary>".
    CHECK for existing review first:
-     - Run: br comments <id> | grep "Review created:"
+     - Run: maw exec default -- br comments <id> | grep "Review created:"
      - If found, extract <review-id> and skip to requesting security review (don't create duplicate)
    Create review (only if none exists):
-     - crit reviews create --agent ${AGENT} --title "<id>: <title>" --description "<summary>" --path \$WS_PATH
-     - IMMEDIATELY record: br comments add --actor ${AGENT} --author ${AGENT} <id> "Review created: <review-id> in workspace \$WS"
+     - maw exec \$WS -- crit reviews create --agent ${AGENT} --title "<id>: <title>" --description "<summary>"
+     - IMMEDIATELY record: maw exec default -- br comments add --actor ${AGENT} --author ${AGENT} <id> "Review created: <review-id> in workspace \$WS"
    bus statuses set --agent ${AGENT} "Review: <review-id>".
    Request security review (if project has security reviewer):
-     - Assign: crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT} --path \$WS_PATH
+     - Assign: maw exec \$WS -- crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT}
      - Spawn via @mention: bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id> @${PROJECT}-security" -L review-request
      (The @mention triggers the auto-spawn hook — without it, no reviewer spawns!)
    Do NOT close the bead. Do NOT merge the workspace. Do NOT release claims.
@@ -294,25 +310,23 @@ At the end of your work, output exactly one of these completion signals:
    STOP this iteration. The reviewer will process the review.
 
 7. FINISH (only reached after LGTM from step 0, or if no review needed):
-   IMPORTANT: Run ALL finish commands from the project root, not from inside the workspace.
-   If your shell is cd'd into .workspaces/, cd back to the project root first.
    If a review was conducted:
-     crit reviews mark-merged <review-id> --agent ${AGENT}.
-   br comments add --actor ${AGENT} --author ${AGENT} <id> "Completed by ${AGENT}".
-   br close --actor ${AGENT} <id> --reason="Completed" --suggest-next.
-   maw ws merge \$WS --destroy (maw v0.22.0+ produces linear squashed history and auto-moves main; if conflict, preserve and announce).
+     maw exec default -- crit reviews mark-merged <review-id> --agent ${AGENT}.
+   maw exec default -- br comments add --actor ${AGENT} --author ${AGENT} <id> "Completed by ${AGENT}".
+   maw exec default -- br close --actor ${AGENT} <id> --reason="Completed" --suggest-next.
+   maw ws merge \$WS --destroy (produces linear squashed history and auto-moves main; if conflict, preserve and announce).
    bus claims release --agent ${AGENT} --all.
-   br sync --flush-only.${pushMainStep}
+   maw exec default -- br sync --flush-only.${pushMainStep}
    bus send --agent ${AGENT} ${PROJECT} "Completed <id>: <title>" -L task-done.
    Then proceed to step 8 (RELEASE CHECK).
 
 8. RELEASE CHECK (before signaling COMPLETE):
-   Check for unreleased commits: jj log -r 'tags()..main' --no-graph -T 'description.first_line() ++ "\\n"'
+   Check for unreleased commits: maw exec default -- jj log -r 'tags()..main' --no-graph -T 'description.first_line() ++ "\\n"'
    If any commits start with "feat:" or "fix:" (user-visible changes), a release is needed:
    - Bump version in Cargo.toml/package.json (semantic versioning)
    - Update changelog if one exists
    - maw push (if not already pushed)
-   - Tag: jj tag set vX.Y.Z -r main && jj git push --remote origin
+   - Tag: maw exec default -- jj tag set vX.Y.Z -r main && maw exec default -- jj git push --remote origin
    - Announce: bus send --agent ${AGENT} ${PROJECT} "<project> vX.Y.Z released - <summary>" -L release
    If only "chore:", "docs:", "refactor:" commits, no release needed.
    Output: <promise>COMPLETE</promise>
@@ -323,7 +337,8 @@ Key rules:
 - If claim denied, pick something else.
 - All bus and crit commands use --agent ${AGENT}.
 - All file operations use the absolute workspace path from maw ws create output. Do NOT cd into the workspace and stay there.
-- Run br commands (br update, br close, br comments, br sync) from the project root, NOT from .workspaces/WS/.
+- All br/bv commands: maw exec default -- br/bv ...
+- All crit/jj commands in a workspace: maw exec \$WS -- crit/jj ...
 - If a tool behaves unexpectedly, report it: bus send --agent ${AGENT} ${PROJECT} "Tool issue: <details>" -L tool-issue.
 - STOP after completing one task or determining no work. Do not loop.
 - Always output <promise>COMPLETE</promise> or <promise>BLOCKED</promise> at the end.`;
@@ -394,7 +409,7 @@ async function cleanup() {
 		await runCommand('bus', ['claims', 'release', '--agent', AGENT, '--all']);
 	} catch {}
 	try {
-		await runCommand('br', ['sync', '--flush-only']);
+		await runInDefault('br', ['sync', '--flush-only']);
 	} catch {}
 	console.log(`Cleanup complete for ${AGENT}.`);
 }

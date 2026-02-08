@@ -29,7 +29,7 @@ let hint = (s) => `${C.dim}→ ${s}${C.reset}`
 
 try {
   // Run bv --robot-triage and capture output
-  let output = execSync("bv --robot-triage", {
+  let output = execSync("maw exec default -- bv --robot-triage", {
     encoding: "utf-8",
     stdio: ["pipe", "pipe", "pipe"],
   })

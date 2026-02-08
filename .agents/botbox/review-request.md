@@ -27,8 +27,7 @@ The botbus hook system watches for @mentions. When you send a message containing
 2. If requesting a **specialist reviewer** (e.g., security):
    ```bash
    # Step 1: Assign reviewer in crit (records who should review)
-   # Use --path $WS_PATH if the review was created in a workspace
-   crit reviews request <review-id> --reviewers $BOTBOX_PROJECT-security --agent $AGENT --path $WS_PATH
+   maw exec $WS -- crit reviews request <review-id> --reviewers $BOTBOX_PROJECT-security --agent $AGENT
 
    # Step 2: Announce with @mention (TRIGGERS THE SPAWN)
    bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> @$BOTBOX_PROJECT-security" -L review-request
@@ -38,9 +37,9 @@ The botbus hook system watches for @mentions. When you send a message containing
 
 3. **Post review details to the bead** for crash recovery:
    ```bash
-   br comments add --actor $AGENT --author $AGENT <bead-id> "Review created: <review-id> in workspace <ws-name> (.workspaces/<ws-name>)"
+   maw exec default -- br comments add --actor $AGENT --author $AGENT <bead-id> "Review created: <review-id> in workspace <ws-name> (ws/<ws-name>)"
    ```
-   Include: review ID, workspace name, workspace path relative to project root. This lets another agent find the review and workspace if the session crashes.
+   Include: review ID and workspace name. This lets another agent find the review and workspace if the session crashes.
 
 4. If requesting a **general code review** (no specific specialist):
    - Spawn a subagent to perform the code review

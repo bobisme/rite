@@ -72,7 +72,7 @@ async function truncateJournal() {
 // --- Get jj change ID for current working copy ---
 async function getJjChangeId() {
 	try {
-		const { stdout } = await runCommand('jj', ['log', '-r', '@', '--no-graph', '-T', 'change_id.short()']);
+		const { stdout } = await runInDefault('jj', ['log', '-r', '@', '--no-graph', '-T', 'change_id.short()']);
 		return stdout.trim();
 	} catch {
 		return null;
@@ -220,6 +220,16 @@ async function runCommand(cmd, args = []) {
 	});
 }
 
+// --- Helper: run command in default workspace (for br, bv, jj on main) ---
+function runInDefault(cmd, args = []) {
+	return runCommand('maw', ['exec', 'default', '--', cmd, ...args]);
+}
+
+// --- Helper: run command in a named workspace (for crit, jj) ---
+function runInWorkspace(ws, cmd, args = []) {
+	return runCommand('maw', ['exec', ws, '--', cmd, ...args]);
+}
+
 // --- Helper: check if there are reviews needing attention ---
 // Returns { hasWork: boolean, inbox: object }
 async function findWork() {
@@ -229,7 +239,7 @@ async function findWork() {
 		// - Reviews where reviewer is assigned but hasn't voted
 		// - Reviews that were re-requested after voting
 		// Reviews disappear from inbox after voting until re-requested.
-		const result = await runCommand('crit', [
+		const result = await runInDefault('crit', [
 			'inbox',
 			'--agent',
 			AGENT,

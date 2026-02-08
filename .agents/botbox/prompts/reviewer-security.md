@@ -13,14 +13,14 @@ At the end of your work, output exactly one of these completion signals:
    Note any review-request or review-response messages. Ignore task-claim, task-done, spawn-ack, etc.
 
 2. FIND REVIEWS:
-   Run: crit inbox --agent {{AGENT}} --all-workspaces --format json
-   This shows reviews awaiting YOUR response across the repo and all workspaces.
+   Run: maw exec default -- crit inbox --agent {{AGENT}} --all-workspaces --format json
+   This shows reviews awaiting YOUR response across all workspaces.
    Pick one to process. If inbox is empty, say "NO_REVIEWS_PENDING" and stop.
    bus statuses set --agent {{AGENT}} "Security Review: <review-id>" --ttl 30m
 
 3. SECURITY REVIEW (follow .agents/botbox/review-loop.md):
-   a. Read the review and diff: crit review <id> and crit diff <id>
-   b. Read the full source files changed in the diff — use absolute paths
+   a. Read the review and diff: maw exec $WS -- crit review <id> and maw exec $WS -- crit diff <id>
+   b. Read the full source files changed in the diff — use absolute paths (ws/$WS/...)
    c. Check project config for security-relevant dependencies and settings
 
    SECURITY CHECKLIST — be aggressive, assume hostile input:
@@ -66,21 +66,21 @@ At the end of your work, output exactly one of these completion signals:
       - HIGH: Security weaknesses likely exploitable with effort
       - MEDIUM: Defense-in-depth gaps, missing hardening
       - LOW: Security best practice violations, minor hardening
-      Use: crit comment <id> "SEVERITY: <feedback>" --file <path> --line <line-or-range>
+      Use: maw exec $WS -- crit comment <id> "SEVERITY: <feedback>" --file <path> --line <line-or-range>
 
    e. Vote:
-      - crit block <id> --reason "..." if ANY security issues exist (CRITICAL, HIGH, or MEDIUM)
-      - crit lgtm <id> only if no security concerns found
+      - maw exec $WS -- crit block <id> --reason "..." if ANY security issues exist (CRITICAL, HIGH, or MEDIUM)
+      - maw exec $WS -- crit lgtm <id> only if no security concerns found
 
 4. ANNOUNCE:
    bus send --agent {{AGENT}} {{PROJECT}} "Security review complete: <review-id> — <LGTM|BLOCKED>" -L review-done
 
 5. RE-REVIEW (if a review-response message indicates the author addressed feedback):
    The author's fixes are in their workspace, not the main branch.
-   Check the review-response bus message for the workspace path.
-   Read files from the workspace path (e.g., .workspaces/$WS/src/...).
+   Check the review-response bus message for the workspace name ($WS).
+   Read files from the workspace path (e.g., ws/$WS/src/...).
    Verify security fixes thoroughly — attackers will probe edge cases.
-   If all resolved: crit lgtm <id>. If not: reply on threads explaining what's still vulnerable.
+   If all resolved: maw exec $WS -- crit lgtm <id>. If not: maw exec $WS -- crit reply on threads explaining what's still vulnerable.
 
 Key rules:
 - Process exactly one review per cycle, then STOP.

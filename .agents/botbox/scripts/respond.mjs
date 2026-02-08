@@ -167,6 +167,11 @@ async function runCommand(cmd, args = []) {
   })
 }
 
+// --- Helper: run command in default workspace (for br, bv) ---
+function runInDefault(cmd, args = []) {
+  return runCommand("maw", ["exec", "default", "--", cmd, ...args])
+}
+
 // ---------------------------------------------------------------------------
 // Route message based on ! prefix
 // ---------------------------------------------------------------------------
@@ -568,7 +573,7 @@ async function handleBead(route, channel, message) {
     .join(" ")
   if (keywords) {
     try {
-      let result = await runCommand("br", ["search", keywords])
+      let result = await runInDefault("br", ["search", keywords])
       // br search output: "Found N issue(s) matching '...'" followed by bead lines
       if (result.stdout && !result.stdout.includes("Found 0")) {
         // Extract matches — lines containing bd-XXXX
@@ -604,7 +609,7 @@ async function handleBead(route, channel, message) {
   }
 
   try {
-    let result = await runCommand("br", [
+    let result = await runInDefault("br", [
       "create",
       "--actor",
       AGENT,

@@ -37,8 +37,7 @@ bus send --agent $AGENT <project> "Getting error X when running crit inbox --all
 
 For **bugs or feature requests**, create a bead in their repo first:
 ```bash
-cd <repo-path>
-br create --actor $AGENT --owner <project>-dev \
+cd <repo-path> && maw exec default -- br create --actor $AGENT --owner <project>-dev \
   --title="<clear bug/feature title>" \
   --description="<repro steps, context, your use case>" \
   --labels bug \
@@ -55,7 +54,7 @@ bus send --agent $AGENT <project> "Filed <bead-id>: <summary>. @<project>-dev" -
 **Always** create a tracking bead in your own project so you remember to check back:
 
 ```bash
-br create --actor $AGENT --owner $AGENT \
+maw exec default -- br create --actor $AGENT --owner $AGENT \
   --title="[tracking] <summary of what you posted>" \
   --labels tracking \
   --description="Posted to #<channel>: <what you asked/reported>. Check bus history <channel> --from <project>-dev for response." \

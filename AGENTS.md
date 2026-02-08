@@ -201,14 +201,14 @@ Fast TUI for `.beads/issues.jsonl` with precomputed dependency metrics. For agen
 
 | Operation | Command |
 |-----------|---------|
-| View ready work | `br ready` |
-| Show bead | `br show <id>` |
-| Create | `br create --actor $AGENT --owner $AGENT --title="..." --type=task --priority=2` |
-| Start work | `br update --actor $AGENT <id> --status=in_progress --owner=$AGENT` |
-| Add comment | `br comments add --actor $AGENT --author $AGENT <id> "message"` |
-| Close | `br close --actor $AGENT <id>` |
-| Add dependency | `br dep add --actor $AGENT <blocked> <blocker>` |
-| Sync | `br sync --flush-only` |
+| View ready work | `maw exec default -- br ready` |
+| Show bead | `maw exec default -- br show <id>` |
+| Create | `maw exec default -- br create --actor $AGENT --owner $AGENT --title="..." --type=task --priority=2` |
+| Start work | `maw exec default -- br update --actor $AGENT <id> --status=in_progress --owner=$AGENT` |
+| Add comment | `maw exec default -- br comments add --actor $AGENT --author $AGENT <id> "message"` |
+| Close | `maw exec default -- br close --actor $AGENT <id>` |
+| Add dependency | `maw exec default -- br dep add --actor $AGENT <blocked> <blocker>` |
+| Sync | `maw exec default -- br sync --flush-only` |
 
 **Required flags**: `--actor $AGENT` on mutations, `--author $AGENT` on comments.
 
@@ -220,14 +220,14 @@ Fast TUI for `.beads/issues.jsonl` with precomputed dependency metrics. For agen
 | List workspaces | `maw ws list` |
 | Merge to main | `maw ws merge <name> --destroy` |
 | Destroy (no merge) | `maw ws destroy <name>` |
-| Run jj in workspace | `maw ws jj <name> <jj-args...>` |
+| Run jj in workspace | `maw exec <name> -- jj <jj-args...>` |
 
 **Avoiding divergent commits**: Each workspace owns ONE commit. Only modify your own.
 
 | Safe | Dangerous |
 |------|-----------|
 | `jj describe` (your working copy) | `jj describe main -m "..."` |
-| `maw ws jj <your-ws> describe -m "..."` | `jj describe <other-change-id>` |
+| `maw exec <your-ws> -- jj describe -m "..."` | `jj describe <other-change-id>` |
 
 If you see `(divergent)` in `jj log`:
 ```bash
@@ -261,7 +261,7 @@ bus claims release --agent $AGENT --all  # when done
 Use `@<project>-<role>` mentions to request reviews:
 
 ```bash
-crit reviews request <review-id> --reviewers $PROJECT-security --agent $AGENT
+maw exec $WS -- crit reviews request <review-id> --reviewers $PROJECT-security --agent $AGENT
 bus send --agent $AGENT $PROJECT "Review requested: <review-id> @$PROJECT-security" -L review-request
 ```
 
@@ -276,7 +276,7 @@ The @mention triggers the auto-spawn hook for the reviewer.
 3. For bugs, create beads in their repo first
 4. **Always create a local tracking bead** so you check back later:
    ```bash
-   br create --actor $AGENT --owner $AGENT --title="[tracking] <summary>" --labels tracking --type=task --priority=3
+   maw exec default -- br create --actor $AGENT --owner $AGENT --title="[tracking] <summary>" --labels tracking --type=task --priority=3
    ```
 
 See [cross-channel.md](.agents/botbox/cross-channel.md) for the full workflow.

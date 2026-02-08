@@ -19,13 +19,13 @@ If the task is already small and clear (one reviewable change), skip planning an
    - Sequential dependencies (A must happen before B)
    - Parallel opportunities (C and D can happen simultaneously)
 4. **Create beads.** For each unit:
-   - `br create --actor $AGENT --owner $AGENT --title="..." --description="..." --type=task --priority=<1-4>`
+   - `maw exec default -- br create --actor $AGENT --owner $AGENT --title="..." --description="..." --type=task --priority=<1-4>`
    - Title: imperative, specific (e.g., "Add OAuth callback handler", not "OAuth stuff")
    - Description: what, why, acceptance criteria, testing strategy
 5. **Wire dependencies.** If order matters:
-   - `br dep add --actor $AGENT <later> <earlier>`
-   - Parent beads (epics) get children via `br dep add --actor $AGENT <child> <parent>`
-6. **Verify the graph.** `br dep tree <root-bead>` — check that:
+   - `maw exec default -- br dep add --actor $AGENT <later> <earlier>`
+   - Parent beads (epics) get children via `maw exec default -- br dep add --actor $AGENT <child> <parent>`
+6. **Verify the graph.** `maw exec default -- br dep tree <root-bead>` — check that:
    - Parallel work is actually parallel (not chained when it doesn't need to be)
    - Dependencies reflect reality (you can't test without implementing)
 7. **Announce.** `bus send --agent $AGENT $BOTBOX_PROJECT "Planned <spec-name>: N beads created" -L planning`

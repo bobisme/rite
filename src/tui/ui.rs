@@ -596,40 +596,59 @@ fn highlight_mentions(text: &str) -> Vec<Span<'static>> {
     let mut spans = Vec::new();
     let mut last_end = 0;
 
-    // Simple regex-like matching for @mentions
-    // Matches @followed by alphanumeric or hyphens
+    // Highlight @mentions (blue bold) and !flags (yellow)
     let bytes = text.as_bytes();
     let mut i = 0;
 
     while i < bytes.len() {
         if bytes[i] == b'@' {
             // Found potential mention start
-            let mention_start = i;
+            let start = i;
             i += 1;
 
-            // Collect alphanumeric and hyphens
+            // Collect alphanumeric, hyphens, underscores, and slashes
             while i < bytes.len() && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-') {
                 i += 1;
             }
 
-            let mention_end = i;
-
             // Only treat as mention if we found at least one char after @
-            if mention_end > mention_start + 1 {
-                // Add text before mention
-                if mention_start > last_end {
-                    spans.push(Span::raw(text[last_end..mention_start].to_string()));
+            if i > start + 1 {
+                if start > last_end {
+                    spans.push(Span::raw(text[last_end..start].to_string()));
                 }
-
-                // Add mention in blue
                 spans.push(Span::styled(
-                    text[mention_start..mention_end].to_string(),
+                    text[start..i].to_string(),
                     Style::default()
                         .fg(Color::Blue)
                         .add_modifier(Modifier::BOLD),
                 ));
+                last_end = i;
+            }
+        } else if bytes[i] == b'!'
+            && (i == 0 || bytes[i - 1] == b' ')
+        {
+            // Found potential !flag at start of text or after a space
+            let start = i;
+            i += 1;
 
-                last_end = mention_end;
+            // Collect alphanumeric, hyphens, underscores
+            while i < bytes.len()
+                && (bytes[i].is_ascii_alphanumeric() || bytes[i] == b'-' || bytes[i] == b'_')
+            {
+                i += 1;
+            }
+
+            // Only treat as flag if we found at least one char after !
+            // and the token ends at whitespace or end of string
+            if i > start + 1 && (i == bytes.len() || bytes[i] == b' ') {
+                if start > last_end {
+                    spans.push(Span::raw(text[last_end..start].to_string()));
+                }
+                spans.push(Span::styled(
+                    text[start..i].to_string(),
+                    Style::default().fg(Color::Yellow),
+                ));
+                last_end = i;
             }
         } else {
             i += 1;
@@ -641,7 +660,7 @@ fn highlight_mentions(text: &str) -> Vec<Span<'static>> {
         spans.push(Span::raw(text[last_end..].to_string()));
     }
 
-    // If no mentions found, return single span
+    // If no highlights found, return single span
     if spans.is_empty() {
         spans.push(Span::raw(text.to_string()));
     }

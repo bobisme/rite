@@ -5,7 +5,6 @@ use colored::Colorize;
 use serde::Serialize;
 
 use super::OutputFormat;
-use super::format::{to_toon, to_toon_list};
 use crate::core::project::data_dir;
 use crate::sync::git;
 
@@ -115,10 +114,7 @@ pub fn status(format: OutputFormat) -> Result<()> {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&info)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(&info));
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty | OutputFormat::Text => {
             if !info.is_git_repo {
                 println!("{}", "Git Status:".bold());
                 println!();
@@ -187,10 +183,7 @@ pub fn log(count: usize, format: OutputFormat) -> Result<()> {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&entries)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon_list(&entries));
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty | OutputFormat::Text => {
             println!("{}", "Recent Sync Commits:".bold());
             println!();
 
@@ -225,6 +218,8 @@ pub struct SyncCheckResult {
     pub ahead: usize,
     pub behind: usize,
     pub healthy: bool,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 pub fn check(format: OutputFormat) -> Result<()> {
@@ -249,6 +244,20 @@ pub fn check(format: OutputFormat) -> Result<()> {
     // Check if index needs rebuild (reuse logic from index.rs)
     let index_up_to_date = check_index_up_to_date();
 
+    // Build advice based on the check results
+    let mut advice = Vec::new();
+    if !git_available {
+        // No git installed
+    } else if !is_git_repo {
+        advice.push("bus sync init".to_string());
+    } else if info.has_conflicts {
+        // Has conflicts, needs manual resolution
+    } else if info.ahead > 0 {
+        advice.push("bus sync push".to_string());
+    } else if info.behind > 0 {
+        advice.push("bus sync pull".to_string());
+    }
+
     let result = SyncCheckResult {
         is_git_repo,
         git_available,
@@ -263,16 +272,14 @@ pub fn check(format: OutputFormat) -> Result<()> {
             && !info.has_conflicts
             && info.remote_url.is_some()
             && index_up_to_date,
+        advice,
     };
 
     match format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(&result));
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty | OutputFormat::Text => {
             println!("{}", "Sync Health Check:".bold());
             println!();
 

@@ -6,7 +6,6 @@ use colored::Colorize;
 use serde::Serialize;
 
 use super::OutputFormat;
-use super::format::to_toon;
 use crate::core::identity::require_agent;
 use crate::core::message::{Message, MessageMeta};
 use crate::core::project::channels_dir;
@@ -26,6 +25,8 @@ pub struct MessageOutput {
     pub mentions: Vec<String>,
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<AttachmentOutput>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 /// Simplified attachment output.
@@ -56,6 +57,7 @@ impl From<&Message> for MessageOutput {
             labels: msg.labels.clone(),
             mentions: msg.mentions.clone(),
             attachments,
+            advice: vec![], // Informational command, no specific next action
         }
     }
 }
@@ -121,17 +123,7 @@ pub fn get(id: &str, format: OutputFormat) -> Result<()> {
                 });
                 println!("{}", serde_json::to_string_pretty(&output)?);
             }
-            OutputFormat::Toon => {
-                println!("id: {}", id);
-                println!("deleted: true");
-                println!("deleted_by: {}", deleted_by);
-                println!("deleted_at: {}", deleted_at.to_rfc3339());
-                if let Some(ref orig) = original {
-                    println!("original_agent: {}", orig.agent);
-                    println!("original_channel: {}", orig.channel);
-                }
-            }
-            OutputFormat::Text => {
+            OutputFormat::Pretty => {
                 let local_time: DateTime<Local> = deleted_at.with_timezone(&Local);
                 let time_str = local_time.format("%Y-%m-%d %H:%M:%S").to_string();
 
@@ -146,6 +138,17 @@ pub fn get(id: &str, format: OutputFormat) -> Result<()> {
                         "Original author".dimmed(),
                         colorize_agent(&orig.agent)
                     );
+                }
+            }
+            OutputFormat::Text => {
+                let time_str = deleted_at.to_rfc3339();
+                if let Some(ref orig) = original {
+                    println!(
+                        "{}  {}  {}  [deleted by {} at {}]",
+                        id, orig.agent, orig.channel, deleted_by, time_str
+                    );
+                } else {
+                    println!("{}  [deleted by {} at {}]", id, deleted_by, time_str);
                 }
             }
         }
@@ -265,10 +268,7 @@ fn print_message(output: &MessageOutput, msg: &Message, format: OutputFormat) ->
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(output)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(output));
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty => {
             let local_time: DateTime<Local> = msg.ts.with_timezone(&Local);
             let time_str = local_time.format("%Y-%m-%d %H:%M:%S").to_string();
 
@@ -314,6 +314,13 @@ fn print_message(output: &MessageOutput, msg: &Message, format: OutputFormat) ->
 
             println!();
             println!("{}", output.body);
+        }
+        OutputFormat::Text => {
+            let time_str = msg.ts.to_rfc3339();
+            println!(
+                "{}  {}  {}  {}  {}",
+                output.id, output.agent, output.channel, time_str, output.body
+            );
         }
     }
 

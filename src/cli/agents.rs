@@ -7,7 +7,6 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 use super::OutputFormat;
-use super::format::to_toon;
 use crate::core::message::read_messages;
 use crate::core::project::channels_dir;
 
@@ -22,6 +21,8 @@ pub struct AgentInfo {
 #[derive(Debug, Serialize)]
 pub struct AgentsOutput {
     pub agents: Vec<AgentInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 /// List agents derived from message history.
@@ -47,16 +48,14 @@ pub fn run(format: OutputFormat, _active_only: bool) -> Result<()> {
 
     let output = AgentsOutput {
         agents: agent_infos,
+        advice: vec![], // Informational command, no specific next action
     };
 
     match format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(&output));
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty => {
             if output.agents.is_empty() {
                 println!("No agents found in message history.");
                 return Ok(());
@@ -79,6 +78,18 @@ pub fn run(format: OutputFormat, _active_only: bool) -> Result<()> {
                     info.name.cyan(),
                     last_seen_str,
                     info.message_count
+                );
+            }
+        }
+        OutputFormat::Text => {
+            for info in &output.agents {
+                let last_seen_str = format_time_ago(info.last_seen);
+                let status = if info.active { "online" } else { "afk" };
+
+                // Simple format: agent-name  status  N messages  last-seen
+                println!(
+                    "{}  {}  {} messages  {}",
+                    info.name, status, info.message_count, last_seen_str
                 );
             }
         }
@@ -176,7 +187,7 @@ mod tests {
         )
         .unwrap();
 
-        run(OutputFormat::Text, false).unwrap();
+        run(OutputFormat::Pretty, false).unwrap();
     }
 
     #[test]

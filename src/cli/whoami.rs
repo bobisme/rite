@@ -6,7 +6,6 @@ use serde::Serialize;
 use std::path::{Path, PathBuf};
 
 use super::OutputFormat;
-use super::format::to_toon;
 use crate::core::identity::{AGENT_ENV_VAR, resolve_agent};
 use crate::core::names::generate_name;
 use crate::core::project::data_dir;
@@ -42,6 +41,8 @@ pub struct WhoamiOutput {
     pub data_dir: String,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub warning: Option<String>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 /// Display current agent identity.
@@ -70,13 +71,13 @@ pub fn run(
             };
 
             let error_msg = match format {
-                OutputFormat::Json | OutputFormat::Toon => {
+                OutputFormat::Json => {
                     format!(
                         "No agent identity configured. Suggested: {}",
                         suggested_name
                     )
                 }
-                OutputFormat::Text => {
+                OutputFormat::Pretty | OutputFormat::Text => {
                     format!(
                         "{}\n\n\
                          {} Here is a random identity you could use:\n\n  \
@@ -131,16 +132,14 @@ pub fn run(
         source,
         data_dir: data_dir().display().to_string(),
         warning: warning.clone(),
+        advice: vec![], // Informational command, no specific next action
     };
 
     match format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(&output));
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty => {
             println!("{}: {}", "Agent".bold(), agent_name.cyan());
             println!("{}: {}", "Source".bold(), output.source);
             println!("{}: {}", "Data".bold(), data_dir().display());
@@ -149,6 +148,9 @@ pub fn run(
                 println!();
                 println!("{} {}", "Warning:".yellow().bold(), warn.yellow());
             }
+        }
+        OutputFormat::Text => {
+            println!("{}", agent_name);
         }
     }
 

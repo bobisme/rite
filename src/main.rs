@@ -1,5 +1,6 @@
 use anyhow::Result;
 use clap::Parser;
+use std::io::IsTerminal;
 use std::path::Path;
 
 use botbus::cli::{self, Cli, Commands, OutputFormat};
@@ -19,11 +20,38 @@ fn main() -> Result<()> {
 
     let cli = Cli::parse();
 
-    // Resolve effective output format (--json flag overrides --format for backwards compatibility)
+    // Resolve effective output format with cascade:
+    // 1. --json flag (deprecated, backwards compatibility)
+    // 2. --format flag explicitly set
+    // 3. FORMAT env var
+    // 4. TTY detection: TTY -> Pretty, non-TTY -> Text
     let format = if cli.json {
         OutputFormat::Json
+    } else if let Some(fmt) = cli.format {
+        // --format was explicitly set
+        fmt
+    } else if let Ok(env_format) = std::env::var("FORMAT") {
+        // Try to parse FORMAT env var
+        match env_format.to_lowercase().as_str() {
+            "pretty" => OutputFormat::Pretty,
+            "text" => OutputFormat::Text,
+            "json" => OutputFormat::Json,
+            _ => {
+                // Invalid format, fall back to TTY detection
+                if std::io::stdout().is_terminal() {
+                    OutputFormat::Pretty
+                } else {
+                    OutputFormat::Text
+                }
+            }
+        }
     } else {
-        cli.format
+        // TTY auto-detection
+        if std::io::stdout().is_terminal() {
+            OutputFormat::Pretty
+        } else {
+            OutputFormat::Text
+        }
     };
 
     // Ensure data directory exists for most commands
@@ -93,11 +121,11 @@ fn main() -> Result<()> {
             after_offset,
             after_id,
             show_offset,
-            // Deprecated --json flag overrides local format
+            // Use local format if provided, otherwise default to Text for history
             format: if cli.json {
                 OutputFormat::Json
             } else {
-                local_format
+                local_format.unwrap_or(format)
             },
             agent: cli.agent.clone(),
         }),
@@ -135,7 +163,7 @@ fn main() -> Result<()> {
             channel,
             count,
             from,
-            json: format == OutputFormat::Json,
+            format,
         }),
 
         Commands::Claims { command } => {
@@ -210,11 +238,11 @@ fn main() -> Result<()> {
                 count,
                 limit_per_channel,
                 mark_read,
-                // Deprecated --json flag overrides local format
+                // Use local format if provided, otherwise default to Text for inbox
                 format: if cli.json {
                     OutputFormat::Json
                 } else {
-                    local_format
+                    local_format.unwrap_or(format)
                 },
                 all,
                 mentions,
@@ -236,7 +264,7 @@ fn main() -> Result<()> {
                 channels,
                 labels,
                 timeout,
-                json: format == OutputFormat::Json,
+                format,
             },
             cli.agent.as_deref(),
         ),

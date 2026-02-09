@@ -7,6 +7,7 @@ use serde::Serialize;
 use std::path::Path;
 use std::time::{Duration, Instant};
 
+use crate::cli::OutputFormat;
 use crate::core::identity::resolve_agent;
 use crate::core::message::{Message, read_messages_from_offset};
 use crate::core::project::channels_dir;
@@ -21,8 +22,8 @@ pub struct WaitOptions {
     pub labels: Vec<String>,
     /// Timeout in seconds (0 = no timeout)
     pub timeout: u64,
-    /// Output as JSON
-    pub json: bool,
+    /// Output format
+    pub format: OutputFormat,
 }
 
 #[derive(Debug, Serialize)]
@@ -35,6 +36,8 @@ pub struct WaitOutput {
     pub channel: Option<String>,
     /// Reason for returning
     pub reason: String,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 /// Wait for a relevant message to arrive.
@@ -79,7 +82,7 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
 
     let start = Instant::now();
 
-    if !options.json {
+    if options.format != OutputFormat::Json {
         if !options.channels.is_empty() {
             let ch_display: Vec<String> =
                 options.channels.iter().map(|c| format!("#{}", c)).collect();
@@ -111,12 +114,19 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
                 message: None,
                 channel: None,
                 reason: "timeout".to_string(),
+                advice: vec![],
             };
 
-            if options.json {
-                println!("{}", serde_json::to_string_pretty(&output)?);
-            } else {
-                println!("{} Timeout after {}s", "✗".red(), timeout.as_secs());
+            match options.format {
+                OutputFormat::Json => {
+                    println!("{}", serde_json::to_string_pretty(&output)?);
+                }
+                OutputFormat::Pretty => {
+                    println!("{} Timeout after {}s", "✗".red(), timeout.as_secs());
+                }
+                OutputFormat::Text => {
+                    println!("timeout");
+                }
             }
 
             // Exit with code 1 on timeout
@@ -177,18 +187,25 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
                         } else {
                             "message".to_string()
                         },
+                        advice: vec![],
                     };
 
-                    if options.json {
-                        println!("{}", serde_json::to_string_pretty(&output)?);
-                    } else {
-                        println!();
-                        println!(
-                            "{} Message received in #{}",
-                            "✓".green(),
-                            channel_name.cyan()
-                        );
-                        print_message(&msg);
+                    match options.format {
+                        OutputFormat::Json => {
+                            println!("{}", serde_json::to_string_pretty(&output)?);
+                        }
+                        OutputFormat::Pretty => {
+                            println!();
+                            println!(
+                                "{} Message received in #{}",
+                                "✓".green(),
+                                channel_name.cyan()
+                            );
+                            print_message(&msg);
+                        }
+                        OutputFormat::Text => {
+                            println!("{}  {}  {}", channel_name, msg.agent, msg.body);
+                        }
                     }
 
                     return Ok(());

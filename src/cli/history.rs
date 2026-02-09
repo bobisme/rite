@@ -7,7 +7,6 @@ use serde::Serialize;
 use std::path::Path;
 
 use super::OutputFormat;
-use super::format::to_toon;
 use crate::core::channel::resolve_channel;
 use crate::core::identity::resolve_agent;
 use crate::core::message::{
@@ -51,6 +50,8 @@ pub struct HistoryOutput {
     pub last_id: Option<String>,
     /// Total messages available before count limit was applied (for pagination awareness)
     pub total_available: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 /// View message history.
@@ -80,50 +81,57 @@ pub fn run(options: HistoryOptions) -> Result<()> {
             println!("{}", serde_json::to_string_pretty(&output)?);
             return Ok(());
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(&output));
-            return Ok(());
+        OutputFormat::Pretty => {
+            if output.messages.is_empty() {
+                if options.after_offset.is_some() || options.after_id.is_some() {
+                    println!("No new messages.");
+                } else {
+                    println!("No messages match your criteria.");
+                }
+
+                // Still show offset info if requested
+                if options.show_offset {
+                    println!("{}: {}", "next_offset".dimmed(), output.next_offset);
+                }
+                return Ok(());
+            }
+
+            // Print header
+            println!("{}", format!("#{}", channel).cyan().bold());
+
+            // Print messages
+            for msg in &output.messages {
+                print_message(msg);
+            }
+
+            // Show offset info for next read
+            if options.show_offset {
+                println!();
+                println!("{}: {}", "next_offset".dimmed(), output.next_offset);
+                if let Some(last_id) = &output.last_id {
+                    println!("{}: {}", "last_id".dimmed(), last_id);
+                }
+            }
+
+            // Follow mode
+            if options.follow {
+                let path = channel_path(&channel);
+                follow_channel(&path, options.timeout, options.follow_count)?;
+            }
         }
         OutputFormat::Text => {
-            // Continue with text formatting below
+            // Text format: concise one-liner per message
+            for msg in &output.messages {
+                let time_ago = format_time_ago(msg.ts);
+                println!("{}  {}  {}  {}", msg.id, msg.agent, time_ago, msg.body);
+            }
+
+            // Follow mode
+            if options.follow {
+                let path = channel_path(&channel);
+                follow_channel(&path, options.timeout, options.follow_count)?;
+            }
         }
-    }
-
-    if output.messages.is_empty() {
-        if options.after_offset.is_some() || options.after_id.is_some() {
-            println!("No new messages.");
-        } else {
-            println!("No messages match your criteria.");
-        }
-
-        // Still show offset info if requested
-        if options.show_offset {
-            println!("{}: {}", "next_offset".dimmed(), output.next_offset);
-        }
-        return Ok(());
-    }
-
-    // Print header
-    println!("{}", format!("#{}", channel).cyan().bold());
-
-    // Print messages
-    for msg in &output.messages {
-        print_message(msg);
-    }
-
-    // Show offset info for next read
-    if options.show_offset {
-        println!();
-        println!("{}: {}", "next_offset".dimmed(), output.next_offset);
-        if let Some(last_id) = &output.last_id {
-            println!("{}: {}", "last_id".dimmed(), last_id);
-        }
-    }
-
-    // Follow mode
-    if options.follow {
-        let path = channel_path(&channel);
-        follow_channel(&path, options.timeout, options.follow_count)?;
     }
 
     Ok(())
@@ -145,6 +153,7 @@ pub fn run_with_output(options: HistoryOptions) -> Result<HistoryOutput> {
             next_offset: 0,
             last_id: None,
             total_available: 0,
+            advice: vec![],
         });
     }
 
@@ -201,11 +210,23 @@ pub fn run_with_output(options: HistoryOptions) -> Result<HistoryOutput> {
 
     let last_id = messages.last().map(|m| m.id.to_string());
 
+    // Build advice
+    let mut advice = Vec::new();
+    if total_available > messages.len() {
+        // There are more messages to read
+        advice.push(format!(
+            "bus history {} --after-offset {}",
+            options.channel.as_ref().unwrap_or(&"general".to_string()),
+            next_offset
+        ));
+    }
+
     Ok(HistoryOutput {
         messages,
         next_offset,
         last_id,
         total_available,
+        advice,
     })
 }
 
@@ -344,6 +365,21 @@ fn colorize_agent(name: &str) -> colored::ColoredString {
     ];
     let color = colors[hash % colors.len()];
     name.color(color).bold()
+}
+
+fn format_time_ago(ts: DateTime<Utc>) -> String {
+    let now = Utc::now();
+    let duration = now.signed_duration_since(ts);
+
+    if duration.num_seconds() < 60 {
+        "just now".to_string()
+    } else if duration.num_minutes() < 60 {
+        format!("{}m ago", duration.num_minutes())
+    } else if duration.num_hours() < 24 {
+        format!("{}h ago", duration.num_hours())
+    } else {
+        format!("{}d ago", duration.num_days())
+    }
 }
 
 fn follow_channel(

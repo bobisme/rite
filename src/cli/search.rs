@@ -3,6 +3,7 @@ use chrono::{DateTime, Local, Utc};
 use colored::Colorize;
 use serde::Serialize;
 
+use crate::cli::OutputFormat;
 use crate::index::IndexSyncer;
 use crate::index::fts::SearchResult;
 
@@ -11,7 +12,7 @@ pub struct SearchOptions {
     pub channel: Option<String>,
     pub count: usize,
     pub from: Option<String>,
-    pub json: bool,
+    pub format: OutputFormat,
 }
 
 #[derive(Debug, Serialize)]
@@ -19,6 +20,8 @@ pub struct SearchOutput {
     pub query: String,
     pub count: usize,
     pub results: Vec<SearchResult>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 /// Full-text search messages.
@@ -33,7 +36,7 @@ pub fn run(mut options: SearchOptions) -> Result<()> {
 
     let stats = syncer.sync_all().with_context(|| "Failed to sync index")?;
 
-    if stats.messages_indexed > 0 && !options.json {
+    if stats.messages_indexed > 0 && options.format != OutputFormat::Json {
         eprintln!(
             "{} Indexed {} new message(s)",
             "Info:".blue(),
@@ -57,31 +60,42 @@ pub fn run(mut options: SearchOptions) -> Result<()> {
         syncer.index().search(&fts_query, options.count)?
     };
 
-    if options.json {
-        let output = SearchOutput {
-            query: options.query,
-            count: results.len(),
-            results,
-        };
-        println!("{}", serde_json::to_string_pretty(&output)?);
-        return Ok(());
-    }
+    match options.format {
+        OutputFormat::Json => {
+            let output = SearchOutput {
+                query: options.query,
+                count: results.len(),
+                results,
+                advice: vec![],
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
+        }
+        OutputFormat::Pretty => {
+            if results.is_empty() {
+                println!("No messages found matching '{}'", options.query);
+                return Ok(());
+            }
 
-    if results.is_empty() {
-        println!("No messages found matching '{}'", options.query);
-        return Ok(());
-    }
+            println!(
+                "{} {} result(s) for '{}'",
+                "Found:".green(),
+                results.len(),
+                options.query
+            );
+            println!();
 
-    println!(
-        "{} {} result(s) for '{}'",
-        "Found:".green(),
-        results.len(),
-        options.query
-    );
-    println!();
-
-    for result in &results {
-        print_result(result);
+            for result in &results {
+                print_result(result);
+            }
+        }
+        OutputFormat::Text => {
+            for result in &results {
+                println!(
+                    "{}  {}  {}  {}",
+                    result.channel, result.agent, result.ts, result.body
+                );
+            }
+        }
     }
 
     Ok(())

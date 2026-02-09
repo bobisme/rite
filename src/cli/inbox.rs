@@ -52,9 +52,9 @@ pub struct InboxOutput {
     /// Count of remaining unread messages not shown
     #[serde(skip_serializing_if = "Option::is_none")]
     pub remaining_unread: Option<usize>,
-    /// Suggested command to run to see more messages
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub advice: Option<String>,
+    /// Suggested commands to run next
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -67,6 +67,8 @@ pub struct MentionedMessage {
 pub struct MentionsOutput {
     pub mentions: Vec<MentionedMessage>,
     pub total_count: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 /// Show unread messages for the current agent.
@@ -212,11 +214,10 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
 
     // Calculate pagination info
     let has_more = total_remaining > 0;
-    let advice = if has_more {
-        Some(build_advice_command(&options))
-    } else {
-        None
-    };
+    let mut advice = Vec::new();
+    if has_more {
+        advice.push(build_advice_command(&options));
+    }
 
     // Handle output format
     match options.format {
@@ -234,37 +235,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
             };
             println!("{}", serde_json::to_string_pretty(&json_output)?);
         }
-        OutputFormat::Toon => {
-            println!("total_unread: {}", total_unread);
-            println!("channel_count: {}", channel_inboxes.len());
-            if has_more {
-                println!("has_more: true");
-                println!("remaining_unread: {}", total_remaining);
-            }
-            println!();
-            for inbox in &channel_inboxes {
-                println!("channel: {}", inbox.channel);
-                println!("  is_dm: {}", inbox.is_dm);
-                println!("  unread_count: {}", inbox.unread_count);
-                println!("  next_offset: {}", inbox.next_offset);
-                println!("  marked_read: {}", inbox.marked_read);
-                println!("  messages:");
-                for msg in &inbox.messages {
-                    println!("    - id: {}", msg.id);
-                    println!("      agent: {}", msg.agent);
-                    println!("      ts: {}", msg.ts.to_rfc3339());
-                    println!("      body: {}", msg.body);
-                }
-                println!();
-            }
-            if has_more {
-                println!(
-                    "advice: run `{}` to see more",
-                    build_advice_command(&options)
-                );
-            }
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty => {
             if channel_inboxes.is_empty() {
                 println!("{} No unread messages", "✓".green());
                 return Ok(());
@@ -310,6 +281,17 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
                     "{} Run 'bus inbox --mark-read' to mark all as read",
                     "Tip:".dimmed()
                 );
+            }
+        }
+        OutputFormat::Text => {
+            // Text format: minimal one-liner per channel with unread count
+            for inbox in &channel_inboxes {
+                println!("{}  {} unread", inbox.channel, inbox.unread_count);
+            }
+
+            // Show advice if there are more messages
+            if has_more {
+                println!("advice: bus mark-read <channel>");
             }
         }
     }
@@ -445,15 +427,11 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
                 let output = MentionsOutput {
                     mentions: vec![],
                     total_count: 0,
+                    advice: vec![],
                 };
                 println!("{}", serde_json::to_string_pretty(&output)?);
             }
-            OutputFormat::Toon => {
-                println!("total_count: 0");
-                println!();
-                println!("mentions: []");
-            }
-            OutputFormat::Text => {
+            OutputFormat::Pretty | OutputFormat::Text => {
                 println!("{} No mentions found", "✓".green());
             }
         }
@@ -583,22 +561,11 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
             let output = MentionsOutput {
                 mentions: limited_mentions.clone(),
                 total_count,
+                advice: vec![], // No specific next action for mentions
             };
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
-        OutputFormat::Toon => {
-            println!("total_count: {}", total_count);
-            println!();
-            println!("mentions:");
-            for mention in &limited_mentions {
-                println!("  - channel: {}", mention.channel);
-                println!("    id: {}", mention.message.id);
-                println!("    agent: {}", mention.message.agent);
-                println!("    ts: {}", mention.message.ts.to_rfc3339());
-                println!("    body: {}", mention.message.body);
-            }
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty | OutputFormat::Text => {
             if limited_mentions.is_empty() {
                 println!("{} No mentions found", "✓".green());
                 return Ok(());

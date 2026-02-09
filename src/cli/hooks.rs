@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 
 use super::OutputFormat;
-use super::format::{to_toon, to_toon_list};
 use crate::core::claim::FileClaim;
 use crate::core::flags::HookFlags;
 use crate::core::hook::{ClaimRelease, Hook, HookCondition, HookFiring, shell_display};
@@ -169,10 +168,7 @@ pub fn add(
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&hook)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(&hook));
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty | OutputFormat::Text => {
             println!("{} Hook {} created", "Added:".green(), hook.id.cyan());
             println!("  channel: #{}", hook.channel);
             println!("  condition: {:?}", hook.condition);
@@ -198,6 +194,13 @@ struct HookInfo {
     require_flag: Option<String>,
     last_fired: Option<String>,
     active: bool,
+}
+
+#[derive(Debug, Serialize)]
+struct HooksOutput {
+    hooks: Vec<HookInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    advice: Vec<String>,
 }
 
 /// List all active hooks.
@@ -226,16 +229,13 @@ pub fn list(format: OutputFormat) -> Result<()> {
 
     match format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&infos)?);
+            let output = HooksOutput {
+                hooks: infos,
+                advice: vec![], // Informational command, no specific next action
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
         }
-        OutputFormat::Toon => {
-            if infos.is_empty() {
-                println!("hooks: []");
-            } else {
-                println!("{}", to_toon_list(&infos));
-            }
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty => {
             if hooks.is_empty() {
                 println!("No active hooks.");
             } else {
@@ -271,6 +271,16 @@ pub fn list(format: OutputFormat) -> Result<()> {
                 }
             }
         }
+        OutputFormat::Text => {
+            for h in &hooks {
+                let event = match &h.condition {
+                    HookCondition::ClaimAvailable { .. } => "claim-available",
+                    HookCondition::MentionReceived { .. } => "mention",
+                };
+                let command_str = shell_display(&h.command);
+                println!("{}  {}  {}  {}", h.id, h.channel, event, command_str);
+            }
+        }
     }
 
     Ok(())
@@ -300,10 +310,7 @@ pub fn remove(hook_id: String, format: OutputFormat) -> Result<()> {
                 }))?
             );
         }
-        OutputFormat::Toon => {
-            println!("removed: {}", hook_id);
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty | OutputFormat::Text => {
             println!("{} Hook {} removed", "Removed:".green(), hook_id.cyan());
         }
     }
@@ -396,10 +403,7 @@ pub fn test(hook_id: String, format: OutputFormat) -> Result<()> {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&result)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(&result));
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty | OutputFormat::Text => {
             println!("{} Hook {} dry-run:", "Test:".green(), hook.id.cyan());
             println!(
                 "  cooldown: {}",

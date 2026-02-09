@@ -6,7 +6,6 @@ use colored::Colorize;
 use serde::Serialize;
 
 use super::OutputFormat;
-use super::format::to_toon;
 use crate::core::channel::{dm_agents, is_dm_channel};
 use crate::core::identity::resolve_agent;
 use crate::core::message::{Message, read_last_n_messages, read_messages};
@@ -27,6 +26,8 @@ pub struct ChannelInfo {
 #[derive(Debug, Serialize)]
 pub struct ChannelsOutput {
     pub channels: Vec<ChannelInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 /// List all channels.
@@ -51,14 +52,17 @@ pub fn list(
             OutputFormat::Json => {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&ChannelsOutput { channels: vec![] })?
+                    serde_json::to_string_pretty(&ChannelsOutput {
+                        channels: vec![],
+                        advice: vec![],
+                    })?
                 );
             }
-            OutputFormat::Toon => {
-                println!("channels: []");
+            OutputFormat::Pretty => {
+                println!("No channels yet.");
             }
             OutputFormat::Text => {
-                println!("No channels yet.");
+                // No output for Text format when empty
             }
         }
         return Ok(());
@@ -75,14 +79,17 @@ pub fn list(
             OutputFormat::Json => {
                 println!(
                     "{}",
-                    serde_json::to_string_pretty(&ChannelsOutput { channels: vec![] })?
+                    serde_json::to_string_pretty(&ChannelsOutput {
+                        channels: vec![],
+                        advice: vec![],
+                    })?
                 );
             }
-            OutputFormat::Toon => {
-                println!("channels: []");
+            OutputFormat::Pretty => {
+                println!("No channels yet.");
             }
             OutputFormat::Text => {
-                println!("No channels yet.");
+                // No output for Text format when empty
             }
         }
         return Ok(());
@@ -135,18 +142,25 @@ pub fn list(
         });
     }
 
+    // Build advice
+    let mut advice = Vec::new();
+    if !channel_infos.is_empty() {
+        // Suggest closing channels if there are any
+        if let Some(first_channel) = channel_infos.first() {
+            advice.push(format!("bus channels close {}", first_channel.name));
+        }
+    }
+
     let output = ChannelsOutput {
         channels: channel_infos,
+        advice,
     };
 
     match format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(&output));
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty => {
             println!("{}", "Channels:".bold());
 
             for info in &output.channels {
@@ -163,6 +177,26 @@ pub fn list(
                     info.name.cyan(),
                     info.message_count,
                     time_ago
+                );
+            }
+        }
+        OutputFormat::Text => {
+            for info in &output.channels {
+                let time_ago = info
+                    .last_activity
+                    .map(format_time_ago)
+                    .unwrap_or_else(|| "never".to_string());
+
+                let prefix = if info.is_dm { "" } else { "#" };
+                let closed_flag = if info.closed.unwrap_or(false) {
+                    "  [closed]"
+                } else {
+                    ""
+                };
+
+                println!(
+                    "{}{}  {} messages  {}{}",
+                    prefix, info.name, info.message_count, time_ago, closed_flag
                 );
             }
         }
@@ -490,7 +524,7 @@ mod tests {
         .unwrap();
 
         // Show all channels (default)
-        list(OutputFormat::Text, false, false, None).unwrap();
+        list(OutputFormat::Pretty, false, false, None).unwrap();
     }
 
     #[test]
@@ -513,7 +547,7 @@ mod tests {
         .unwrap();
 
         // With --mine filter, should only show channels where agent participated
-        list(OutputFormat::Text, true, false, Some("test-agent")).unwrap();
+        list(OutputFormat::Pretty, true, false, Some("test-agent")).unwrap();
     }
 
     #[test]

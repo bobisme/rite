@@ -10,7 +10,6 @@ use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 
 use super::OutputFormat;
-use super::format::to_toon;
 use crate::core::identity::resolve_agent;
 use crate::core::names::is_valid_name;
 use crate::core::project::{channels_dir, claims_path, data_dir, index_path, state_path};
@@ -41,6 +40,8 @@ pub struct DoctorReport {
     pub pass_count: usize,
     pub warn_count: usize,
     pub fail_count: usize,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 impl DoctorReport {
@@ -50,6 +51,7 @@ impl DoctorReport {
             pass_count: 0,
             warn_count: 0,
             fail_count: 0,
+            advice: Vec::new(),
         }
     }
 
@@ -95,14 +97,20 @@ pub fn run(format: OutputFormat) -> Result<()> {
     // Check 8: Git availability (for sync features)
     check_git_available(&mut report);
 
+    // Build advice based on failed/warned checks
+    for check in &report.checks {
+        if let Some(ref suggestion) = check.suggestion
+            && check.status == CheckStatus::Fail
+        {
+            report.advice.push(suggestion.clone());
+        }
+    }
+
     match format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&report)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(&report));
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty | OutputFormat::Text => {
             print_report(&report);
         }
     }

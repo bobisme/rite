@@ -3,7 +3,6 @@ use chrono::Utc;
 use colored::Colorize;
 
 use super::OutputFormat;
-use super::format::to_toon_list;
 use crate::core::identity::require_agent;
 use crate::core::project::statuses_path;
 use crate::core::status::AgentStatusEntry;
@@ -86,6 +85,13 @@ pub fn list(format: OutputFormat, _agent: Option<&str>) -> Result<()> {
         expires_in_secs: i64,
     }
 
+    #[derive(serde::Serialize)]
+    struct StatusesOutput {
+        statuses: Vec<StatusInfo>,
+        #[serde(skip_serializing_if = "Vec::is_empty")]
+        advice: Vec<String>,
+    }
+
     let infos: Vec<StatusInfo> = statuses
         .iter()
         .map(|s| StatusInfo {
@@ -98,16 +104,13 @@ pub fn list(format: OutputFormat, _agent: Option<&str>) -> Result<()> {
 
     match format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&infos)?);
+            let output = StatusesOutput {
+                statuses: infos,
+                advice: vec![],
+            };
+            println!("{}", serde_json::to_string_pretty(&output)?);
         }
-        OutputFormat::Toon => {
-            if infos.is_empty() {
-                println!("statuses: []");
-            } else {
-                println!("{}", to_toon_list(&infos));
-            }
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty => {
             if statuses.is_empty() {
                 println!("No active statuses.");
             } else {
@@ -119,6 +122,12 @@ pub fn list(format: OutputFormat, _agent: Option<&str>) -> Result<()> {
                     };
                     println!("{} {} {}", indicator, s.agent.cyan(), s.message.dimmed());
                 }
+            }
+        }
+        OutputFormat::Text => {
+            for s in &statuses {
+                let time_ago = format_time_ago(s.ts);
+                println!("{}  \"{}\"  {}", s.agent, s.message, time_ago);
             }
         }
     }
@@ -135,5 +144,20 @@ fn format_duration(secs: u64) -> String {
         format!("{}m", m)
     } else {
         format!("{}s", secs)
+    }
+}
+
+fn format_time_ago(ts: chrono::DateTime<Utc>) -> String {
+    let now = Utc::now();
+    let duration = now.signed_duration_since(ts);
+
+    if duration.num_seconds() < 60 {
+        "just now".to_string()
+    } else if duration.num_minutes() < 60 {
+        format!("{}m ago", duration.num_minutes())
+    } else if duration.num_hours() < 24 {
+        format!("{}h ago", duration.num_hours())
+    } else {
+        format!("{}d ago", duration.num_days())
     }
 }

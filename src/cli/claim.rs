@@ -6,7 +6,6 @@ use serde::Serialize;
 use std::path::Path;
 
 use super::OutputFormat;
-use super::format::{to_toon, to_toon_list};
 use crate::core::claim::FileClaim;
 use crate::core::identity::{require_agent, resolve_agent};
 use crate::core::message::{Message, MessageMeta};
@@ -330,6 +329,8 @@ fn extend_claims(pattern: &str, ttl: u64, agent_name: &str) -> Result<()> {
 #[derive(Debug, Serialize)]
 pub struct ClaimsOutput {
     pub claims: Vec<ClaimInfo>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -461,104 +462,125 @@ pub fn claims(
         })
         .collect();
 
+    // Build advice
+    let mut advice = Vec::new();
+    if !claim_infos.is_empty() && !current_agent.is_empty() {
+        // Suggest releasing claims if the agent has any
+        let has_agent_claims = claim_infos.iter().any(|c| c.agent == current_agent);
+        if has_agent_claims {
+            advice.push("bus claims release --all".to_string());
+        }
+    }
+
     match format {
         OutputFormat::Json => {
             let output = ClaimsOutput {
                 claims: claim_infos,
+                advice,
             };
             println!("{}", serde_json::to_string_pretty(&output)?);
             return Ok(());
         }
-        OutputFormat::Toon => {
-            if claim_infos.is_empty() {
-                println!("claims: []");
-            } else {
-                println!("{}", to_toon_list(&claim_infos));
+        OutputFormat::Pretty => {
+            if claims_list.is_empty() {
+                println!("No active claims.");
+                return Ok(());
             }
-            return Ok(());
+
+            // Group claims by type: files vs URI schemes
+            let mut file_claims: Vec<_> = Vec::new();
+            let mut uri_claims: std::collections::HashMap<String, Vec<_>> =
+                std::collections::HashMap::new();
+
+            for claim in &claims_list {
+                let first_pattern = claim.patterns.first().map(|s| s.as_str()).unwrap_or("");
+                if is_uri(first_pattern) {
+                    let scheme = first_pattern
+                        .split("://")
+                        .next()
+                        .unwrap_or("uri")
+                        .to_string();
+                    uri_claims.entry(scheme).or_default().push(claim);
+                } else {
+                    file_claims.push(claim);
+                }
+            }
+
+            let format_claim = |claim: &&FileClaim, current_agent: &str, now: DateTime<Utc>| {
+                let remaining = (claim.expires_at - now).num_minutes();
+                let status = if claim.expires_at < now {
+                    "expired".red()
+                } else if !claim.active {
+                    "released".dimmed()
+                } else {
+                    format!("expires in {}m", remaining).green()
+                };
+
+                let agent_display = if claim.agent == current_agent {
+                    claim.agent.cyan().bold()
+                } else {
+                    claim.agent.yellow().normal()
+                };
+
+                // Display patterns relative to cwd when possible
+                let display_patterns: Vec<String> =
+                    claim.patterns.iter().map(|p| display_pattern(p)).collect();
+
+                println!(
+                    "  {:<16} {:<30} {}",
+                    agent_display,
+                    display_patterns.join(", ").dimmed(),
+                    status
+                );
+            };
+
+            // Display file claims first
+            if !file_claims.is_empty() {
+                println!("{}", "File Claims:".bold());
+                for claim in &file_claims {
+                    format_claim(claim, &current_agent, now);
+                }
+            }
+
+            // Display URI claims grouped by scheme
+            let mut schemes: Vec<_> = uri_claims.keys().collect();
+            schemes.sort();
+            for scheme in schemes {
+                if let Some(claims) = uri_claims.get(scheme) {
+                    println!("{}", format!("{} Claims:", scheme).bold());
+                    for claim in claims {
+                        format_claim(claim, &current_agent, now);
+                    }
+                }
+            }
+
+            // Fallback if we had claims but no groupings (shouldn't happen)
+            if file_claims.is_empty() && uri_claims.is_empty() {
+                println!("{}", "Active Claims:".bold());
+                for claim in &claims_list {
+                    format_claim(claim, &current_agent, now);
+                }
+            }
         }
         OutputFormat::Text => {
-            // Continue to text output below
-        }
-    }
+            for claim in &claims_list {
+                let display_patterns: Vec<String> =
+                    claim.patterns.iter().map(|p| display_pattern(p)).collect();
+                let remaining_mins = (claim.expires_at - now).num_minutes().max(0);
+                let reason = claim
+                    .message
+                    .as_ref()
+                    .map(|m| format!("  \"{}\"", m))
+                    .unwrap_or_default();
 
-    if claims_list.is_empty() {
-        println!("No active claims.");
-        return Ok(());
-    }
-
-    // Group claims by type: files vs URI schemes
-    let mut file_claims: Vec<_> = Vec::new();
-    let mut uri_claims: std::collections::HashMap<String, Vec<_>> =
-        std::collections::HashMap::new();
-
-    for claim in &claims_list {
-        let first_pattern = claim.patterns.first().map(|s| s.as_str()).unwrap_or("");
-        if is_uri(first_pattern) {
-            let scheme = first_pattern
-                .split("://")
-                .next()
-                .unwrap_or("uri")
-                .to_string();
-            uri_claims.entry(scheme).or_default().push(claim);
-        } else {
-            file_claims.push(claim);
-        }
-    }
-
-    let format_claim = |claim: &&FileClaim, current_agent: &str, now: DateTime<Utc>| {
-        let remaining = (claim.expires_at - now).num_minutes();
-        let status = if claim.expires_at < now {
-            "expired".red()
-        } else if !claim.active {
-            "released".dimmed()
-        } else {
-            format!("expires in {}m", remaining).green()
-        };
-
-        let agent_display = if claim.agent == current_agent {
-            claim.agent.cyan().bold()
-        } else {
-            claim.agent.yellow().normal()
-        };
-
-        // Display patterns relative to cwd when possible
-        let display_patterns: Vec<String> =
-            claim.patterns.iter().map(|p| display_pattern(p)).collect();
-
-        println!(
-            "  {:<16} {:<30} {}",
-            agent_display,
-            display_patterns.join(", ").dimmed(),
-            status
-        );
-    };
-
-    // Display file claims first
-    if !file_claims.is_empty() {
-        println!("{}", "File Claims:".bold());
-        for claim in &file_claims {
-            format_claim(claim, &current_agent, now);
-        }
-    }
-
-    // Display URI claims grouped by scheme
-    let mut schemes: Vec<_> = uri_claims.keys().collect();
-    schemes.sort();
-    for scheme in schemes {
-        if let Some(claims) = uri_claims.get(scheme) {
-            println!("{}", format!("{} Claims:", scheme).bold());
-            for claim in claims {
-                format_claim(claim, &current_agent, now);
+                println!(
+                    "{}  {}  {}m remaining{}",
+                    display_patterns.join(", "),
+                    claim.agent,
+                    remaining_mins,
+                    reason
+                );
             }
-        }
-    }
-
-    // Fallback if we had claims but no groupings (shouldn't happen)
-    if file_claims.is_empty() && uri_claims.is_empty() {
-        println!("{}", "Active Claims:".bold());
-        for claim in &claims_list {
-            format_claim(claim, &current_agent, now);
         }
     }
 
@@ -642,6 +664,8 @@ pub struct CheckClaimOutput {
     pub safe: bool,
     /// Conflicting claims (if any)
     pub conflicts: Vec<ClaimConflict>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -707,16 +731,14 @@ pub fn check_claim(path: String, format: OutputFormat, agent: Option<&str>) -> R
         path: path.clone(),
         safe,
         conflicts,
+        advice: vec![], // Informational command, no advice needed
     };
 
     match format {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(&output));
-        }
-        OutputFormat::Text => {
+        OutputFormat::Pretty => {
             if safe {
                 println!("{} {} is safe to edit", "✓".green(), path.cyan());
             } else {
@@ -728,6 +750,19 @@ pub fn check_claim(path: String, format: OutputFormat, agent: Option<&str>) -> R
                         conflict.agent.yellow(),
                         conflict.pattern.dimmed(),
                         expires
+                    );
+                }
+            }
+        }
+        OutputFormat::Text => {
+            if safe {
+                println!("unclaimed  {}", path);
+            } else {
+                for conflict in &output.conflicts {
+                    let expires = format_duration(conflict.expires_in_secs as u64);
+                    println!(
+                        "claimed  {}  {}  \"expires in {}\"",
+                        conflict.agent, path, expires
                     );
                 }
             }

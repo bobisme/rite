@@ -7,7 +7,6 @@ use serde::Serialize;
 use std::collections::HashMap;
 
 use super::OutputFormat;
-use super::format::to_toon;
 use crate::core::claim::FileClaim;
 use crate::core::identity::resolve_agent;
 use crate::core::message::{Message, read_messages};
@@ -30,6 +29,8 @@ pub struct StatusOutput {
     pub other_claims: Vec<ClaimStatus>,
     /// Total unread messages (if agent identity available)
     pub unread_total: Option<usize>,
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub advice: Vec<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -55,11 +56,11 @@ pub fn run(format: OutputFormat, explicit_agent: Option<&str>) -> Result<()> {
         OutputFormat::Json => {
             println!("{}", serde_json::to_string_pretty(&output)?);
         }
-        OutputFormat::Toon => {
-            println!("{}", to_toon(&output));
+        OutputFormat::Pretty => {
+            print_status(&output);
         }
         OutputFormat::Text => {
-            print_status(&output);
+            print_status_text(&output);
         }
     }
 
@@ -93,6 +94,14 @@ fn collect_status(explicit_agent: Option<&str>) -> Result<StatusOutput> {
     // Load claims
     let (my_claims, other_claims) = collect_claims(current_agent.as_deref())?;
 
+    // Build advice
+    let mut advice = Vec::new();
+    if let Some(unread) = unread_total
+        && unread > 0
+    {
+        advice.push("bus inbox".to_string());
+    }
+
     Ok(StatusOutput {
         agent: current_agent,
         active_agents,
@@ -100,6 +109,7 @@ fn collect_status(explicit_agent: Option<&str>) -> Result<StatusOutput> {
         my_claims,
         other_claims,
         unread_total,
+        advice,
     })
 }
 
@@ -327,6 +337,19 @@ fn print_status(status: &StatusOutput) {
     }
 
     println!();
+}
+
+fn print_status_text(status: &StatusOutput) {
+    // Concise key-value output
+    println!("agents: {}", status.active_agents.len());
+    println!("channels: {}", status.channels.len());
+    println!(
+        "claims: {}",
+        status.my_claims.len() + status.other_claims.len()
+    );
+    if let Some(unread) = status.unread_total {
+        println!("unread: {}", unread);
+    }
 }
 
 fn format_time_ago(ts: DateTime<Utc>) -> String {

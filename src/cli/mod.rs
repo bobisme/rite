@@ -28,15 +28,14 @@ pub mod watch;
 pub mod whoami;
 
 /// Output format for structured data.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, ValueEnum)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ValueEnum)]
 pub enum OutputFormat {
-    /// Human-readable text
+    /// Human-readable colored text
+    Pretty,
+    /// Concise text for AI agents
     Text,
     /// JSON - standard machine-readable format
     Json,
-    /// TOON - Text-Only Object Notation, optimized for AI agents (default)
-    #[default]
-    Toon,
 }
 
 #[derive(Parser)]
@@ -59,9 +58,9 @@ pub struct Cli {
     #[arg(long, global = true)]
     pub json: bool,
 
-    /// Output format: toon (default), json, or text
-    #[arg(long, global = true, value_enum, default_value = "toon")]
-    pub format: OutputFormat,
+    /// Output format: pretty (default for TTY), text (default for pipes), or json
+    #[arg(long, global = true, value_enum)]
+    pub format: Option<OutputFormat>,
 
     #[command(subcommand)]
     pub command: Commands,
@@ -161,9 +160,9 @@ pub enum Commands {
         #[arg(long)]
         show_offset: bool,
 
-        /// Output format (default: text for history, more compact than toon)
-        #[arg(long, value_enum, default_value = "text")]
-        format: OutputFormat,
+        /// Output format (default: text for history)
+        #[arg(long, value_enum)]
+        format: Option<OutputFormat>,
     },
 
     /// Stream new messages in real-time
@@ -267,9 +266,9 @@ pub enum Commands {
         #[arg(long)]
         count_only: bool,
 
-        /// Output format (default: text for inbox, more compact than toon)
-        #[arg(long, value_enum, default_value = "text")]
-        format: OutputFormat,
+        /// Output format (default: text for inbox)
+        #[arg(long, value_enum)]
+        format: Option<OutputFormat>,
     },
 
     /// Show status overview

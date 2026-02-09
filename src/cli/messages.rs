@@ -1,15 +1,16 @@
-//! Message retrieval by ID.
+//! Message retrieval and deletion by ID.
 
 use anyhow::{Context, Result, anyhow};
-use chrono::{DateTime, Local};
+use chrono::{DateTime, Local, Utc};
 use colored::Colorize;
 use serde::Serialize;
 
 use super::OutputFormat;
 use super::format::to_toon;
-use crate::core::message::Message;
+use crate::core::identity::require_agent;
+use crate::core::message::{Message, MessageMeta};
 use crate::core::project::channels_dir;
-use crate::storage::jsonl::read_records;
+use crate::storage::jsonl::{append_record, read_records};
 
 /// Output for a single message retrieval.
 #[derive(Debug, Serialize)]
@@ -62,6 +63,7 @@ impl From<&Message> for MessageOutput {
 /// Get a message by its ULID ID.
 ///
 /// Searches all channels for the message with the given ID.
+/// If the message has been deleted, shows deletion metadata instead.
 pub fn get(id: &str, format: OutputFormat) -> Result<()> {
     let channels_path = channels_dir();
 
@@ -76,20 +78,186 @@ pub fn get(id: &str, format: OutputFormat) -> Result<()> {
         .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
         .collect();
 
-    for entry in entries {
+    // Try to parse as ULID for tombstone checking (optional — invalid IDs just won't match)
+    let target_ulid: Option<ulid::Ulid> = id.parse().ok();
+
+    let mut tombstone: Option<Message> = None;
+    let mut original: Option<Message> = None;
+
+    for entry in &entries {
         let path = entry.path();
         let messages: Vec<Message> = read_records(&path).unwrap_or_default();
 
-        for msg in messages {
+        for msg in &messages {
             if msg.id.to_string() == id {
-                // Found it!
-                let output = MessageOutput::from(&msg);
-                return print_message(&output, &msg, format);
+                original = Some(msg.clone());
+            }
+            if let Some(target) = target_ulid
+                && let Some(MessageMeta::Deleted { target_id, .. }) = &msg.meta
+                && *target_id == target
+            {
+                tombstone = Some(msg.clone());
             }
         }
     }
 
+    // If there's a tombstone, show deletion info
+    if let Some(ref tombstone_msg) = tombstone
+        && let Some(MessageMeta::Deleted {
+            deleted_by,
+            deleted_at,
+            ..
+        }) = &tombstone_msg.meta
+    {
+        match format {
+            OutputFormat::Json => {
+                let output = serde_json::json!({
+                    "id": id,
+                    "deleted": true,
+                    "deleted_by": deleted_by,
+                    "deleted_at": deleted_at.to_rfc3339(),
+                    "original_agent": original.as_ref().map(|m| &m.agent),
+                    "original_channel": original.as_ref().map(|m| &m.channel),
+                });
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            }
+            OutputFormat::Toon => {
+                println!("id: {}", id);
+                println!("deleted: true");
+                println!("deleted_by: {}", deleted_by);
+                println!("deleted_at: {}", deleted_at.to_rfc3339());
+                if let Some(ref orig) = original {
+                    println!("original_agent: {}", orig.agent);
+                    println!("original_channel: {}", orig.channel);
+                }
+            }
+            OutputFormat::Text => {
+                let local_time: DateTime<Local> = deleted_at.with_timezone(&Local);
+                let time_str = local_time.format("%Y-%m-%d %H:%M:%S").to_string();
+
+                println!("{}: {}", "ID".dimmed(), id.cyan());
+                println!("{}: {}", "Status".dimmed(), "DELETED".red().bold());
+                println!("{}: {}", "Deleted by".dimmed(), deleted_by);
+                println!("{}: {}", "Deleted at".dimmed(), time_str);
+                if let Some(ref orig) = original {
+                    println!("{}: #{}", "Channel".dimmed(), orig.channel.cyan());
+                    println!(
+                        "{}: {}",
+                        "Original author".dimmed(),
+                        colorize_agent(&orig.agent)
+                    );
+                }
+            }
+        }
+        return Ok(());
+    }
+
+    // No tombstone — show normally if original exists
+    if let Some(ref msg) = original {
+        let output = MessageOutput::from(msg);
+        return print_message(&output, msg, format);
+    }
+
     Err(anyhow!("Message not found: {}", id))
+}
+
+/// Delete a message by appending a tombstone record.
+///
+/// Searches all channels for the message, prompts for confirmation,
+/// then appends a tombstone to the same channel file.
+pub fn delete(id: &str, skip_confirm: bool, explicit_agent: Option<&str>) -> Result<()> {
+    use std::io::{self, Write};
+
+    let agent = require_agent(explicit_agent)?;
+    let channels_path = channels_dir();
+
+    if !channels_path.exists() {
+        return Err(anyhow!("Message not found: {}", id));
+    }
+
+    let target_ulid: ulid::Ulid = id
+        .parse()
+        .map_err(|_| anyhow!("Invalid message ID: {}", id))?;
+
+    // Find the message and its channel file
+    let entries: Vec<_> = std::fs::read_dir(&channels_path)
+        .with_context(|| "Failed to read channels directory")?
+        .filter_map(|e| e.ok())
+        .filter(|e| e.path().extension().is_some_and(|ext| ext == "jsonl"))
+        .collect();
+
+    let mut found_msg: Option<Message> = None;
+    let mut found_path: Option<std::path::PathBuf> = None;
+
+    for entry in &entries {
+        let path = entry.path();
+        let messages: Vec<Message> = read_records(&path).unwrap_or_default();
+
+        // Check if already deleted
+        for msg in &messages {
+            if let Some(MessageMeta::Deleted { target_id, .. }) = &msg.meta
+                && *target_id == target_ulid
+            {
+                return Err(anyhow!("Message {} is already deleted", id));
+            }
+        }
+
+        for msg in messages {
+            if msg.id == target_ulid {
+                found_msg = Some(msg);
+                found_path = Some(path.clone());
+                break;
+            }
+        }
+
+        if found_msg.is_some() {
+            break;
+        }
+    }
+
+    let msg = found_msg.ok_or_else(|| anyhow!("Message not found: {}", id))?;
+    let channel_file = found_path.unwrap();
+
+    // Show what will be deleted
+    eprintln!();
+    eprintln!("{}", "WARNING".bold().red());
+    eprintln!("This will delete the following message (append-only tombstone):");
+    eprintln!();
+    eprintln!("  {}: {}", "ID".dimmed(), msg.id.to_string().cyan());
+    eprintln!("  {}: #{}", "Channel".dimmed(), msg.channel.cyan());
+    eprintln!("  {}: {}", "From".dimmed(), colorize_agent(&msg.agent));
+    eprintln!("  {}: {}", "Body".dimmed(), msg.body);
+    eprintln!();
+
+    // Confirm deletion
+    if !skip_confirm {
+        eprint!("Type {} to confirm: ", format!("delete {}", id).bold());
+        io::stderr().flush()?;
+
+        let mut confirmation = String::new();
+        io::stdin()
+            .read_line(&mut confirmation)
+            .context("Failed to read confirmation")?;
+
+        let expected = format!("delete {}", id);
+        if confirmation.trim() != expected {
+            anyhow::bail!("Confirmation did not match. Deletion aborted.");
+        }
+    }
+
+    // Append tombstone
+    let tombstone =
+        Message::new(&agent, &msg.channel, "[message deleted]").with_meta(MessageMeta::Deleted {
+            target_id: target_ulid,
+            deleted_by: agent.clone(),
+            deleted_at: Utc::now(),
+        });
+
+    append_record(&channel_file, &tombstone)?;
+
+    eprintln!("{} Message {} deleted", "Done:".green(), id);
+
+    Ok(())
 }
 
 fn print_message(output: &MessageOutput, msg: &Message, format: OutputFormat) -> Result<()> {

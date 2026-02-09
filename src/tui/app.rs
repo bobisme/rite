@@ -11,10 +11,10 @@ use std::time::Duration;
 
 use crate::core::claim::FileClaim;
 use crate::core::identity::resolve_agent;
-use crate::core::message::Message;
+use crate::core::message::{Message, read_last_n_messages, read_messages_from_offset};
 use crate::core::project::{channel_path, channels_dir, claims_path, state_path, statuses_path};
 use crate::core::status::AgentStatusEntry;
-use crate::storage::jsonl::{read_last_n, read_records, read_records_from_offset};
+use crate::storage::jsonl::read_records;
 use crate::storage::state::ProjectState;
 use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
 
@@ -454,7 +454,7 @@ impl App {
     fn load_messages(&mut self) -> Result<()> {
         if let Some(channel) = self.current_channel() {
             let path = channel_path(&channel);
-            self.messages = read_last_n(&path, 100)?;
+            self.messages = read_last_n_messages(&path, 100)?;
             self.channel_offset = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
             self.message_scroll = 0;
 
@@ -474,7 +474,7 @@ impl App {
         if let Some(channel) = self.current_channel() {
             let path = channel_path(&channel);
             let (new_msgs, new_offset): (Vec<Message>, u64) =
-                read_records_from_offset(&path, self.channel_offset)?;
+                read_messages_from_offset(&path, self.channel_offset)?;
 
             self.messages.extend(new_msgs);
             self.channel_offset = new_offset;
@@ -596,7 +596,7 @@ impl App {
 
         // Read the latest message to show in notification (best effort)
         let path = channel_path(channel);
-        let messages: Vec<Message> = read_last_n(&path, 1).unwrap_or_default();
+        let messages: Vec<Message> = read_last_n_messages(&path, 1).unwrap_or_default();
 
         let (summary, body) = if let Some(msg) = messages.last() {
             let summary = format!("#{}", channel);
@@ -852,8 +852,7 @@ impl App {
 
         // Create and send message directly (without CLI output)
         // Store original body — flags are meaningful to downstream consumers
-        let msg = Message::new(&agent_name, &channel, &text)
-            .with_labels(vec!["human".to_string()]);
+        let msg = Message::new(&agent_name, &channel, &text).with_labels(vec!["human".to_string()]);
         let path = channel_path(&channel);
         append_record(&path, &msg)?;
 

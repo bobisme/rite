@@ -9,9 +9,9 @@ use super::OutputFormat;
 use super::format::to_toon;
 use crate::core::channel::{dm_agents, is_dm_channel};
 use crate::core::identity::resolve_agent;
-use crate::core::message::Message;
+use crate::core::message::{Message, read_last_n_messages, read_messages};
 use crate::core::project::{channel_path, channels_dir, index_path, state_path};
-use crate::storage::jsonl::{count_records, read_last_n, read_records};
+use crate::storage::jsonl::count_records;
 use crate::storage::state::ProjectState;
 
 #[derive(Debug, Serialize)]
@@ -122,7 +122,7 @@ pub fn list(
         }
 
         let message_count = count_records(&path).unwrap_or(0);
-        let last_msg: Option<Message> = read_last_n(&path, 1)
+        let last_msg: Option<Message> = read_last_n_messages(&path, 1)
             .ok()
             .and_then(|v: Vec<Message>| v.into_iter().next());
 
@@ -183,7 +183,7 @@ fn has_participated(path: &std::path::Path, agent: &str, channel_name: &str) -> 
     }
 
     // Check if agent sent any messages or was @mentioned
-    let messages: Vec<Message> = read_records(path).unwrap_or_default();
+    let messages: Vec<Message> = read_messages(path).unwrap_or_default();
     for msg in messages {
         // Agent sent a message
         if msg.agent == agent {

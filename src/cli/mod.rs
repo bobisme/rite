@@ -348,6 +348,16 @@ pub enum MessagesCommands {
         /// Message ID (ULID)
         id: String,
     },
+
+    /// Delete a message by ID (appends a tombstone)
+    Delete {
+        /// Message ID (ULID) to delete
+        id: String,
+
+        /// Skip interactive confirmation
+        #[arg(short = 'y', long)]
+        yes: bool,
+    },
 }
 
 #[derive(Subcommand)]

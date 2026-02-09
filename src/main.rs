@@ -314,6 +314,9 @@ fn main() -> Result<()> {
             use cli::MessagesCommands;
             match command {
                 MessagesCommands::Get { id } => cli::messages::get(&id, format),
+                MessagesCommands::Delete { id, yes } => {
+                    cli::messages::delete(&id, yes, cli.agent.as_deref())
+                }
             }
         }
 

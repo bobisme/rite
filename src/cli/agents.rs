@@ -8,9 +8,8 @@ use std::collections::HashMap;
 
 use super::OutputFormat;
 use super::format::to_toon;
-use crate::core::message::Message;
+use crate::core::message::read_messages;
 use crate::core::project::channels_dir;
-use crate::storage::jsonl::read_records;
 
 #[derive(Debug, Serialize)]
 pub struct AgentInfo {
@@ -101,7 +100,7 @@ fn get_agent_stats() -> HashMap<String, (DateTime<Utc>, usize)> {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "jsonl")
-                && let Ok(messages) = read_records::<Message>(&path)
+                && let Ok(messages) = read_messages(&path)
             {
                 for msg in messages {
                     let entry = stats.entry(msg.agent.clone()).or_insert((msg.ts, 0));

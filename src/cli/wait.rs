@@ -8,9 +8,8 @@ use std::path::Path;
 use std::time::{Duration, Instant};
 
 use crate::core::identity::resolve_agent;
-use crate::core::message::Message;
+use crate::core::message::{Message, read_messages_from_offset};
 use crate::core::project::channels_dir;
-use crate::storage::jsonl::read_records_from_offset;
 use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
 
 pub struct WaitOptions {
@@ -143,7 +142,7 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
 
             // Read new messages
             let (new_messages, new_offset): (Vec<Message>, u64) =
-                read_records_from_offset(&channel_path, offset)?;
+                read_messages_from_offset(&channel_path, offset)?;
 
             // Update offset
             channel_offsets.insert(channel_name.clone(), new_offset);

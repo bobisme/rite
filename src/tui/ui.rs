@@ -195,8 +195,7 @@ fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
 
     // Separate root agents from subagents (name contains '/')
     let mut root_agents: Vec<&_> = Vec::new();
-    let mut subagents: std::collections::HashMap<&str, Vec<&_>> =
-        std::collections::HashMap::new();
+    let mut subagents: std::collections::HashMap<&str, Vec<&_>> = std::collections::HashMap::new();
 
     for agent_info in agents {
         if let Some((root, _)) = agent_info.name.split_once('/') {
@@ -472,6 +471,21 @@ fn format_message(msg: &crate::core::message::Message, max_width: usize) -> Vec<
     let local_time: DateTime<Local> = msg.ts.with_timezone(&Local);
     let datetime_str = local_time.format("%Y-%m-%d %H:%M").to_string();
 
+    // Early return for deleted message tombstones (should be filtered out, but defensive)
+    if matches!(&msg.meta, Some(MessageMeta::Deleted { .. })) {
+        let dim_italic = Style::default()
+            .fg(Color::DarkGray)
+            .add_modifier(Modifier::ITALIC);
+        return vec![
+            Line::from(vec![
+                Span::styled("\u{F140C} ", dim_italic),
+                Span::styled(format!("[{}] ", datetime_str), dim_italic),
+                Span::styled("[message deleted]", dim_italic),
+            ]),
+            Line::from(""),
+        ];
+    }
+
     let is_system = matches!(
         &msg.meta,
         Some(MessageMeta::System { .. } | MessageMeta::Claim { .. } | MessageMeta::Release { .. })
@@ -624,9 +638,7 @@ fn highlight_mentions(text: &str) -> Vec<Span<'static>> {
                 ));
                 last_end = i;
             }
-        } else if bytes[i] == b'!'
-            && (i == 0 || bytes[i - 1] == b' ')
-        {
+        } else if bytes[i] == b'!' && (i == 0 || bytes[i - 1] == b' ') {
             // Found potential !flag at start of text or after a space
             let start = i;
             i += 1;

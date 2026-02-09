@@ -1,7 +1,7 @@
 use anyhow::{Context, Result};
 
 use super::fts::SearchIndex;
-use crate::core::message::Message;
+use crate::core::message::{Message, MessageMeta};
 use crate::core::project::{channels_dir, index_path};
 use crate::storage::jsonl::read_records_from_offset;
 
@@ -63,6 +63,9 @@ impl IndexSyncer {
     }
 
     /// Sync a specific channel incrementally.
+    ///
+    /// When encountering tombstone records, deletes the original message from the
+    /// FTS index rather than indexing the tombstone itself.
     pub fn sync_channel(&mut self, channel: &str) -> Result<usize> {
         let path = channels_dir().join(format!("{}.jsonl", channel));
 
@@ -77,7 +80,25 @@ impl IndexSyncer {
             return Ok(0);
         }
 
-        let count = self.index.index_messages(&messages)?;
+        // Separate tombstones from regular messages
+        let mut regular_messages = Vec::new();
+        let mut deleted_ids = Vec::new();
+
+        for msg in messages {
+            if let Some(MessageMeta::Deleted { target_id, .. }) = &msg.meta {
+                deleted_ids.push(target_id.to_string());
+            } else {
+                regular_messages.push(msg);
+            }
+        }
+
+        // Delete tombstoned messages from FTS index
+        for id in &deleted_ids {
+            self.index.delete_message(id)?;
+        }
+
+        // Index remaining regular messages
+        let count = self.index.index_messages(&regular_messages)?;
         self.index.set_sync_offset(channel, new_offset)?;
 
         Ok(count)
@@ -113,8 +134,8 @@ impl IndexSyncer {
             {
                 stats.channels_synced += 1;
 
-                // Read all messages from this channel
-                match crate::storage::jsonl::read_records::<Message>(&path) {
+                // Read all messages from this channel (with deletion filtering)
+                match crate::core::message::read_messages(&path) {
                     Ok(messages) => {
                         // 2. Deduplicate by message ID
                         for msg in messages {

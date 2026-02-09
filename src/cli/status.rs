@@ -10,7 +10,7 @@ use super::OutputFormat;
 use super::format::to_toon;
 use crate::core::claim::FileClaim;
 use crate::core::identity::resolve_agent;
-use crate::core::message::Message;
+use crate::core::message::{Message, read_messages};
 use crate::core::project::{channels_dir, claims_path, data_dir};
 use crate::storage::agent_state::AgentStateManager;
 use crate::storage::jsonl::{count_records, read_records};
@@ -132,7 +132,7 @@ fn collect_channels(current_agent: Option<&str>) -> Result<Vec<ChannelStatus>> {
             let file_size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
 
             // Get last message time
-            let messages: Vec<Message> = read_records(&path).unwrap_or_default();
+            let messages: Vec<Message> = read_messages(&path).unwrap_or_default();
             let last_activity = messages.last().map(|m| m.ts);
 
             // Calculate unread if we have agent identity
@@ -219,7 +219,7 @@ fn get_last_seen_times() -> HashMap<String, DateTime<Utc>> {
         for entry in entries.filter_map(|e| e.ok()) {
             let path = entry.path();
             if path.extension().is_some_and(|ext| ext == "jsonl")
-                && let Ok(messages) = read_records::<Message>(&path)
+                && let Ok(messages) = read_messages(&path)
             {
                 for msg in messages {
                     let entry = last_seen.entry(msg.agent.clone()).or_insert(msg.ts);

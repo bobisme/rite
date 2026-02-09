@@ -5,9 +5,8 @@ use std::collections::HashMap;
 use std::path::Path;
 use std::time::Duration;
 
-use crate::core::message::Message;
+use crate::core::message::{Message, read_last_n_messages, read_messages_from_offset};
 use crate::core::project::{channel_path, channels_dir};
-use crate::storage::jsonl::{read_last_n, read_records_from_offset};
 use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
 
 /// Stream new messages in real-time.
@@ -55,7 +54,7 @@ pub fn run(channel: Option<String>, watch_all: bool) -> Result<()> {
     for ch in &watching {
         let path = channel_path(ch);
         if path.exists() {
-            let recent: Vec<Message> = read_last_n(&path, 10).unwrap_or_default();
+            let recent: Vec<Message> = read_last_n_messages(&path, 10).unwrap_or_default();
             for msg in &recent {
                 print_message(msg, watching.len() > 1);
             }
@@ -92,7 +91,7 @@ pub fn run(channel: Option<String>, watch_all: bool) -> Result<()> {
             let path = channel_path(&ch);
             let offset = offsets.get(&ch).copied().unwrap_or(0);
 
-            match read_records_from_offset::<Message>(&path, offset) {
+            match read_messages_from_offset(&path, offset) {
                 Ok((new_messages, new_offset)) => {
                     for msg in &new_messages {
                         print_message(msg, watching.len() > 1);

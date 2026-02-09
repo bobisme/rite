@@ -9,10 +9,9 @@ use crate::cli::OutputFormat;
 use crate::cli::history::{self, HistoryOptions, HistoryOutput};
 use crate::core::channel::{dm_agents, is_dm_channel};
 use crate::core::identity::require_agent;
-use crate::core::message::Message;
+use crate::core::message::{Message, read_messages};
 use crate::core::project::{channels_dir, data_dir};
 use crate::storage::agent_state::AgentStateManager;
-use crate::storage::jsonl::read_records;
 
 pub struct InboxOptions {
     /// Specific channels to check (if empty, checks DMs only)
@@ -500,7 +499,7 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
         let cursor = manager.get_read_cursor(&channel_name)?;
 
         // Read all messages from this channel
-        let messages: Vec<Message> = read_records(&path).unwrap_or_default();
+        let messages: Vec<Message> = read_messages(&path).unwrap_or_default();
 
         // Filter for messages mentioning this agent (case-sensitive)
         // and only include messages after the read cursor

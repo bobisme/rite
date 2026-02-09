@@ -1,5 +1,7 @@
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
+use std::collections::HashSet;
+use std::path::Path;
 use ulid::Ulid;
 
 /// The fundamental unit of communication in BotBus.
@@ -186,6 +188,13 @@ pub enum MessageMeta {
 
     /// System event (agent joined, etc.)
     System { event: SystemEvent },
+
+    /// Tombstone: marks a message as deleted (append-only deletion)
+    Deleted {
+        target_id: Ulid,
+        deleted_by: String,
+        deleted_at: DateTime<Utc>,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -202,6 +211,81 @@ pub enum SystemEvent {
         hook_id: String,
         command: Vec<String>,
     },
+}
+
+impl Message {
+    /// Returns true if this message is a deletion tombstone.
+    pub fn is_tombstone(&self) -> bool {
+        matches!(&self.meta, Some(MessageMeta::Deleted { .. }))
+    }
+
+    /// If this message is a tombstone, returns the target message ID.
+    pub fn tombstone_target_id(&self) -> Option<Ulid> {
+        match &self.meta {
+            Some(MessageMeta::Deleted { target_id, .. }) => Some(*target_id),
+            _ => None,
+        }
+    }
+}
+
+/// Read messages from a JSONL file, filtering out deleted messages and their tombstones.
+///
+/// Two-pass approach:
+/// 1. Collect all tombstone target_ids into a HashSet
+/// 2. Filter out both the tombstone records AND the deleted originals
+///
+/// Use this everywhere instead of raw `read_records::<Message>` for user-facing reads.
+pub fn read_messages(path: &Path) -> anyhow::Result<Vec<Message>> {
+    let all: Vec<Message> = crate::storage::jsonl::read_records(path)?;
+    Ok(filter_deleted(all))
+}
+
+/// Read the last N live messages from a JSONL file (after filtering deletions).
+///
+/// Reads all records, filters deleted messages, then takes the last N.
+pub fn read_last_n_messages(path: &Path, n: usize) -> anyhow::Result<Vec<Message>> {
+    let live = read_messages(path)?;
+    let start = live.len().saturating_sub(n);
+    Ok(live.into_iter().skip(start).collect())
+}
+
+/// Read messages from a JSONL file starting at a byte offset, filtering out deleted messages
+/// and their tombstones.
+///
+/// Returns the filtered messages and the new byte offset.
+/// Note: This only filters deletions within the newly-read portion. For full correctness
+/// when tombstones may reference messages before the offset, callers should use `read_messages()`
+/// for full reads.
+pub fn read_messages_from_offset(path: &Path, offset: u64) -> anyhow::Result<(Vec<Message>, u64)> {
+    let (all, new_offset): (Vec<Message>, u64) =
+        crate::storage::jsonl::read_records_from_offset(path, offset)?;
+    Ok((filter_deleted(all), new_offset))
+}
+
+/// Filter out deleted messages and their tombstones from a vec of messages.
+fn filter_deleted(messages: Vec<Message>) -> Vec<Message> {
+    // Pass 1: collect all tombstone target IDs
+    let deleted_ids: HashSet<Ulid> = messages
+        .iter()
+        .filter_map(|m| m.tombstone_target_id())
+        .collect();
+
+    if deleted_ids.is_empty() {
+        return messages;
+    }
+
+    // Pass 2: filter out tombstones and deleted originals
+    messages
+        .into_iter()
+        .filter(|m| {
+            // Exclude tombstone records themselves
+            if m.is_tombstone() {
+                return false;
+            }
+            // Exclude messages targeted by a tombstone
+            !deleted_ids.contains(&m.id)
+        })
+        .collect()
 }
 
 /// Extract @mentions from message body.

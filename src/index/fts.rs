@@ -184,6 +184,16 @@ impl SearchIndex {
         Ok(count as usize)
     }
 
+    /// Delete a specific message from the FTS index by its ULID ID.
+    pub fn delete_message(&self, id: &str) -> Result<bool> {
+        let changes = self
+            .conn
+            .execute("DELETE FROM messages_fts WHERE id = ?1", params![id])
+            .with_context(|| format!("Failed to delete message {} from FTS", id))?;
+
+        Ok(changes > 0)
+    }
+
     /// Clear all messages from the FTS index.
     pub fn clear(&self) -> Result<()> {
         self.conn

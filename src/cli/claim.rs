@@ -1109,10 +1109,7 @@ mod tests {
         ));
 
         // agent:// claims: exact match still overlaps
-        assert!(uri_patterns_overlap(
-            "agent://leader",
-            "agent://leader"
-        ));
+        assert!(uri_patterns_overlap("agent://leader", "agent://leader"));
         assert!(uri_patterns_overlap(
             "agent://leader/worker-1",
             "agent://leader/worker-1"

@@ -10,9 +10,10 @@ use super::OutputFormat;
 use super::format::to_toon;
 use crate::core::channel::resolve_channel;
 use crate::core::identity::resolve_agent;
-use crate::core::message::Message;
+use crate::core::message::{
+    Message, read_last_n_messages, read_messages, read_messages_from_offset,
+};
 use crate::core::project::channel_path;
-use crate::storage::jsonl::{read_last_n, read_records, read_records_from_offset};
 
 #[derive(Clone)]
 pub struct HistoryOptions {
@@ -153,13 +154,13 @@ pub fn run_with_output(options: HistoryOptions) -> Result<HistoryOutput> {
     // Read messages based on options
     let (messages, next_offset) = if let Some(offset) = options.after_offset {
         // Read from specific offset
-        let (msgs, new_offset): (Vec<Message>, u64) = read_records_from_offset(&path, offset)
+        let (msgs, new_offset): (Vec<Message>, u64) = read_messages_from_offset(&path, offset)
             .with_context(|| format!("Failed to read channel #{} from offset", channel))?;
         (msgs, new_offset)
     } else if let Some(after_id) = &options.after_id {
         // Read all and filter to messages after the given ID
         let all: Vec<Message> =
-            read_records(&path).with_context(|| format!("Failed to read channel #{}", channel))?;
+            read_messages(&path).with_context(|| format!("Failed to read channel #{}", channel))?;
 
         // Find the position of the after_id message
         let start_idx = all
@@ -177,11 +178,11 @@ pub fn run_with_output(options: HistoryOptions) -> Result<HistoryOutput> {
     {
         // Need to filter, read all and filter
         let all: Vec<Message> =
-            read_records(&path).with_context(|| format!("Failed to read channel #{}", channel))?;
+            read_messages(&path).with_context(|| format!("Failed to read channel #{}", channel))?;
         (filter_messages(all, &options), file_size)
     } else {
         // Just get last N
-        let msgs = read_last_n(&path, options.count)
+        let msgs = read_last_n_messages(&path, options.count)
             .with_context(|| format!("Failed to read channel #{}", channel))?;
         (msgs, file_size)
     };
@@ -350,8 +351,8 @@ fn follow_channel(
     timeout_secs: Option<u64>,
     follow_count: Option<usize>,
 ) -> Result<()> {
+    use crate::core::message::read_messages_from_offset;
     use crate::core::project::channels_dir;
-    use crate::storage::jsonl::read_records_from_offset;
     use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
     use std::time::{Duration, Instant};
 
@@ -395,7 +396,7 @@ fn follow_channel(
 
         if channel_changes.contains(&channel_name.to_string()) {
             let (new_messages, new_offset): (Vec<Message>, u64) =
-                read_records_from_offset(path, offset)?;
+                read_messages_from_offset(path, offset)?;
 
             for msg in &new_messages {
                 print_message(msg);

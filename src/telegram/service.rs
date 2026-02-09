@@ -7,9 +7,10 @@ use tokio::sync::{Mutex, watch};
 
 use crate::attachments::{AttachmentCache, AttachmentSource, attachments_dir};
 use crate::cli::send;
-use crate::core::message::{Attachment, AttachmentContent, Message, MessageMeta};
+use crate::core::message::{
+    Attachment, AttachmentContent, Message, MessageMeta, read_messages_from_offset,
+};
 use crate::core::project::{channel_path, channels_dir, state_path};
-use crate::storage::jsonl::read_records_from_offset;
 use crate::storage::state::ProjectState;
 use crate::telegram::client::{TelegramClient, TelegramMessage, Update};
 use crate::telegram::config::{TelegramConfig, TelegramConfigStore};
@@ -519,7 +520,7 @@ async fn watch_loop(
             // Check for new messages
             let path = channel_path(channel);
             let offset = offsets.get(channel).copied().unwrap_or(0);
-            match read_records_from_offset::<Message>(&path, offset) {
+            match read_messages_from_offset(&path, offset) {
                 Ok((messages, new_offset)) => {
                     for msg in &messages {
                         if let Err(err) = publish_message(&client, &config, &store, msg).await {

@@ -485,3 +485,85 @@ mod tests {
         assert!(channels.contains(&"ops".to_string()));
     }
 }
+
+/// Rename a channel in all agent state files.
+///
+/// This function scans all agent directories and updates any references to the old channel name
+/// in their state files. It updates:
+/// - Keys in `read_offsets` HashMap
+/// - Keys in `last_read_ids` HashMap
+/// - Keys in `last_read_times` HashMap
+/// - Entries in `subscribed_channels` Vec
+///
+/// Returns the number of agent states that were updated.
+pub fn rename_channel_in_agent_states(
+    project_root: &Path,
+    old_name: &str,
+    new_name: &str,
+) -> Result<usize> {
+    let agents_dir = project_root.join(".botbus").join("agents");
+
+    // If agents directory doesn't exist, no states to update
+    if !agents_dir.exists() {
+        return Ok(0);
+    }
+
+    let mut updated_count = 0;
+
+    // Iterate through all agent directories
+    let entries = std::fs::read_dir(&agents_dir)
+        .with_context(|| format!("Failed to read agents directory: {}", agents_dir.display()))?;
+
+    for entry in entries {
+        let entry = entry.with_context(|| "Failed to read agent directory entry")?;
+        let agent_path = entry.path();
+
+        // Only process directories
+        if !agent_path.is_dir() {
+            continue;
+        }
+
+        let agent_name = match agent_path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name,
+            None => continue,
+        };
+
+        let manager = AgentStateManager::new(project_root, agent_name);
+        let mut state = manager.load()?;
+        let mut changed = false;
+
+        // Update read_offsets
+        if let Some(offset) = state.read_offsets.remove(old_name) {
+            state.read_offsets.insert(new_name.to_string(), offset);
+            changed = true;
+        }
+
+        // Update last_read_ids
+        if let Some(last_id) = state.last_read_ids.remove(old_name) {
+            state.last_read_ids.insert(new_name.to_string(), last_id);
+            changed = true;
+        }
+
+        // Update last_read_times
+        if let Some(last_time) = state.last_read_times.remove(old_name) {
+            state
+                .last_read_times
+                .insert(new_name.to_string(), last_time);
+            changed = true;
+        }
+
+        // Update subscribed_channels
+        if let Some(pos) = state.subscribed_channels.iter().position(|c| c == old_name) {
+            state.subscribed_channels[pos] = new_name.to_string();
+            changed = true;
+        }
+
+        // Save if anything changed
+        if changed {
+            manager.save(&state)?;
+            updated_count += 1;
+        }
+    }
+
+    Ok(updated_count)
+}

@@ -311,6 +311,35 @@ pub fn remove(hook_id: String, format: OutputFormat) -> Result<()> {
     Ok(())
 }
 
+/// Rename a channel in all hooks that reference it.
+/// Returns the count of hooks that were updated.
+pub fn rename_channel_in_hooks(old_name: &str, new_name: &str) -> Result<usize> {
+    let all_hooks: Vec<Hook> = read_records(&hooks_path()).unwrap_or_default();
+
+    // Find hooks that need updating (only active hooks with matching channel)
+    let active = build_active_hooks(&all_hooks);
+    let hooks_to_update: Vec<Hook> = active
+        .values()
+        .filter(|h| h.channel == old_name)
+        .cloned()
+        .collect();
+
+    let update_count = hooks_to_update.len();
+
+    // If no hooks need updating, return early
+    if update_count == 0 {
+        return Ok(0);
+    }
+
+    // Append updated versions with new channel name
+    for mut hook in hooks_to_update {
+        hook.channel = new_name.to_string();
+        append_record(&hooks_path(), &hook).context("Failed to update hook")?;
+    }
+
+    Ok(update_count)
+}
+
 /// Dry-run test of a hook — evaluate condition without executing.
 pub fn test(hook_id: String, format: OutputFormat) -> Result<()> {
     let all_hooks: Vec<Hook> = read_records(&hooks_path()).unwrap_or_default();

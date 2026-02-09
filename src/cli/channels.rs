@@ -385,7 +385,21 @@ pub fn rename(old_name: &str, new_name: &str) -> Result<()> {
     state_file.save(&state)?;
     eprintln!("✓ Updated state");
 
-    // 2. Update FTS index
+    // 2. Update agent states
+    use crate::core::project::data_dir;
+    use crate::storage::agent_state::rename_channel_in_agent_states;
+    let updated_agents = rename_channel_in_agent_states(&data_dir(), old_name, new_name)
+        .with_context(|| {
+            format!(
+                "Failed to update agent states for channel rename: {} → {}",
+                old_name, new_name
+            )
+        })?;
+    if updated_agents > 0 {
+        eprintln!("✓ Updated {} agent state(s)", updated_agents);
+    }
+
+    // 3. Update FTS index
     let index = index_path();
     if index.exists() {
         use rusqlite::Connection;
@@ -394,10 +408,21 @@ pub fn rename(old_name: &str, new_name: &str) -> Result<()> {
             "UPDATE messages SET channel = ?1 WHERE channel = ?2",
             [new_name, old_name],
         )?;
+        // Update sync_state table (primary key can be updated in SQLite)
+        conn.execute(
+            "UPDATE sync_state SET channel = ?1 WHERE channel = ?2",
+            [new_name, old_name],
+        )?;
         eprintln!("✓ Updated search index");
     }
 
-    // 3. Rename the channel file
+    // 4. Update hooks that reference this channel
+    let updated_hooks = super::hooks::rename_channel_in_hooks(old_name, new_name)?;
+    if updated_hooks > 0 {
+        eprintln!("✓ Updated {} hook(s)", updated_hooks);
+    }
+
+    // 5. Rename the channel file
     std::fs::rename(&old_file, &new_file).with_context(|| {
         format!(
             "Failed to rename channel file from {} to {}",
@@ -406,6 +431,13 @@ pub fn rename(old_name: &str, new_name: &str) -> Result<()> {
         )
     })?;
     eprintln!("✓ Renamed channel file");
+
+    // 6. Update Telegram config if channel has topic mapping
+    match crate::telegram::config::rename_channel_in_telegram_config(old_name, new_name) {
+        Ok(true) => eprintln!("✓ Updated Telegram mapping"),
+        Ok(false) => {} // No mapping or no config - skip silently
+        Err(e) => eprintln!("⚠ Warning: Failed to update Telegram config: {}", e),
+    }
 
     eprintln!(
         "\n{}",
@@ -482,5 +514,73 @@ mod tests {
 
         // With --mine filter, should only show channels where agent participated
         list(OutputFormat::Text, true, false, Some("test-agent")).unwrap();
+    }
+
+    #[test]
+    #[serial]
+    fn test_rename_updates_agent_states() {
+        use crate::storage::agent_state::AgentStateManager;
+
+        let _env = TestEnv::new();
+
+        // Send a message to create a channel
+        send::run_simple(
+            "old-channel".to_string(),
+            "test message".to_string(),
+            Some("test-agent"),
+        )
+        .unwrap();
+
+        // Set up agent state with references to old channel
+        let data_dir = crate::core::project::data_dir();
+        let manager = AgentStateManager::new(&data_dir, "test-agent");
+
+        // Add channel to agent state
+        manager.subscribe("old-channel").unwrap();
+        manager.set_read_offset("old-channel", 100).unwrap();
+        manager
+            .set_last_read_id("old-channel", "test-id-123")
+            .unwrap();
+
+        // Verify initial state
+        let state = manager.load().unwrap();
+        assert!(
+            state
+                .subscribed_channels
+                .contains(&"old-channel".to_string())
+        );
+        assert_eq!(state.read_offsets.get("old-channel"), Some(&100));
+        assert_eq!(
+            state.last_read_ids.get("old-channel"),
+            Some(&"test-id-123".to_string())
+        );
+
+        // Mock interactive input by testing the helper function directly
+        use crate::storage::agent_state::rename_channel_in_agent_states;
+        let updated = rename_channel_in_agent_states(&data_dir, "old-channel", "new-channel")
+            .expect("Failed to rename channel in agent states");
+
+        // Should have updated 1 agent state
+        assert_eq!(updated, 1);
+
+        // Verify agent state was updated
+        let state = manager.load().unwrap();
+        assert!(
+            !state
+                .subscribed_channels
+                .contains(&"old-channel".to_string())
+        );
+        assert!(
+            state
+                .subscribed_channels
+                .contains(&"new-channel".to_string())
+        );
+        assert_eq!(state.read_offsets.get("new-channel"), Some(&100));
+        assert_eq!(
+            state.last_read_ids.get("new-channel"),
+            Some(&"test-id-123".to_string())
+        );
+        assert_eq!(state.read_offsets.get("old-channel"), None);
+        assert_eq!(state.last_read_ids.get("old-channel"), None);
     }
 }

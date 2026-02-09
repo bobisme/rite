@@ -163,3 +163,31 @@ impl TelegramConfigStore {
         Ok(())
     }
 }
+
+/// Rename a channel in the Telegram config if it has a topic mapping.
+///
+/// Returns Ok(true) if a mapping was updated, Ok(false) if no mapping existed or config doesn't exist.
+pub fn rename_channel_in_telegram_config(old_name: &str, new_name: &str) -> Result<bool> {
+    use crate::core::project::telegram_config_path;
+
+    let config_path = telegram_config_path();
+
+    // If config doesn't exist, Telegram bridge is not configured - this is OK
+    if !config_path.exists() {
+        return Ok(false);
+    }
+
+    let store = TelegramConfigStore::new(config_path);
+    let mut config = store.load()?;
+
+    // Check if the old channel has a topic mapping
+    if let Some(topic_id) = config.channel_topics.remove(old_name) {
+        // Move the mapping to the new channel name
+        config.channel_topics.insert(new_name.to_string(), topic_id);
+        store.save(&config)?;
+        Ok(true)
+    } else {
+        // No mapping existed for this channel
+        Ok(false)
+    }
+}

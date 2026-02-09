@@ -512,7 +512,7 @@ Before outputting COMPLETE, check if a release is needed:
    - Bump version in Cargo.toml/package.json (semantic versioning)
    - Update changelog if one exists
    - maw push (if not already pushed)
-   - Tag: maw exec default -- jj tag set vX.Y.Z -r main && maw exec default -- jj git push --remote origin
+   - Tag and push: maw exec default -- jj tag set vX.Y.Z -r main && maw push
    - Announce: bus send --agent ${AGENT} ${PROJECT} "<project> vX.Y.Z released - <summary>" -L release
 3. If only "chore:", "docs:", "refactor:" commits, no release needed.
 

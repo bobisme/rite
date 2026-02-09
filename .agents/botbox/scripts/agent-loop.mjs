@@ -326,7 +326,7 @@ At the end of your work, output exactly one of these completion signals:
    - Bump version in Cargo.toml/package.json (semantic versioning)
    - Update changelog if one exists
    - maw push (if not already pushed)
-   - Tag: maw exec default -- jj tag set vX.Y.Z -r main && maw exec default -- jj git push --remote origin
+   - Tag and push: maw exec default -- jj tag set vX.Y.Z -r main && maw push
    - Announce: bus send --agent ${AGENT} ${PROJECT} "<project> vX.Y.Z released - <summary>" -L release
    If only "chore:", "docs:", "refactor:" commits, no release needed.
    Output: <promise>COMPLETE</promise>

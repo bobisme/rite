@@ -40,7 +40,7 @@ When you've completed multiple beads in a session (or a significant single bead)
   1. Bump version (Cargo.toml, package.json, etc.) using **semantic versioning**
   2. Update changelog/release notes if the project has one
   3. Push to main
-  4. Tag the release (`jj tag set vX.Y.Z -r main && git push origin vX.Y.Z`)
+  4. Tag and push (`jj tag set vX.Y.Z -r main && maw push`)
   5. Announce on botbus: `bus send --no-hooks --agent $AGENT $BOTBOX_PROJECT "<project> vX.Y.Z released - <summary>" -L release`
 
 Use **conventional commits** (`feat:`, `fix:`, `docs:`, `chore:`, etc.) for clear history.

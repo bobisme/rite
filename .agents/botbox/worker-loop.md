@@ -156,7 +156,7 @@ If any commits start with `feat:` or `fix:` (user-visible changes):
 1. Bump version in Cargo.toml/package.json (semantic versioning)
 2. Update changelog if one exists
 3. `maw push` (if not already pushed)
-4. Tag: `jj tag set vX.Y.Z -r main && jj git push --remote origin`
+4. Tag and push: `jj tag set vX.Y.Z -r main && maw push`
 5. Announce: `bus send --agent $AGENT $BOTBOX_PROJECT "<project> vX.Y.Z released - <summary>" -L release`
 
 If only `chore:`, `docs:`, `refactor:` commits, no release needed.

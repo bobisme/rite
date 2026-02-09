@@ -7,3 +7,6 @@ tmp/
 .botbus/index.sqlite
 opencode.json
 .workspaces
+
+# maw agent workspaces
+ws/

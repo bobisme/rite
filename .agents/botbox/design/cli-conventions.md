@@ -25,27 +25,70 @@ Use plural nouns (`issues` not `issue`) for consistency. Make exceptions where s
 
 Support three output formats via `--format` flag:
 
-| Format | Audience | Description |
-|--------|----------|-------------|
-| `text` | Humans + Agents | Concise, readable plain text. Default format. Should be token-efficient by design. |
-| `json` | Machines | Structured, parseable, stable schema |
-| `toon` | Agents (optional) | Ultra-compact token-optimized format. Available but `text` is usually sufficient. |
+| Format | Default when | Audience | Description |
+|--------|-------------|----------|-------------|
+| `text` | Non-TTY (pipes, agents) | Agents + scripts | Concise, token-efficient plain text. ID-first records, two-space delimiters, no prose. |
+| `pretty` | TTY (interactive terminal) | Humans | Tables, color, box-drawing. Never fed to LLMs or parsed programmatically. |
+| `json` | Explicit `--format json` | Machines | Structured, parseable, stable schema. Always an object envelope. |
+
+### Format auto-detection
+
+Resolution order: `--format` flag > `FORMAT` env var > TTY auto-detect.
 
 ```bash
-# Flag takes precedence
+# Explicit flag always wins
 tool items list --format json
 
-# Environment variable sets default
+# Environment variable overrides auto-detect
 FORMAT=json tool items list
 
-# Default to text for interactive terminals
-tool items list
+# Auto-detect: TTY → pretty, pipe → text
+tool items list              # human at terminal → pretty
+tool items list | head       # piped → text
 ```
 
-**Implementation notes:**
-- Rust projects: use the `toon-format` crate
-- Detect TTY to choose sensible defaults (text for TTY, json for pipes)
-- `toon` format should be ~90% smaller than json while preserving key information
+### Text format guidelines
+
+Text is the default for agents and pipes. Design it to be simultaneously human-scannable and LLM-comprehensible while staying token-efficient.
+
+Rules:
+- **ID-first**: Every record starts with its identifier
+- **Two-space delimiters**: Separate fields with two spaces (not tabs, not single space)
+- **No prose**: No "Successfully created!" or "Here are your results:"
+- **Suggested next commands**: When there's an obvious workflow, include the command to run next
+
+```bash
+# Good text output
+cr-kex3  bd-2qa  fix inbox orphan detection  PENDING  botcrit-dev
+cr-v486  bd-1nf  fix stale workspace check   MERGED   botcrit-dev
+
+# Bad text output
+Review cr-kex3 was created by botcrit-dev for bead bd-2qa.
+Title: "fix inbox orphan detection". Status: PENDING.
+```
+
+### Pretty format guidelines
+
+Pretty is for humans at terminals. Use tables, color, box-drawing, but never feed this to LLMs.
+
+### JSON envelope convention
+
+All JSON output must follow the envelope pattern:
+
+```json
+{
+  "items": [...],
+  "advice": [
+    { "level": "warn", "type": "stale-workspace", "message": "Workspace 'gold-tiger' is stale" }
+  ]
+}
+```
+
+Rules:
+- **Always an object** — never a bare array at top level
+- **Always include `advice` array** — empty `[]` when no warnings
+- **Named collection key** — `items`, `workspaces`, `reviews`, etc. (not generic `data`)
+- **Advice `type`** — short kebab-case identifier for programmatic matching (e.g., `stale-workspace`, `deprecated-flag`). Not a URI.
 
 ## Help and Documentation
 
@@ -66,7 +109,7 @@ Options:
   -t, --title <TITLE>    Item title (required)
   -d, --desc <DESC>      Description
   -p, --priority <1-4>   Priority level [default: 2]
-  --format <FORMAT>      Output format: text|json|toon [default: text]
+  --format <FORMAT>      Output format: text|pretty|json [default: auto]
   -h, --help             Print help
 
 Examples:
@@ -352,4 +395,4 @@ Omit:
 - Redundant confirmations
 - Lengthy explanations (put those in --help)
 
-The `toon` format is an ultra-compact alternative when even text is too verbose, but text should be the design target for agent usability.
+Text should be the primary design target for agent usability. Pretty is for humans only.

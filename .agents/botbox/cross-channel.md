@@ -32,7 +32,7 @@ Common channels:
 
 For **questions or confusion**:
 ```bash
-bus send --agent $AGENT <project> "Getting error X when running crit inbox --all-workspaces. Is this expected? Here's what I see: <details> @<project>-dev" -L feedback
+bus send --agent $AGENT <project> "Getting error X when running crit inbox. Is this expected? Here's what I see: <details> @<project>-dev" -L feedback
 ```
 
 For **bugs or feature requests**, create a bead in their repo first:

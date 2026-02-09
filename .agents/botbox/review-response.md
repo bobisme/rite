@@ -12,7 +12,7 @@ Your identity is `$AGENT`. All crit and bus commands must include `--agent $AGEN
 ## When to Use
 
 Run this when:
-- `maw exec default -- crit inbox --agent $AGENT --all-workspaces` shows threads with new comments on your review
+- `maw exec $WS -- crit inbox --agent $AGENT` shows threads with new comments on your review (check each workspace)
 - `bus inbox` contains a `review-done` message indicating your review was blocked
 - You previously requested review and are checking back for feedback
 

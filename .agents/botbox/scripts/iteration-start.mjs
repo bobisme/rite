@@ -146,7 +146,7 @@ console.log()
 
 // 3. Reviews assigned to agent
 console.log(h2("Pending Reviews"))
-let reviews = runJson("maw", ["exec", "default", "--", "crit", "inbox", "--agent", AGENT, "--all-workspaces", "--format", "json"])
+let reviews = runJson("maw", ["exec", "default", "--", "crit", "inbox", "--agent", AGENT, "--format", "json"])
 if (reviews) {
   let awaiting = reviews.reviews_awaiting_vote || []
   let threads = reviews.threads_with_new_responses || []
@@ -202,7 +202,7 @@ let hasReviews = reviews && ((reviews.reviews_awaiting_vote?.length || 0) + (rev
 if (hasInbox) {
   console.log(hint(`Process inbox: bus inbox --agent ${AGENT} --channels ${PROJECT} --mark-read`))
 } else if (hasReviews) {
-  console.log(hint(`Start review: maw exec default -- crit inbox --agent ${AGENT} --all-workspaces`))
+  console.log(hint(`Start review: maw exec default -- crit inbox --agent ${AGENT}`))
 } else if (hasBeads) {
   let top = ready[0]
   console.log(hint(`Claim top: maw exec default -- br update --actor ${AGENT} ${top.id} --status in_progress`))

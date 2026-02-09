@@ -1,0 +1,84 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/check-jj.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/init-agent.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/claim-agent.sh"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/check-jj.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/init-agent.sh"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/claim-agent.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/check-bus-inbox.sh"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/claim-agent.sh"
+          }
+        ]
+      }
+    ]
+  }
+}

@@ -9,8 +9,8 @@ Your identity is `$AGENT`. All bus commands must include `--agent $AGENT`. Run `
 1. Read new review requests:
    - `bus inbox --agent $AGENT --channels $BOTBOX_PROJECT --mark-read`
    - `bus wait --agent $AGENT -L review-request -t 5` (optional)
-2. Find open reviews: `maw exec default -- crit inbox --agent $AGENT --all-workspaces --format=json`
-   - The `--all-workspaces` flag searches both the repo root and all jj workspaces
+2. Find open reviews by iterating workspaces: `maw ws list --format json`, then `maw exec $WS -- crit inbox --agent $AGENT --format=json` per workspace
+   - The reviewer-loop script handles this iteration automatically
 3. For each review, gather context before commenting. Use `maw exec $WS --` for all crit commands targeting a workspace review:
    a. Read the review and diff: `maw exec $WS -- crit review <id>` and `maw exec $WS -- crit diff <id>`
       - `maw exec $WS -- crit review <id> --format=json` includes workspace info for reading source files

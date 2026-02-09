@@ -237,7 +237,7 @@ At the end of your work, output exactly one of these completion signals:
    - Run: maw exec default -- br comments <bead-id> to understand what was done before and what remains.
    - Look for workspace info in comments (workspace name and path).
    - If a "Review created: <review-id>" comment exists:
-     * Find the review: maw exec default -- crit reviews list --all-workspaces | grep <review-id>
+     * Find the review: maw exec $WS -- crit review <review-id>
      * Check review status: maw exec \$WS -- crit review <review-id>
      * If LGTM (approved): proceed to FINISH (step 7) — merge the review and close the bead.
      * If BLOCKED (changes requested): follow .agents/botbox/review-response.md to fix issues

@@ -351,7 +351,7 @@ For EACH unfinished bead:
 2. Check if you still hold claims: bus claims list --agent ${AGENT} --mine
 3. Determine state:
    - If "Review created: <review-id>" comment exists:
-     * Find the review: maw exec default -- crit reviews list --all-workspaces | grep <review-id>
+     * Find the review: maw exec $WS -- crit review <review-id>
      * Check review status: maw exec \$WS -- crit review <review-id>
      * If LGTM (approved): Proceed to merge/finish (step 6)
      * If BLOCKED (changes requested): Follow review-response.md to fix issues, re-request review, then STOP

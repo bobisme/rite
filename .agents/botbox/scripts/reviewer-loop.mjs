@@ -232,30 +232,65 @@ function runInWorkspace(ws, cmd, args = []) {
 
 // --- Helper: check if there are reviews needing attention ---
 // Returns { hasWork: boolean, inbox: object }
+// Iterates workspaces via maw so crit doesn't need workspace awareness.
 async function findWork() {
 	try {
-		// crit inbox --all-workspaces searches both repo root and all jj workspaces
-		// Shows only reviews awaiting this reviewer's response:
-		// - Reviews where reviewer is assigned but hasn't voted
-		// - Reviews that were re-requested after voting
-		// Reviews disappear from inbox after voting until re-requested.
-		const result = await runInDefault('crit', [
-			'inbox',
-			'--agent',
-			AGENT,
-			'--all-workspaces',
-			'--format',
-			'json',
-		]);
-		const inbox = JSON.parse(result.stdout || '{}');
-		const hasReviews =
-			(inbox.reviews_awaiting_vote && inbox.reviews_awaiting_vote.length > 0) ||
-			(inbox.threads_with_new_responses && inbox.threads_with_new_responses.length > 0);
+		// Get list of workspaces
+		let workspaces = ['default'];
+		try {
+			const wsResult = await runCommand('maw', ['ws', 'list', '--format', 'json']);
+			const wsData = JSON.parse(wsResult.stdout || '{}');
+			if (wsData.workspaces) {
+				workspaces = wsData.workspaces.map((ws) => ws.name);
+			}
+		} catch {
+			// Fall back to just default
+		}
 
-		return {
-			hasWork: hasReviews,
-			inbox,
+		// Check crit inbox in each workspace, merge results
+		let allReviews = [];
+		let allThreads = [];
+		let seenReviewIds = new Set();
+		let seenThreadIds = new Set();
+
+		for (let ws of workspaces) {
+			try {
+				const result = await runInWorkspace(ws, 'crit', [
+					'inbox',
+					'--agent',
+					AGENT,
+					'--format',
+					'json',
+				]);
+				const inbox = JSON.parse(result.stdout || '{}');
+
+				// Deduplicate reviews across workspaces
+				for (let review of inbox.reviews_awaiting_vote || []) {
+					let id = review.review_id || review.id;
+					if (id && !seenReviewIds.has(id)) {
+						seenReviewIds.add(id);
+						allReviews.push({ ...review, workspace: ws });
+					}
+				}
+				for (let thread of inbox.threads_with_new_responses || []) {
+					let id = thread.thread_id || thread.id;
+					if (id && !seenThreadIds.has(id)) {
+						seenThreadIds.add(id);
+						allThreads.push({ ...thread, workspace: ws });
+					}
+				}
+			} catch {
+				// Skip workspaces where crit fails (stale, no .crit, etc.)
+			}
+		}
+
+		let inbox = {
+			reviews_awaiting_vote: allReviews,
+			threads_with_new_responses: allThreads,
 		};
+		let hasReviews = allReviews.length > 0 || allThreads.length > 0;
+
+		return { hasWork: hasReviews, inbox };
 	} catch (err) {
 		console.error('Error finding work:', err.message);
 		return { hasWork: false, inbox: {} };

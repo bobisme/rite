@@ -13,8 +13,9 @@ At the end of your work, output exactly one of these completion signals:
    Note any review-request or review-response messages. Ignore task-claim, task-done, spawn-ack, etc.
 
 2. FIND REVIEWS:
-   Run: maw exec default -- crit inbox --agent {{AGENT}} --all-workspaces --format json
-   This shows reviews awaiting YOUR response across all workspaces.
+   The reviewer-loop script has already found reviews for you via maw workspace iteration.
+   Run: maw exec $WS -- crit inbox --agent {{AGENT}} --format json
+   This shows reviews awaiting YOUR response in the given workspace.
    Pick one to process. If inbox is empty, say "NO_REVIEWS_PENDING" and stop.
    bus statuses set --agent {{AGENT}} "Review: <review-id>" --ttl 30m
 

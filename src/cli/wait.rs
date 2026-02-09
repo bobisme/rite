@@ -56,11 +56,14 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
         .map(|ch| ch.strip_prefix('#').unwrap_or(ch).to_string())
         .collect();
 
-    let filter_channels: Option<Vec<&str>> = if options.channels.is_empty() {
-        None
-    } else {
-        Some(options.channels.iter().map(|s| s.as_str()).collect())
-    };
+    // When --mentions is set, watch ALL channels (mentions can come from anywhere).
+    // The --channels list is used for OR matching, not for restricting what we watch.
+    let watch_channels: Option<Vec<&str>> =
+        if options.mentions || options.channels.is_empty() {
+            None
+        } else {
+            Some(options.channels.iter().map(|s| s.as_str()).collect())
+        };
 
     let channels_path = channels_dir();
     if !channels_path.exists() {
@@ -68,7 +71,7 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
     }
 
     // Track current file offsets for all channels we're watching
-    let mut channel_offsets = collect_channel_offsets(&channels_path, filter_channels.as_deref())?;
+    let mut channel_offsets = collect_channel_offsets(&channels_path, watch_channels.as_deref())?;
 
     // Set up file watcher
     let (_watcher, rx) =
@@ -83,7 +86,15 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
     let start = Instant::now();
 
     if options.format != OutputFormat::Json {
-        if !options.channels.is_empty() {
+        if options.mentions && !options.channels.is_empty() {
+            let ch_display: Vec<String> =
+                options.channels.iter().map(|c| format!("#{}", c)).collect();
+            eprint!(
+                "Waiting for @{} or messages in {}...",
+                agent.as_ref().unwrap().cyan(),
+                ch_display.join(", ").cyan()
+            );
+        } else if !options.channels.is_empty() {
             let ch_display: Vec<String> =
                 options.channels.iter().map(|c| format!("#{}", c)).collect();
             eprint!(
@@ -141,7 +152,7 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
         // Check each changed channel for new messages
         for channel_name in changed_channels {
             // Skip if we're filtering to specific channels
-            if let Some(ref filter) = filter_channels
+            if let Some(ref filter) = watch_channels
                 && !filter.contains(&channel_name.as_str())
             {
                 continue;
@@ -164,29 +175,42 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
                     continue;
                 }
 
-                // Check if message matches our filter
-                let matches = if options.mentions {
-                    // Check for @mention in body
+                // Check if message matches our filter.
+                // When --mentions + --channels: OR logic (mention from any channel
+                // OR any message from specified channels).
+                let is_mention = options.mentions && {
                     let mention = format!("@{}", agent.as_ref().unwrap());
                     msg.body.contains(&mention)
+                };
+                let is_in_channel = !options.channels.is_empty()
+                    && options.channels.iter().any(|c| c == &channel_name);
+
+                let matches = if options.mentions && !options.channels.is_empty() {
+                    // OR: @mention from any channel OR any message in specified channels
+                    is_mention || is_in_channel
+                } else if options.mentions {
+                    // Mentions only (any channel)
+                    is_mention
                 } else if !options.labels.is_empty() {
-                    // Check for matching labels
+                    // Labels only
                     msg.has_any_label(&options.labels)
                 } else {
-                    // Any message matches
+                    // No filter = any message matches
                     true
                 };
 
                 if matches {
+                    let reason = if is_mention {
+                        "mention".to_string()
+                    } else {
+                        "message".to_string()
+                    };
+
                     let output = WaitOutput {
                         received: true,
                         message: Some(msg.clone()),
                         channel: Some(channel_name.clone()),
-                        reason: if options.mentions {
-                            "mention".to_string()
-                        } else {
-                            "message".to_string()
-                        },
+                        reason,
                         advice: vec![],
                     };
 

@@ -55,6 +55,7 @@ Before triaging new work, check if you have unfinished work from a previous sess
 
 ### 1. Triage — find and groom work, then pick one small task (always run this, even if you already know what to work on)
 
+- **Mission context**: If a bead has a `mission:bd-xxx` label, you are working as part of a mission. Check the mission bead (`maw exec default -- br show <mission-id>`) for shared outcome, constraints, and sibling context before starting work.
 - Check inbox: `bus inbox --agent $AGENT --channels $BOTBOX_PROJECT --mark-read`
 - For messages that request work, create beads: `maw exec default -- br create --actor $AGENT --owner $AGENT --title="..." --description="..." --type=task --priority=2`
 - For questions or status checks, reply directly: `bus send --agent $AGENT <channel> "<reply>" -L triage-reply`
@@ -112,19 +113,46 @@ If stuck:
 After completing the implementation:
 
 - Describe the change: `maw exec $WS -- jj describe -m "<bead-id>: <summary>"`
-- Create a crit review with bead context: `maw exec $WS -- crit reviews create --agent $AGENT --title "<bead-title>" --description "For <bead-id>: <summary of changes, what was done, why>"`
+- **Check the bead's risk label** to determine review routing:
+  - Get bead details: `maw exec default -- br show <bead-id>`
+  - Look for `risk:low`, `risk:high`, or `risk:critical` in labels
+  - No risk label = `risk:medium` (standard review)
+
+**Risk-based branching:**
+
+**risk:low** — Skip review entirely:
+- Do NOT create a crit review
+- Add self-review comment: `maw exec default -- br comments add --actor $AGENT --author $AGENT <bead-id> "Self-review: <brief what I verified>"`
+- Proceed directly to step 6 (Finish)
+
+**risk:medium** (default) — Standard review:
+- Create a crit review with reviewer assignment: `maw exec $WS -- crit reviews create --agent $AGENT --title "<bead-title>" --description "For <bead-id>: <summary of changes, what was done, why>" --reviewers <reviewer>`
+  - `--reviewers` assigns the reviewer in the same command (e.g., `--reviewers myproject-security`)
   - Running via `maw exec $WS --` ensures crit knows which workspace contains the changes
   - Always include the bead ID in the description so reviewers have context
   - Explain what changed and why, not just a summary
 - Add a comment to the bead: `maw exec default -- br comments add --actor $AGENT --author $AGENT <bead-id> "Review requested: <review-id>, workspace: $WS (ws/$WS/)"`
 - **If requesting a specialist reviewer** (e.g., security):
-  - Assign them: `maw exec $WS -- crit reviews request <review-id> --reviewers <reviewer> --agent $AGENT`
-  - Announce with @mention: `bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> for <bead-id>, @<reviewer>" -L review-request`
+  - Announce with @mention to trigger spawn: `bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> for <bead-id>, @<reviewer>" -L review-request`
   - The @mention triggers auto-spawn hooks
 - **If requesting a general code review**:
   - Spawn a subagent to perform the review
   - Announce: `bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> for <bead-id>, spawned subagent for review" -L review-request`
 - **STOP this iteration.** Do NOT close the bead, merge the workspace, or release claims. The reviewer will process the review, and you will resume in the next iteration via step 0.
+
+**risk:high** — Security review with failure-mode checklist:
+- Create crit review with security reviewer: `maw exec $WS -- crit reviews create --agent $AGENT --title "<bead-title>" --description "For <bead-id>: <summary>. risk:high — failure-mode checklist required. Please answer: 1) What failure modes exist? 2) What edge cases need validation? 3) How can we roll back if this breaks? 4) What monitoring/alerts should we add? 5) What input validation is needed?" --reviewers $BOTBOX_PROJECT-security`
+- Add comment to bead: `maw exec default -- br comments add --actor $AGENT --author $AGENT <bead-id> "Review requested: <review-id>, workspace: $WS (ws/$WS/)"`
+- Announce with @mention: `bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> for <bead-id>, @$BOTBOX_PROJECT-security" -L review-request`
+- **STOP this iteration.**
+
+**risk:critical** — Security review + human approval:
+- Create crit review with security reviewer: `maw exec $WS -- crit reviews create --agent $AGENT --title "<bead-title>" --description "For <bead-id>: <summary>. risk:critical — requires human approval before merge." --reviewers $BOTBOX_PROJECT-security`
+- Add comment to bead: `maw exec default -- br comments add --actor $AGENT --author $AGENT <bead-id> "Review requested: <review-id>, workspace: $WS (ws/$WS/)"`
+- Post to bus requesting human approval: `bus send --agent $AGENT $BOTBOX_PROJECT "risk:critical review for <bead-id>: requires human approval before merge. Review: <review-id> @<approver>" -L review-request`
+  - List of approvers from `.botbox.json` → `project.criticalApprovers`
+  - If no `criticalApprovers` configured, use project lead: `@$BOTBOX_PROJECT-lead`
+- **STOP this iteration.**
 
 See [review-request](review-request.md) for full details.
 

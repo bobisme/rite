@@ -12,6 +12,16 @@ let MODEL = '';
 let PROJECT = '';
 let AGENT = '';
 let PUSH_MAIN = false;
+let REVIEW = true;
+let CRITICAL_APPROVERS = [];
+
+// --- Dispatched worker env (set by dev-loop when spawning workers) ---
+let DISPATCHED_BEAD = process.env.BOTBOX_BEAD || '';
+let DISPATCHED_WORKSPACE = process.env.BOTBOX_WORKSPACE || '';
+let DISPATCHED_MISSION = process.env.BOTBOX_MISSION || '';
+let DISPATCHED_SIBLINGS = process.env.BOTBOX_SIBLINGS || '';
+let DISPATCHED_MISSION_OUTCOME = process.env.BOTBOX_MISSION_OUTCOME || '';
+let DISPATCHED_FILE_HINTS = process.env.BOTBOX_FILE_HINTS || '';
 
 // --- Load config from .botbox.json ---
 async function loadConfig() {
@@ -30,6 +40,8 @@ async function loadConfig() {
 			MODEL = worker.model || '';
 			CLAUDE_TIMEOUT = worker.timeout || 600;
 			PUSH_MAIN = config.pushMain || false;
+			REVIEW = config.review?.enabled ?? true;
+			CRITICAL_APPROVERS = project.criticalApprovers || [];
 		} catch (err) {
 			console.error('Warning: Failed to load .botbox.json:', err.message);
 		}
@@ -108,11 +120,6 @@ function runInDefault(cmd, args = []) {
 	return runCommand('maw', ['exec', 'default', '--', cmd, ...args]);
 }
 
-// --- Helper: run command in a named workspace (for crit, jj) ---
-function runInWorkspace(ws, cmd, args = []) {
-	return runCommand('maw', ['exec', ws, '--', cmd, ...args]);
-}
-
 // --- Helper: generate agent name if not provided ---
 async function getAgentName() {
 	if (AGENT) return AGENT;
@@ -166,6 +173,7 @@ async function hasPendingReview() {
 
 // --- Helper: check if there is work ---
 async function hasWork() {
+	if (DISPATCHED_BEAD) return true;
 	try {
 		// Check claims
 		const claimsResult = await runCommand('bus', [
@@ -224,8 +232,28 @@ COMMAND PATTERN — maw exec: All br/bv commands run in the default workspace. A
   jj:    maw exec \$WS -- jj <args>
   other: maw exec \$WS -- <command>           (cargo test, etc.)
 
-Execute exactly ONE cycle of the worker loop. Complete one task (or determine there is no work),
-then STOP. Do not start a second task — the outer loop handles iteration.
+${DISPATCHED_BEAD && DISPATCHED_WORKSPACE ? `## DISPATCHED WORKER — FAST PATH
+
+You were dispatched by a lead dev agent with a pre-assigned bead and workspace.
+Skip steps 0 (RESUME CHECK), 1 (INBOX), and 2 (TRIAGE) entirely.
+
+Pre-assigned bead: ${DISPATCHED_BEAD}
+Pre-assigned workspace: ${DISPATCHED_WORKSPACE}
+Workspace path: ${process.cwd()}/ws/${DISPATCHED_WORKSPACE}
+${DISPATCHED_MISSION ? `Mission: ${DISPATCHED_MISSION}
+${DISPATCHED_MISSION_OUTCOME ? `Mission outcome: ${DISPATCHED_MISSION_OUTCOME}` : `Read mission context: maw exec default -- br show ${DISPATCHED_MISSION}`}
+${DISPATCHED_SIBLINGS ? `\nSibling beads (other workers in this mission):\n${DISPATCHED_SIBLINGS}` : ''}
+${DISPATCHED_FILE_HINTS ? `\nAdvisory file ownership (avoid editing files owned by siblings):\n${DISPATCHED_FILE_HINTS}` : ''}` : ''}
+
+Go directly to:
+1. Verify your bead: maw exec default -- br show ${DISPATCHED_BEAD}
+2. Verify your workspace: maw ws list (confirm ${DISPATCHED_WORKSPACE} exists)
+3. Your bead is already in_progress and claimed. Proceed to step 4 (WORK).
+   Use absolute workspace path: ${process.cwd()}/ws/${DISPATCHED_WORKSPACE}
+   For commands in workspace: maw exec ${DISPATCHED_WORKSPACE} -- <command>
+
+` : ''}${DISPATCHED_BEAD ? 'You are a dispatched worker — follow the FAST PATH section below.' : `Execute exactly ONE cycle of the worker loop. Complete one task (or determine there is no work),
+then STOP. Do not start a second task — the outer loop handles iteration.`}
 
 At the end of your work, output exactly one of these completion signals:
 - <promise>COMPLETE</promise> if you completed a task or determined there is no work
@@ -240,8 +268,16 @@ At the end of your work, output exactly one of these completion signals:
      * Find the review: maw exec $WS -- crit review <review-id>
      * Check review status: maw exec \$WS -- crit review <review-id>
      * If LGTM (approved): proceed to FINISH (step 7) — merge the review and close the bead.
-     * If BLOCKED (changes requested): follow .agents/botbox/review-response.md to fix issues
-       in the workspace, re-request review, then STOP this iteration.
+     * If BLOCKED (changes requested): fix the issues, then re-request review:
+       1. Read threads: maw exec $WS -- crit review <review-id> (threads show inline with comments)
+       2. For each unresolved thread with reviewer feedback:
+          - Fix the code in the workspace (use absolute WS_PATH for file edits)
+          - Reply: maw exec $WS -- crit reply <thread-id> --agent ${AGENT} "Fixed: <what you did>"
+          - Resolve: maw exec $WS -- crit threads resolve <thread-id> --agent ${AGENT}
+       3. Update commit: maw exec $WS -- jj describe -m "<id>: <summary> (addressed review feedback)"
+       4. Re-request: maw exec $WS -- crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT}
+       5. Announce: bus send --agent ${AGENT} ${PROJECT} "Review updated: <review-id> — addressed feedback @${PROJECT}-security" -L review-response
+       STOP this iteration — wait for re-review.
      * If PENDING (no votes yet): STOP this iteration. Wait for the reviewer.
      * If review not found: DO NOT merge or create a new review. The reviewer may still be starting up (hooks have latency). STOP this iteration and wait. Only create a new review if the workspace was destroyed AND 3+ iterations have passed since the review comment.
    - If no review comment (work was in progress when session ended):
@@ -262,10 +298,28 @@ At the end of your work, output exactly one of these completion signals:
 
 2. TRIAGE: Check maw exec default -- br ready. If no ready beads and inbox created none, say "NO_WORK_AVAILABLE" and stop.
    GROOM each ready bead (maw exec default -- br show <id>): ensure clear title, description with acceptance criteria
-   and testing strategy, appropriate priority. Fix anything missing, comment what you changed.
+   and testing strategy, appropriate priority, and risk label. Fix anything missing, comment what you changed.
+   RISK LABELS: Assess each bead for risk using these dimensions: blast radius, data sensitivity, reversibility, dependency uncertainty.
+   - risk:low — typo fixes, doc updates, config tweaks (add label: br label add --actor ${AGENT} -l risk:low <id>)
+   - risk:medium — standard features/bugs (default, no label needed)
+   - risk:high — security-sensitive, data integrity, user-visible behavior changes (add label)
+   - risk:critical — irreversible actions, migrations, regulated changes (add label)
+   Any agent can escalate risk upward. Downgrades require lead approval with justification comment.
    Use maw exec default -- bv --robot-next to pick exactly one small task. If the task is large, break it down with
    maw exec default -- br create + br dep add, then bv --robot-next again. If a bead is claimed
    (bus claims check --agent ${AGENT} "bead://${PROJECT}/<id>"), skip it.
+
+   MISSION CONTEXT: After picking a bead, check if it has a mission:bd-xxx label (visible in br show output).
+   If it does, read the mission bead for shared context:
+     maw exec default -- br show <mission-id>
+   Note the mission's Outcome, Constraints, and Stop criteria. Check siblings:
+     maw exec default -- br list -l "mission:<mission-id>"
+   Use this context to understand how your work fits into the larger effort.
+
+   COORDINATION LABELS: When working on a mission, use these labels on bus messages:
+   - coord:interface — Share API/interface contracts with siblings: bus send --agent ${AGENT} ${PROJECT} "Interface: <details>" -L coord:interface -L "mission:${DISPATCHED_MISSION || '<mission-id>'}"
+   - coord:blocker — Flag a blocking dependency on a sibling: bus send --agent ${AGENT} ${PROJECT} "Blocked by <sibling-bead>: <reason>" -L coord:blocker -L "mission:${DISPATCHED_MISSION || '<mission-id>'}"
+   - task-done — Signal completion: bus send --agent ${AGENT} ${PROJECT} "Completed <id>" -L task-done -L "mission:${DISPATCHED_MISSION || '<mission-id>'}"
 
 3. START: maw exec default -- br update --actor ${AGENT} <id> --status=in_progress --owner=${AGENT}.
    bus claims stake --agent ${AGENT} "bead://${PROJECT}/<id>" -m "<id>".
@@ -292,32 +346,58 @@ At the end of your work, output exactly one of these completion signals:
    Output: <promise>BLOCKED</promise>
    Stop this cycle.
 
-6. REVIEW REQUEST:
-   Describe the change: maw exec \$WS -- jj describe -m "<id>: <summary>".
-   CHECK for existing review first:
-     - Run: maw exec default -- br comments <id> | grep "Review created:"
-     - If found, extract <review-id> and skip to requesting security review (don't create duplicate)
-   Create review (only if none exists):
-     - maw exec \$WS -- crit reviews create --agent ${AGENT} --title "<id>: <title>" --description "<summary>"
-     - IMMEDIATELY record: maw exec default -- br comments add --actor ${AGENT} --author ${AGENT} <id> "Review created: <review-id> in workspace \$WS"
-   bus statuses set --agent ${AGENT} "Review: <review-id>".
-   Request security review (if project has security reviewer):
-     - Assign: maw exec \$WS -- crit reviews request <review-id> --reviewers ${PROJECT}-security --agent ${AGENT}
-     - Spawn via @mention: bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id> @${PROJECT}-security" -L review-request
-     (The @mention triggers the auto-spawn hook — without it, no reviewer spawns!)
-   Do NOT close the bead. Do NOT merge the workspace. Do NOT release claims.
-   Output: <promise>COMPLETE</promise>
-   STOP this iteration. The reviewer will process the review.
+6. REVIEW REQUEST (risk-aware):
+${REVIEW ? `   First, check the bead's risk label: maw exec default -- br show <id> — look for risk:low, risk:high, or risk:critical labels.
+   No risk label = risk:medium (standard review, current default).
 
-7. FINISH (only reached after LGTM from step 0, or if no review needed):
+   RISK:LOW PATH — Lightweight review:
+     Same as RISK:MEDIUM below. risk:low still gets reviewed when REVIEW is true — the reviewer can fast-track it.
+
+   RISK:MEDIUM PATH — Standard review (current default):
+     Describe the change: maw exec \$WS -- jj describe -m "<id>: <summary>".
+     CHECK for existing review first:
+       - Run: maw exec default -- br comments <id> | grep "Review created:"
+       - If found, extract <review-id> and skip to requesting review (don't create duplicate)
+     Create review with reviewer assignment (only if none exists):
+       - maw exec \$WS -- crit reviews create --agent ${AGENT} --title "<id>: <title>" --description "<summary>" --reviewers ${PROJECT}-security
+       - IMMEDIATELY record: maw exec default -- br comments add --actor ${AGENT} --author ${AGENT} <id> "Review created: <review-id> in workspace \$WS"
+     bus statuses set --agent ${AGENT} "Review: <review-id>".
+     Spawn reviewer via @mention: bus send --agent ${AGENT} ${PROJECT} "Review requested: <review-id> for <id> @${PROJECT}-security" -L review-request
+     Do NOT close the bead. Do NOT merge. Do NOT release claims.
+     Output: <promise>COMPLETE</promise>
+     STOP this iteration.
+
+   RISK:HIGH PATH — Security review + failure-mode checklist:
+     Same as risk:medium, but when creating the review, add to description: "risk:high — failure-mode checklist required."
+     The security reviewer will include the 5 failure-mode questions in their review:
+       1. What could fail in production?  2. How would we detect it quickly?
+       3. What is the fastest safe rollback?  4. What dependency could invalidate this plan?
+       5. What assumption is least certain?
+     MUST request security reviewer. Do not skip.
+     STOP this iteration.
+
+   RISK:CRITICAL PATH — Security review + human approval required:
+     Same as risk:high, but ALSO:
+     - Add to review description: "risk:critical — REQUIRES HUMAN APPROVAL before merge."
+     - Post to bus requesting human approval:
+       bus send --agent ${AGENT} ${PROJECT} "risk:critical review for <id>: requires human approval before merge. ${CRITICAL_APPROVERS.length > 0 ? 'Approvers: ' + CRITICAL_APPROVERS.join(', ') : 'Check project.criticalApprovers in .botbox.json'}" -L review-request
+     STOP this iteration.` : `   REVIEW is disabled. Skip code review.
+   Describe the change: maw exec \$WS -- jj describe -m "<id>: <summary>".
+   Proceed directly to step 7 (FINISH).`}
+
+7. FINISH (only reached after LGTM from step 0, or after step 6 when REVIEW is false):
    If a review was conducted:
      maw exec default -- crit reviews mark-merged <review-id> --agent ${AGENT}.
+   RISK:CRITICAL CHECK — Before merging a risk:critical bead:
+     Verify human approval exists: bus history ${PROJECT} -n 50 -L review-request | look for approval message referencing this bead/review from an authorized approver.
+     If no approval found, do NOT merge. Post: bus send --agent ${AGENT} ${PROJECT} "Waiting for human approval on risk:critical <id>" -L review-request. STOP.
+     If approval found, record it: maw exec default -- br comments add --actor ${AGENT} --author ${AGENT} <id> "Human approval: <approver> via bus message <msg-id>"
    maw exec default -- br comments add --actor ${AGENT} --author ${AGENT} <id> "Completed by ${AGENT}".
    maw exec default -- br close --actor ${AGENT} <id> --reason="Completed" --suggest-next.
+   bus send --agent ${AGENT} ${PROJECT} "Completed <id>: <title>" -L task-done.
    maw ws merge \$WS --destroy (produces linear squashed history and auto-moves main; if conflict, preserve and announce).
    bus claims release --agent ${AGENT} --all.
    maw exec default -- br sync --flush-only.${pushMainStep}
-   bus send --agent ${AGENT} ${PROJECT} "Completed <id>: <title>" -L task-done.
    Then proceed to step 8 (RELEASE CHECK).
 
 8. RELEASE CHECK (before signaling COMPLETE):
@@ -325,8 +405,7 @@ At the end of your work, output exactly one of these completion signals:
    If any commits start with "feat:" or "fix:" (user-visible changes), a release is needed:
    - Bump version in Cargo.toml/package.json (semantic versioning)
    - Update changelog if one exists
-   - maw push (if not already pushed)
-   - Tag and push: maw exec default -- jj tag set vX.Y.Z -r main && maw push
+   - Release: maw release vX.Y.Z (this tags, pushes, and updates bookmarks)
    - Announce: bus send --agent ${AGENT} ${PROJECT} "<project> vX.Y.Z released - <summary>" -L release
    If only "chore:", "docs:", "refactor:" commits, no release needed.
    Output: <promise>COMPLETE</promise>
@@ -341,7 +420,9 @@ Key rules:
 - All crit/jj commands in a workspace: maw exec \$WS -- crit/jj ...
 - If a tool behaves unexpectedly, report it: bus send --agent ${AGENT} ${PROJECT} "Tool issue: <details>" -L tool-issue.
 - STOP after completing one task or determining no work. Do not loop.
-- Always output <promise>COMPLETE</promise> or <promise>BLOCKED</promise> at the end.`;
+- Always output <promise>COMPLETE</promise> or <promise>BLOCKED</promise> at the end.
+- RISK LABELS: Check bead risk labels before review. REVIEW=${REVIEW}. ${REVIEW ? 'ALL risk levels go through review (risk:low gets lightweight review, risk:medium standard, risk:high failure-mode checklist, risk:critical human approval).' : 'Review is disabled. Skip review and proceed to FINISH after describing commit.'}`;
+
 }
 
 // --- Run agent via botbox run-agent ---
@@ -429,6 +510,10 @@ async function main() {
 	await loadConfig();
 	parseCliArgs();
 
+	if (DISPATCHED_BEAD) {
+		MAX_LOOPS = 1;
+	}
+
 	AGENT = await getAgentName();
 
 	console.log(`Agent:     ${AGENT}`);
@@ -436,6 +521,12 @@ async function main() {
 	console.log(`Max loops: ${MAX_LOOPS}`);
 	console.log(`Pause:     ${LOOP_PAUSE}s`);
 	console.log(`Model:     ${MODEL || 'system default'}`);
+	if (DISPATCHED_BEAD) {
+		console.log(`Dispatched: bead=${DISPATCHED_BEAD} workspace=${DISPATCHED_WORKSPACE} mission=${DISPATCHED_MISSION || 'none'}`);
+	}
+	if (DISPATCHED_SIBLINGS) {
+		console.log(`Siblings:   ${DISPATCHED_SIBLINGS.split('\n').length} sibling(s)`);
+	}
 
 	// Confirm identity
 	try {

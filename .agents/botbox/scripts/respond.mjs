@@ -4,6 +4,7 @@
  *
  * THE single entrypoint for all project channel messages. Routes based on ! prefixes:
  *   !dev [msg]         → Create bead + spawn dev-loop
+ *   !mission [desc]    → Create mission bead + spawn dev-loop with BOTBOX_MISSION
  *   !bead [desc]       → Create bead (with dedup via br search)
  *   !q [question]      → Answer with sonnet
  *   !qq [question]     → Answer with haiku
@@ -113,6 +114,7 @@ Universal message router for project channels.
 
 Routes messages based on ! prefixes:
   !dev [msg]         Create bead + spawn dev-loop
+  !mission [desc]    Create mission bead + spawn dev-loop
   !bead [desc]       Create bead (with dedup)
   !q [question]      Answer with sonnet (default)
   !qq [question]     Answer with haiku (quick/cheap)
@@ -178,7 +180,7 @@ function runInDefault(cmd, args = []) {
 
 /**
  * @typedef {object} Route
- * @property {"dev"|"bead"|"question"|"triage"|"oneshot"} type
+ * @property {"dev"|"bead"|"mission"|"question"|"triage"|"oneshot"} type
  * @property {string} body
  * @property {string} [model]
  */
@@ -196,6 +198,11 @@ export function routeMessage(body) {
   // !oneshot [message] — respond once, no follow-up loop
   if (/^!oneshot\b/i.test(trimmed)) {
     return { type: "oneshot", body: trimmed.slice(8).trim() }
+  }
+
+  // !mission [description] — create mission bead + spawn dev-loop with BOTBOX_MISSION
+  if (/^!mission\b/i.test(trimmed)) {
+    return { type: "mission", body: trimmed.slice(8).trim() }
   }
 
   // !dev [message]
@@ -532,6 +539,11 @@ async function handleQuestion(route, channel, message) {
       await handleDev(reParsed, channel, followUp)
       return
     }
+    if (reParsed.type === "mission") {
+      addToTranscript("user", followUp.agent, followUp.body)
+      await handleMission(reParsed, channel, followUp)
+      return
+    }
     if (reParsed.type === "bead") {
       addToTranscript("user", followUp.agent, followUp.body)
       await handleBead(reParsed, channel, followUp)
@@ -628,6 +640,8 @@ async function handleBead(route, channel, message) {
       AGENT,
       channel,
       `Created ${beadId}: ${title}`,
+      "-L",
+      "feedback",
     ])
     return beadId
   } catch (err) {
@@ -644,18 +658,14 @@ async function handleBead(route, channel, message) {
 }
 
 /**
- * Handle !dev — create bead (if body provided) and spawn dev-loop.
+ * Handle !dev — spawn dev-loop.
  * Also used for mid-conversation escalation (transcript will have context).
+ * Does NOT create beads — use !bead for that. The dev-loop handles its own triage.
  * @param {Route} route
  * @param {string} channel
  * @param {any} message
  */
 async function handleDev(route, channel, message) {
-  // If there's a body, create a bead first
-  if (route.body) {
-    await handleBead({ type: "bead", body: route.body }, channel, message)
-  }
-
   // Exec into dev-loop directly — we're already inside a botty PTY session,
   // so the dev-loop inherits it. Using botty spawn would kill our own session
   // (same --name) and orphan the child process.
@@ -677,6 +687,112 @@ async function handleDev(route, channel, message) {
   let proc = spawn("bun", [scriptPath, PROJECT, AGENT], {
     stdio: "inherit",
     env: process.env,
+  })
+  let code = await new Promise((resolve) => {
+    proc.on("close", (c) => resolve(c ?? 1))
+  })
+  process.exit(code)
+}
+
+/**
+ * Handle !mission — create a mission bead and spawn dev-loop with BOTBOX_MISSION env var.
+ * Missions are outcome-oriented beads with structured descriptions.
+ * @param {Route} route
+ * @param {string} channel
+ * @param {any} message
+ */
+async function handleMission(route, channel, message) {
+  if (!route.body) {
+    await runCommand("bus", [
+      "send",
+      "--agent",
+      AGENT,
+      channel,
+      "Usage: !mission <description of the desired outcome>",
+    ])
+    return
+  }
+
+  // Build title from first line (max 80 chars)
+  let lines = route.body.split("\n")
+  let title = lines[0].trim()
+  if (title.length > 80) title = title.slice(0, 80).trim()
+
+  // Build structured description
+  let description
+  if (lines.length > 1) {
+    // Multi-line: use full body as description
+    description = route.body.trim()
+  } else {
+    // Single line: add structured mission template
+    description = `Outcome: ${route.body.trim()}\nSuccess metric: TBD\nConstraints: TBD\nStop criteria: TBD`
+  }
+
+  // Append transcript context if available
+  if (transcript.length > 0) {
+    description +=
+      "\n\n## Conversation context\n\n" + formatTranscriptForPrompt()
+  }
+
+  // Create the mission bead
+  let beadId
+  try {
+    let result = await runInDefault("br", [
+      "create",
+      "--actor",
+      AGENT,
+      "--owner",
+      AGENT,
+      `--title=${title}`,
+      `--description=${description}`,
+      "--labels",
+      "mission",
+      "--type=task",
+      "--priority=2",
+    ])
+    let beadMatch = result.stdout.match(/bd-\w+/)
+    beadId = beadMatch ? beadMatch[0] : "unknown"
+    await runCommand("bus", [
+      "send",
+      "--agent",
+      AGENT,
+      channel,
+      `Mission created: ${beadId}: ${title}`,
+      "-L",
+      "feedback",
+    ])
+  } catch (err) {
+    console.error("Error creating mission bead:", err.message)
+    await runCommand("bus", [
+      "send",
+      "--agent",
+      AGENT,
+      channel,
+      `Failed to create mission bead: ${err.message}`,
+    ])
+    return
+  }
+
+  // Spawn dev-loop with BOTBOX_MISSION env var
+  let scriptPath = ".agents/botbox/scripts/dev-loop.mjs"
+  let args = ["bun", scriptPath, PROJECT, AGENT]
+  console.log(`Exec into dev-loop with mission ${beadId}: ${args.join(" ")}`)
+
+  await runCommand("bus", [
+    "send",
+    "--agent",
+    AGENT,
+    channel,
+    `Dev agent spawned for mission ${beadId}.`,
+    "-L",
+    "spawn-ack",
+  ]).catch(() => {})
+
+  // Hand off to dev-loop with BOTBOX_MISSION in env
+  let env = { ...process.env, BOTBOX_MISSION: beadId }
+  let proc = spawn("bun", [scriptPath, PROJECT, AGENT], {
+    stdio: "inherit",
+    env,
   })
   let code = await new Promise((resolve) => {
     proc.on("close", (c) => resolve(c ?? 1))
@@ -789,6 +905,11 @@ async function handleQuestionFollowUpLoop(channel, lastMessage) {
     if (reParsed.type === "dev") {
       addToTranscript("user", followUp.agent, followUp.body)
       await handleDev(reParsed, channel, followUp)
+      return
+    }
+    if (reParsed.type === "mission") {
+      addToTranscript("user", followUp.agent, followUp.body)
+      await handleMission(reParsed, channel, followUp)
       return
     }
     if (reParsed.type === "bead") {
@@ -977,6 +1098,9 @@ async function main() {
   switch (route.type) {
     case "dev":
       await handleDev(route, channel, triggerMessage)
+      break
+    case "mission":
+      await handleMission(route, channel, triggerMessage)
       break
     case "bead":
       await handleBead(route, channel, triggerMessage)

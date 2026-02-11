@@ -298,7 +298,7 @@ async function findWork() {
 }
 
 // --- Build reviewer prompt ---
-function buildPrompt(lastIteration) {
+function buildPrompt(lastIteration, work) {
 	// Derive role from agent name (e.g., "myproject-security" -> "security")
 	const role = deriveRoleFromAgentName(AGENT);
 	const promptName = getReviewerPromptName(role);
@@ -321,6 +321,34 @@ function buildPrompt(lastIteration) {
 			}
 		} else {
 			throw err;
+		}
+	}
+
+	// Append workspace context from findWork() so the agent doesn't have to re-discover it
+	if (work?.inbox) {
+		let reviews = work.inbox.reviews_awaiting_vote || [];
+		let threads = work.inbox.threads_with_new_responses || [];
+		if (reviews.length > 0 || threads.length > 0) {
+			let ctx = '\n\n## PENDING WORK (pre-discovered by reviewer-loop)\n\n';
+			ctx += 'The following reviews and threads need your attention. Workspace names are provided — use `maw exec <workspace> -- crit ...` to work in the correct workspace.\n\n';
+			if (reviews.length > 0) {
+				ctx += '### Reviews awaiting vote:\n';
+				for (let r of reviews) {
+					let id = r.review_id || r.id;
+					ctx += `- Review ${id} in workspace **${r.workspace}**: ${r.title || '(no title)'}\n`;
+					ctx += `  → maw exec ${r.workspace} -- crit review ${id}\n`;
+				}
+			}
+			if (threads.length > 0) {
+				ctx += '### Threads with new responses:\n';
+				for (let t of threads) {
+					let id = t.thread_id || t.id;
+					let reviewId = t.review_id || '';
+					ctx += `- Thread ${id} in workspace **${t.workspace}**${reviewId ? ` (review ${reviewId})` : ''}\n`;
+					ctx += `  → maw exec ${t.workspace} -- crit review ${reviewId || '<review-id>'}\n`;
+				}
+			}
+			basePrompt += ctx;
 		}
 	}
 
@@ -495,7 +523,7 @@ async function main() {
 		// Run Claude
 		try {
 			const lastIteration = await readLastIteration();
-			const prompt = buildPrompt(lastIteration);
+			const prompt = buildPrompt(lastIteration, work);
 			const result = await runClaude(prompt);
 
 			// Check for completion signals

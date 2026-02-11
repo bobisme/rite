@@ -31,9 +31,24 @@ Support three output formats via `--format` flag:
 | `pretty` | TTY (interactive terminal) | Humans | Tables, color, box-drawing. Never fed to LLMs or parsed programmatically. |
 | `json` | Explicit `--format json` | Machines | Structured, parseable, stable schema. Always an object envelope. |
 
+### `--json` shorthand
+
+Provide `--json` as a **hidden** alias for `--format json`. This is the most common format agents request, and they frequently guess `--json` before discovering `--format json`.
+
+```bash
+# Both must work identically
+tool items list --format json
+tool items list --json
+
+# --json is hidden: not shown in --help, not in completions
+# --format json is the canonical form shown in docs and help
+```
+
+Hidden means: don't document it, don't show it in `--help` output, but accept it silently. The goal is to reduce agent friction without cluttering the documented interface.
+
 ### Format auto-detection
 
-Resolution order: `--format` flag > `FORMAT` env var > TTY auto-detect.
+Resolution order: `--format` flag / `--json` > `FORMAT` env var > TTY auto-detect.
 
 ```bash
 # Explicit flag always wins

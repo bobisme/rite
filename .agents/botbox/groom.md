@@ -13,6 +13,7 @@ Groom a set of ready beads to improve backlog quality. Use this when you need to
    - **Title**: Should be clear and actionable (imperative form, e.g., "Add /health endpoint"). If vague, update: `maw exec default -- br update --actor $AGENT <bead-id> --title="..."`
    - **Description**: Should explain what and why. If missing or vague, add context: `maw exec default -- br update --actor $AGENT <bead-id> --description="..."`
    - **Priority**: Should reflect relative importance. Adjust if wrong: `maw exec default -- br update --actor $AGENT <bead-id> --priority=<1-4>`
+   - **Risk label**: Does the bead have an appropriate risk label? Assess based on blast radius (how many users/systems affected), data sensitivity (PII, financial, auth), reversibility (can we roll back easily?), and dependency uncertainty (new deps, upstream changes). Add `risk:low`, `risk:high`, or `risk:critical` as appropriate using `maw exec default -- br label add --actor $AGENT -l risk:<level> <bead-id>`. No label = `risk:medium` default.
    - **Labels**: Add labels if the bead fits a category (see Label Conventions below). Apply with `maw exec default -- br label add --actor $AGENT -l <label> <bead-id>` (creates label if it doesn't exist).
    - **Acceptance criteria**: Description should include what "done" looks like. If missing, append criteria to the description.
    - **Testing strategy**: Description should mention how to verify the work (e.g., "run tests", "manual check", "curl endpoint"). If missing, append a brief testing note.
@@ -62,6 +63,12 @@ Apply labels during grooming when a bead clearly fits a category. Don't over-lab
 - `review-finding` — Issues discovered during code review
 - `must-fix` — Critical issues from reviews (blocks merge)
 - `should-fix` — Non-blocking review feedback (nice-to-have improvements)
+
+**Risk**
+- `risk:low` — Typo fixes, doc updates, config tweaks (self-review, no crit review)
+- `risk:high` — Security-sensitive, data integrity, user-visible changes (security review + checklist)
+- `risk:critical` — Irreversible actions, migrations, regulated changes (human approval required)
+- Note: `risk:medium` is the default — no label needed for standard work
 
 ### Naming Conventions
 

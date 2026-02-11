@@ -49,40 +49,48 @@ if [ "$COUNT" = "0" ]; then
 fi
 
 if [ "$COUNT" -gt 0 ]; then
-  # Fetch message previews (limit 5, text format for easy parsing)
-  FETCH_CMD="bus inbox --mentions --channels \"$CHANNEL\" --limit-per-channel 5 --format text"
+  # Fetch messages as JSON for reliable parsing
+  FETCH_CMD="bus inbox --mentions --channels \"$CHANNEL\" --limit-per-channel 5 --format json"
   if [ -n "$AGENT" ]; then
-    FETCH_CMD="bus inbox --agent \"$AGENT\" --mentions --channels \"$CHANNEL\" --limit-per-channel 5 --format text"
+    FETCH_CMD="bus inbox --agent \"$AGENT\" --mentions --channels \"$CHANNEL\" --limit-per-channel 5 --format json"
   fi
 
-  MESSAGES=$(eval $FETCH_CMD 2>/dev/null | \
-    grep -E '^\[' | \
-    sed 's/\[Today [0-9:]*\] //' | \
-    sed 's/\[Yesterday [0-9:]*\] //' | \
-    sed 's/\[[0-9-]* [0-9:]*\] //' | \
-    head -5 | \
-    while IFS= read -r line; do
-      # Truncate to ~80 chars
-      if [ ${#line} -gt 80 ]; then
-        echo "  - ${line:0:77}..."
-      else
-        echo "  - $line"
-      fi
-    done)
+  INBOX_JSON=$(eval $FETCH_CMD 2>/dev/null)
+
+  # Build message previews from JSON, one per line, escaped for JSON embedding
+  MESSAGES=""
+  while IFS= read -r msg_line; do
+    [ -z "$msg_line" ] && continue
+    SENDER=$(echo "$msg_line" | jq -r '.agent // "unknown"')
+    BODY=$(echo "$msg_line" | jq -r '.body // ""')
+
+    # Tag messages that @mention this agent
+    TAG=""
+    if [ -n "$AGENT" ] && echo "$BODY" | grep -q "@$AGENT"; then
+      TAG="[MENTIONS YOU] "
+    fi
+
+    # Build preview: "  - [TAG] sender: body" truncated to ~100 chars
+    PREVIEW="$TAG$SENDER: $BODY"
+    if [ ${#PREVIEW} -gt 100 ]; then
+      PREVIEW="${PREVIEW:0:97}..."
+    fi
+
+    if [ -n "$MESSAGES" ]; then
+      MESSAGES="$MESSAGES\\n  - $PREVIEW"
+    else
+      MESSAGES="  - $PREVIEW"
+    fi
+  done < <(echo "$INBOX_JSON" | jq -c '(.mentions[]?.message // .messages[]?) // empty' 2>/dev/null)
 
   MARK_READ_CMD="bus inbox --mentions --channels $CHANNEL --mark-read"
   if [ -n "$AGENT" ]; then
     MARK_READ_CMD="bus inbox --agent $AGENT --mentions --channels $CHANNEL --mark-read"
   fi
 
-  cat << EOF
-{
-  "hookSpecificOutput": {
-    "hookEventName": "PostToolUse",
-    "additionalContext": "STOP: You have $COUNT unread botbus message(s) in #$CHANNEL. Check if any need a response:\n$MESSAGES\n\nTo read and respond: \`$MARK_READ_CMD\`"
-  }
-}
-EOF
+  # Use jq to produce valid JSON with proper escaping
+  jq -n --arg ctx "STOP: You have $COUNT unread botbus message(s) in #$CHANNEL. Check if any need a response:\n$MESSAGES\n\nTo read and respond: \`$MARK_READ_CMD\`" \
+    '{ hookSpecificOutput: { hookEventName: "PostToolUse", additionalContext: $ctx } }'
 fi
 
 exit 0

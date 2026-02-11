@@ -54,8 +54,8 @@ pub struct Cli {
     #[arg(short, long, global = true, action = clap::ArgAction::Count)]
     pub verbose: u8,
 
-    /// Output in JSON format (where applicable) [deprecated: use --format json]
-    #[arg(long, global = true)]
+    /// Hidden alias for --format json (agents frequently guess this)
+    #[arg(long, global = true, hide = true)]
     pub json: bool,
 
     /// Output format: pretty (default for TTY), text (default for pipes), or json
@@ -115,6 +115,10 @@ pub enum Commands {
     History {
         /// Channel to view (default: general)
         channel: Option<String>,
+
+        /// Channel to view (named alternative to positional)
+        #[arg(short = 'c', long = "channel", hide = true)]
+        channel_named: Option<String>,
 
         /// Number of messages (default: 50)
         #[arg(short = 'n', long, alias = "limit", default_value = "50")]

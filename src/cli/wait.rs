@@ -58,12 +58,11 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
 
     // When --mentions is set, watch ALL channels (mentions can come from anywhere).
     // The --channels list is used for OR matching, not for restricting what we watch.
-    let watch_channels: Option<Vec<&str>> =
-        if options.mentions || options.channels.is_empty() {
-            None
-        } else {
-            Some(options.channels.iter().map(|s| s.as_str()).collect())
-        };
+    let watch_channels: Option<Vec<&str>> = if options.mentions || options.channels.is_empty() {
+        None
+    } else {
+        Some(options.channels.iter().map(|s| s.as_str()).collect())
+    };
 
     let channels_path = channels_dir();
     if !channels_path.exists() {

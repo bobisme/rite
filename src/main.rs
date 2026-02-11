@@ -96,6 +96,7 @@ fn main() -> Result<()> {
 
         Commands::History {
             channel,
+            channel_named,
             count,
             follow,
             timeout,
@@ -109,7 +110,7 @@ fn main() -> Result<()> {
             show_offset,
             format: local_format,
         } => cli::history::run(cli::history::HistoryOptions {
-            channel,
+            channel: channel.or(channel_named),
             count,
             follow,
             timeout,

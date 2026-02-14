@@ -18,17 +18,25 @@ Groom a set of ready beads to improve backlog quality. Use this when you need to
    - **Acceptance criteria**: Description should include what "done" looks like. If missing, append criteria to the description.
    - **Testing strategy**: Description should mention how to verify the work (e.g., "run tests", "manual check", "curl endpoint"). If missing, append a brief testing note.
    - Add a comment noting what you groomed: `maw exec default -- br comments add --actor $AGENT --author $AGENT <bead-id> "Groomed by $AGENT: <what changed>"`
-3. Check bead size: each bead should be one resumable unit of work — if a session crashes after completing it, the next session knows exactly where to pick up. If a bead covers multiple distinct steps, break it down:
+3. **Set dependencies between beads.** This is critical — without dependencies, multiple agents can be dispatched to work on beads that must be sequential, causing conflicts and wasted work. For each pair of ready beads, ask: "does one need to land before the other?" Common dependency patterns:
+   - **Interface before consumer**: If bead A adds/changes a function, type, or API that bead B uses → `br dep add --actor $AGENT <B> <A>`
+   - **Schema before code**: If bead A changes a data format, config schema, or database structure that bead B relies on → `br dep add --actor $AGENT <B> <A>`
+   - **Core before extension**: If bead A adds base functionality and bead B extends it → `br dep add --actor $AGENT <B> <A>`
+   - **Shared file conflict**: If two beads will edit the same file in overlapping regions, sequence them to avoid merge conflicts → `br dep add --actor $AGENT <later> <earlier>`
+   - Use `maw exec default -- br graph --all` to visualize the full dependency graph across all open beads — verify there are no missing edges or unintended isolation. Use `br graph <id>` to inspect a single bead's tree.
+   - Add a comment when adding a dependency to explain why: `maw exec default -- br comments add --actor $AGENT --author $AGENT <blocked-id> "Blocked by <blocker-id>: <reason>"`
+4. Check bead size: each bead should be one resumable unit of work — if a session crashes after completing it, the next session knows exactly where to pick up. If a bead covers multiple distinct steps, break it down:
    - Create smaller child beads with `maw exec default -- br create --actor $AGENT --owner $AGENT` and `maw exec default -- br dep add --actor $AGENT <child> <parent>`.
-   - Add sibling dependencies where order matters: `maw exec default -- br dep add --actor $AGENT <later> <earlier>` (e.g., "write report" blocked by "run eval").
+   - Add sibling dependencies where order matters (see step 3 patterns).
    - Add a comment to the parent: `maw exec default -- br comments add --actor $AGENT --author $AGENT <parent-id> "Broken down into smaller tasks: <child-id>, ..."`
-4. Announce if you groomed multiple beads: `bus send --agent $AGENT $BOTBOX_PROJECT "Groomed N beads: <summary>" -L grooming`
+5. Announce if you groomed multiple beads: `bus send --agent $AGENT $BOTBOX_PROJECT "Groomed N beads: <summary>" -L grooming`
 
 ## Acceptance Criteria
 
 - All ready beads have clear, actionable titles
 - Descriptions include acceptance criteria and testing strategy
 - Priority levels make sense relative to each other
+- **Dependencies are set between beads that must be sequenced** (shared files, interface/consumer, schema/code)
 - Large beads are broken into smaller, atomic tasks
 - Beads with the same owner/context are labeled consistently
 

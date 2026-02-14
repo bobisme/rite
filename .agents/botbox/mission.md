@@ -91,7 +91,7 @@ maw exec default -- br comments add --actor $AGENT --author $AGENT <child-id> \
 
 # Spawn worker with mission env vars
 botty spawn --pass-env --timeout 600 $WORKER \
-  botbox run-agent agent-loop \
+  botbox run worker-loop \
   --env "BOTBOX_BEAD=<child-id>" \
   --env "BOTBOX_WORKSPACE=frost-castle" \
   --env "BOTBOX_MISSION=<mission-id>" \

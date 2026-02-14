@@ -72,6 +72,12 @@ pub struct App {
     sidebar_width: u16,
     /// Whether user is currently dragging the sidebar border
     dragging_border: bool,
+    /// Cached agents pane area for mouse detection
+    agents_area: Rect,
+    /// Whether user is currently dragging the sidebar split border (channels/agents)
+    dragging_sidebar_split: bool,
+    /// User-override for agents pane height (None = auto-calculate)
+    agents_height: Option<u16>,
 }
 
 #[derive(Clone, Copy, PartialEq)]
@@ -132,6 +138,9 @@ impl App {
             last_agent_update: None,
             sidebar_width: 30, // Default width: 30 columns
             dragging_border: false,
+            agents_area: Rect::default(),
+            dragging_sidebar_split: false,
+            agents_height: None,
         };
 
         app.update_new_message_counts();
@@ -370,6 +379,13 @@ impl App {
                     return Ok(());
                 }
 
+                // Check if click is on the horizontal border between channels and agents
+                if x < self.sidebar_width && self.agents_area.height > 0 && y == self.agents_area.y
+                {
+                    self.dragging_sidebar_split = true;
+                    return Ok(());
+                }
+
                 // Check if click is in channels area
                 if x >= self.channels_area.x
                     && x < self.channels_area.x + self.channels_area.width
@@ -422,6 +438,7 @@ impl App {
             MouseEventKind::Up(MouseButton::Left) => {
                 // Stop dragging on mouse up
                 self.dragging_border = false;
+                self.dragging_sidebar_split = false;
             }
             MouseEventKind::Drag(MouseButton::Left) => {
                 if self.dragging_border {
@@ -434,6 +451,18 @@ impl App {
                     let max_sidebar = terminal_width.saturating_sub(min_messages);
 
                     self.sidebar_width = x.clamp(min_sidebar, max_sidebar);
+                } else if self.dragging_sidebar_split {
+                    let y = mouse.row;
+                    let sidebar_top = self.channels_area.y;
+                    let sidebar_bottom = self.agents_area.y + self.agents_area.height;
+                    let total = sidebar_bottom.saturating_sub(sidebar_top);
+                    let min_channels: u16 = 5;
+                    let min_agents: u16 = 3;
+
+                    let channels_height = y
+                        .saturating_sub(sidebar_top)
+                        .clamp(min_channels, total.saturating_sub(min_agents));
+                    self.agents_height = Some(total.saturating_sub(channels_height));
                 }
             }
             MouseEventKind::ScrollUp => {
@@ -927,6 +956,16 @@ impl App {
     /// Get current sidebar width
     pub fn sidebar_width(&self) -> u16 {
         self.sidebar_width
+    }
+
+    /// Update cached agents pane area for mouse detection
+    pub fn set_agents_area(&mut self, area: Rect) {
+        self.agents_area = area;
+    }
+
+    /// Get user-override for agents pane height (None = auto-calculate)
+    pub fn agents_height_override(&self) -> Option<u16> {
+        self.agents_height
     }
 }
 

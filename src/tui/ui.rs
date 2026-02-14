@@ -34,20 +34,25 @@ pub fn draw(f: &mut Frame, app: &mut App) {
         .split(outer_chunks[0]);
 
     // Split sidebar vertically: channels on top, agents below
-    // Calculate agent pane height: 2 lines per agent (name + message) + 2 for borders, max 20
-    let agent_count = app.agent_statuses().len();
-    let agent_height = ((agent_count * 2) + 2).clamp(5, 20) as u16;
+    // Use user-override height if set (from drag resize), otherwise auto-calculate
+    let agent_height = if let Some(h) = app.agents_height_override() {
+        h
+    } else {
+        let agent_count = app.agent_statuses().len();
+        ((agent_count * 2) + 2).clamp(5, 20) as u16
+    };
 
     let sidebar_chunks = Layout::default()
         .direction(Direction::Vertical)
         .constraints([
-            Constraint::Min(10),              // channels (flexible, min 10 lines)
-            Constraint::Length(agent_height), // agents (dynamic, 5-20 lines)
+            Constraint::Min(5),               // channels (flexible, min 5 lines)
+            Constraint::Length(agent_height), // agents (user-resizable or dynamic)
         ])
         .split(main_chunks[0]);
 
     // Update cached layout areas for mouse detection
     app.set_layout_areas(sidebar_chunks[0], main_chunks[1]);
+    app.set_agents_area(sidebar_chunks[1]);
 
     draw_channels(f, app, sidebar_chunks[0]);
     draw_agents(f, app, sidebar_chunks[1]);
@@ -189,101 +194,105 @@ fn format_channel_line_dm(
 }
 
 fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
-    use super::app::AgentStatus;
+    use super::app::{AgentInfo, AgentStatus};
+    use std::collections::BTreeMap;
 
     let agents = app.agent_statuses();
 
-    // Separate root agents from subagents (name contains '/')
-    let mut root_agents: Vec<&_> = Vec::new();
-    let mut subagents: std::collections::HashMap<&str, Vec<&_>> = std::collections::HashMap::new();
+    // Build a trie from agent names: each "/" creates a nesting level.
+    // e.g., "chief-dev/0/agent0" → chief-dev → 0 → agent0
+    struct Node<'a> {
+        info: Option<&'a AgentInfo>,
+        children: BTreeMap<String, Node<'a>>,
+    }
 
-    for agent_info in agents {
-        if let Some((root, _)) = agent_info.name.split_once('/') {
-            subagents.entry(root).or_default().push(agent_info);
-        } else {
-            root_agents.push(agent_info);
+    impl<'a> Node<'a> {
+        fn new() -> Self {
+            Self {
+                info: None,
+                children: BTreeMap::new(),
+            }
+        }
+
+        fn flatten(&self, depth: usize, result: &mut Vec<(usize, String, Option<&'a AgentInfo>)>) {
+            for (name, child) in &self.children {
+                result.push((depth, name.clone(), child.info));
+                child.flatten(depth + 1, result);
+            }
         }
     }
 
-    let render_agent = |agent_info: &super::app::AgentInfo, indent: &str| -> Vec<ListItem> {
-        let (indicator, name_style) = match agent_info.status {
-            AgentStatus::Online => (
-                Span::styled("● ", Style::default().fg(Color::Green)),
-                Style::default().fg(Color::White),
-            ),
-            AgentStatus::Afk => (
-                Span::styled("● ", Style::default().fg(Color::DarkGray)),
-                Style::default().fg(Color::DarkGray),
-            ),
-            AgentStatus::Offline => (
-                Span::styled("● ", Style::default().fg(Color::DarkGray)),
-                Style::default().fg(Color::DarkGray),
-            ),
-        };
-
-        // For subagents, show only the part after the '/'
-        let display_name = if let Some((_, sub)) = agent_info.name.split_once('/') {
-            sub
-        } else {
-            &agent_info.name
-        };
-
-        let name_line = Line::from(vec![
-            Span::raw(indent.to_string()),
-            indicator,
-            Span::styled(display_name.to_string(), name_style),
-        ]);
-
-        if let (AgentStatus::Online, Some(msg)) = (&agent_info.status, &agent_info.message) {
-            let msg_indent = format!("{indent}  ");
-            let truncated = if msg.len() > 32 {
-                format!("{}...", &msg[..29])
-            } else {
-                msg.clone()
-            };
-            let msg_line = Line::from(vec![
-                Span::raw(msg_indent),
-                Span::styled(
-                    truncated,
-                    Style::default()
-                        .fg(Color::Blue)
-                        .add_modifier(Modifier::ITALIC),
-                ),
-            ]);
-            vec![ListItem::new(name_line), ListItem::new(msg_line)]
-        } else {
-            vec![ListItem::new(name_line)]
+    let mut tree = Node::new();
+    for agent_info in agents {
+        let segments: Vec<&str> = agent_info.name.split('/').collect();
+        let mut current = &mut tree;
+        for seg in segments {
+            current = current
+                .children
+                .entry(seg.to_string())
+                .or_insert_with(Node::new);
         }
-    };
+        current.info = Some(agent_info);
+    }
 
-    let items: Vec<ListItem> = root_agents
+    let mut render_list = Vec::new();
+    tree.flatten(0, &mut render_list);
+
+    // Render each node as list items
+    let items: Vec<ListItem> = render_list
         .iter()
-        .flat_map(|agent_info| {
-            let mut lines = render_agent(agent_info, "");
-            // Append any subagents belonging to this root
-            if let Some(subs) = subagents.get(agent_info.name.as_str()) {
-                for sub in subs {
-                    lines.extend(render_agent(sub, "  "));
-                }
-            }
-            lines
-        })
-        .chain(
-            // Render orphan subagents (root agent not present) under a dim root header
-            subagents
-                .iter()
-                .filter(|(root, _)| !root_agents.iter().any(|a| a.name == **root))
-                .flat_map(|(root, subs)| {
-                    let mut lines = vec![ListItem::new(Line::from(Span::styled(
-                        root.to_string(),
+        .flat_map(|(depth, name, info)| {
+            let indent = "  ".repeat(*depth);
+
+            let (indicator, name_style) = if let Some(info) = info {
+                match info.status {
+                    AgentStatus::Online => (
+                        Span::styled("● ", Style::default().fg(Color::Green)),
+                        Style::default().fg(Color::White),
+                    ),
+                    AgentStatus::Afk | AgentStatus::Offline => (
+                        Span::styled("● ", Style::default().fg(Color::DarkGray)),
                         Style::default().fg(Color::DarkGray),
-                    )))];
-                    for sub in subs {
-                        lines.extend(render_agent(sub, "  "));
-                    }
-                    lines
-                }),
-        )
+                    ),
+                }
+            } else {
+                // Synthetic parent node (no agent:// claim) — offline glyph
+                (
+                    Span::styled("● ", Style::default().fg(Color::DarkGray)),
+                    Style::default().fg(Color::DarkGray),
+                )
+            };
+
+            let name_line = Line::from(vec![
+                Span::raw(indent.clone()),
+                indicator,
+                Span::styled(name.to_string(), name_style),
+            ]);
+
+            if let Some(info) = info
+                && info.status == AgentStatus::Online
+                && let Some(msg) = &info.message
+            {
+                let msg_indent = format!("{indent}    ");
+                let truncated = if msg.len() > 32 {
+                    format!("{}...", &msg[..29])
+                } else {
+                    msg.clone()
+                };
+                let msg_line = Line::from(vec![
+                    Span::raw(msg_indent),
+                    Span::styled(
+                        truncated,
+                        Style::default()
+                            .fg(Color::Blue)
+                            .add_modifier(Modifier::ITALIC),
+                    ),
+                ]);
+                vec![ListItem::new(name_line), ListItem::new(msg_line)]
+            } else {
+                vec![ListItem::new(name_line)]
+            }
+        })
         .collect();
 
     let list = List::new(items).block(

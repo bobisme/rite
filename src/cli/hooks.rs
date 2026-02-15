@@ -54,6 +54,7 @@ pub fn add(
     claim_owner: Option<String>,
     priority: i32,
     require_flag: Option<String>,
+    description: Option<String>,
     agent: Option<&str>,
     format: OutputFormat,
 ) -> Result<()> {
@@ -160,6 +161,7 @@ pub fn add(
         priority,
         require_flag: require_flag.map(|f| f.to_lowercase()),
         active: true,
+        description,
     };
 
     append_record(&hooks_path(), &hook).context("Failed to save hook")?;
@@ -192,6 +194,8 @@ struct HookInfo {
     priority: i32,
     #[serde(skip_serializing_if = "Option::is_none")]
     require_flag: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    description: Option<String>,
     last_fired: Option<String>,
     active: bool,
 }
@@ -222,6 +226,7 @@ pub fn list(format: OutputFormat) -> Result<()> {
             cooldown_secs: h.cooldown_secs,
             priority: h.priority,
             require_flag: h.require_flag.clone(),
+            description: h.description.clone(),
             last_fired: h.last_fired.map(|t| t.to_rfc3339()),
             active: h.active,
         })
@@ -268,6 +273,9 @@ pub fn list(format: OutputFormat) -> Result<()> {
                     if let Some(ref flag) = h.require_flag {
                         println!("    require-flag: !{}", flag);
                     }
+                    if let Some(ref desc) = h.description {
+                        println!("    description: {}", desc);
+                    }
                 }
             }
         }
@@ -278,7 +286,15 @@ pub fn list(format: OutputFormat) -> Result<()> {
                     HookCondition::MentionReceived { .. } => "mention",
                 };
                 let command_str = shell_display(&h.command);
-                println!("{}  {}  {}  {}", h.id, h.channel, event, command_str);
+                let desc_str = h.description.as_deref().unwrap_or("");
+                if desc_str.is_empty() {
+                    println!("{}  {}  {}  {}", h.id, h.channel, event, command_str);
+                } else {
+                    println!(
+                        "{}  {}  {}  {}  {}",
+                        h.id, h.channel, event, command_str, desc_str
+                    );
+                }
             }
         }
     }
@@ -899,6 +915,7 @@ mod tests {
                 priority: 0,
                 require_flag: None,
                 active: true,
+                description: None,
             },
             Hook {
                 id: "hk-abc".to_string(),
@@ -918,6 +935,7 @@ mod tests {
                 priority: 0,
                 require_flag: None,
                 active: false, // Deactivated
+                description: None,
             },
         ];
 
@@ -958,6 +976,7 @@ mod tests {
                 priority: 10,
                 require_flag: None,
                 active: true,
+                description: None,
             },
             Hook {
                 id: "hk-low".to_string(),
@@ -977,6 +996,7 @@ mod tests {
                 priority: -5,
                 require_flag: None,
                 active: true,
+                description: None,
             },
             Hook {
                 id: "hk-mid".to_string(),
@@ -996,6 +1016,7 @@ mod tests {
                 priority: 0,
                 require_flag: None,
                 active: true,
+                description: None,
             },
         ];
 

@@ -266,13 +266,74 @@ mod tests {
 
     #[test]
     fn test_hook_backward_compat_no_claim_release() {
-        // Simulate old hook JSON without claim_release, created_by, or priority fields
+        // Simulate old hook JSON without claim_release, created_by, priority, or description fields
         let json = r#"{"id":"hk-old","channel":"test","condition":{"type":"claim_available","pattern":"x"},"command":["echo"],"cwd":"/tmp","cooldown_secs":30,"created_at":"2025-01-01T00:00:00Z","active":true}"#;
         let hook: Hook = serde_json::from_str(json).unwrap();
         assert!(hook.claim_release.is_none());
         assert!(hook.created_by.is_none());
         assert_eq!(hook.priority, 0);
         assert!(hook.require_flag.is_none());
+        assert!(hook.description.is_none());
+    }
+
+    #[test]
+    fn test_description_roundtrip() {
+        let hook = Hook {
+            id: "hk-desc".to_string(),
+            channel: "test".to_string(),
+            condition: HookCondition::MentionReceived {
+                agent: "test-agent".to_string(),
+            },
+            command: vec!["echo".to_string()],
+            cwd: PathBuf::from("/tmp"),
+            cooldown_secs: 30,
+            last_fired: None,
+            created_at: Utc::now(),
+            created_by: None,
+            claim_release: None,
+            claim_pattern: None,
+            claim_owner: None,
+            priority: 0,
+            require_flag: None,
+            active: true,
+            description: Some("botbox:respond:general".to_string()),
+        };
+
+        let json = serde_json::to_string(&hook).unwrap();
+        assert!(json.contains("description"));
+        assert!(json.contains("botbox:respond:general"));
+        let parsed: Hook = serde_json::from_str(&json).unwrap();
+        assert_eq!(
+            parsed.description,
+            Some("botbox:respond:general".to_string())
+        );
+    }
+
+    #[test]
+    fn test_description_omitted_when_none() {
+        let hook = Hook {
+            id: "hk-nodesc".to_string(),
+            channel: "test".to_string(),
+            condition: HookCondition::MentionReceived {
+                agent: "test-agent".to_string(),
+            },
+            command: vec!["echo".to_string()],
+            cwd: PathBuf::from("/tmp"),
+            cooldown_secs: 30,
+            last_fired: None,
+            created_at: Utc::now(),
+            created_by: None,
+            claim_release: None,
+            claim_pattern: None,
+            claim_owner: None,
+            priority: 0,
+            require_flag: None,
+            active: true,
+            description: None,
+        };
+
+        let json = serde_json::to_string(&hook).unwrap();
+        assert!(!json.contains("description"));
     }
 
     #[test]

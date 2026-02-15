@@ -450,6 +450,10 @@ pub enum HooksCommands {
         #[arg(long)]
         require_flag: Option<String>,
 
+        /// Optional description for identification/deduplication (e.g., "botbox:respond:general")
+        #[arg(long)]
+        description: Option<String>,
+
         /// Command to execute (place after --)
         #[arg(last = true, required = true)]
         command: Vec<String>,

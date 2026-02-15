@@ -305,6 +305,7 @@ fn main() -> Result<()> {
                     claim_owner,
                     priority,
                     require_flag,
+                    description,
                 } => cli::hooks::add(
                     channel,
                     claim,
@@ -317,6 +318,7 @@ fn main() -> Result<()> {
                     claim_owner,
                     priority,
                     require_flag,
+                    description,
                     cli.agent.as_deref(),
                     format,
                 ),

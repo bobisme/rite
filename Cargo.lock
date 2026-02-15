@@ -291,7 +291,7 @@ dependencies = [
 
 [[package]]
 name = "botbus"
-version = "0.30.3"
+version = "0.30.4"
 dependencies = [
  "anyhow",
  "assert_cmd",

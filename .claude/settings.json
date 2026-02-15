@@ -1,83 +1,83 @@
 {
   "hooks": {
-    "SessionStart": [
+    "PostToolUse": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/check-jj.sh"
+            "command": "botbox hooks run check-bus-inbox --project-root /home/bob/src/botbus/ws/default",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
       },
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/init-agent.sh"
+            "command": "botbox hooks run claim-agent --project-root /home/bob/src/botbus/ws/default",
+            "type": "command"
           }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/claim-agent.sh"
-          }
-        ]
+        ],
+        "matcher": ""
       }
     ],
     "PreCompact": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/check-jj.sh"
+            "command": "botbox hooks run init-agent --project-root /home/bob/src/botbus/ws/default",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
       },
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/init-agent.sh"
+            "command": "botbox hooks run check-jj --project-root /home/bob/src/botbus/ws/default",
+            "type": "command"
           }
-        ]
-      }
-    ],
-    "PostToolUse": [
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/claim-agent.sh"
-          }
-        ]
-      },
-      {
-        "matcher": "",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/check-bus-inbox.sh"
-          }
-        ]
+        ],
+        "matcher": ""
       }
     ],
     "SessionEnd": [
       {
-        "matcher": "",
         "hooks": [
           {
-            "type": "command",
-            "command": "/home/bob/src/botbus/ws/default/.agents/botbox/hooks/claim-agent.sh"
+            "command": "botbox hooks run claim-agent --project-root /home/bob/src/botbus/ws/default",
+            "type": "command"
           }
-        ]
+        ],
+        "matcher": ""
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "command": "botbox hooks run init-agent --project-root /home/bob/src/botbus/ws/default",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      },
+      {
+        "hooks": [
+          {
+            "command": "botbox hooks run check-jj --project-root /home/bob/src/botbus/ws/default",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      },
+      {
+        "hooks": [
+          {
+            "command": "botbox hooks run claim-agent --project-root /home/bob/src/botbus/ws/default",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
       }
     ]
   }

@@ -3,6 +3,7 @@
 //! Identity is determined by (in order of precedence):
 //! 1. Explicit --agent flag
 //! 2. BOTBUS_AGENT environment variable
+//! 3. AGENT environment variable (generic fallback)
 //!
 //! BotBus is stateless about identity - it trusts whatever name is provided.
 //! The orchestrator/user is responsible for persisting identity across sessions.
@@ -18,6 +19,7 @@ pub const AGENT_ENV_VAR: &str = "BOTBUS_AGENT";
 /// Checks in order:
 /// 1. Explicit agent name (from --agent flag)
 /// 2. BOTBUS_AGENT environment variable
+/// 3. AGENT environment variable (generic fallback)
 ///
 /// Returns None if no identity is configured.
 pub fn resolve_agent(explicit: Option<&str>) -> Option<String> {
@@ -26,8 +28,15 @@ pub fn resolve_agent(explicit: Option<&str>) -> Option<String> {
         return Some(name.to_string());
     }
 
-    // 2. Environment variable
+    // 2. BOTBUS_AGENT environment variable
     if let Ok(name) = env::var(AGENT_ENV_VAR)
+        && !name.is_empty()
+    {
+        return Some(name);
+    }
+
+    // 3. AGENT environment variable (generic fallback)
+    if let Ok(name) = env::var("AGENT")
         && !name.is_empty()
     {
         return Some(name);
@@ -97,10 +106,44 @@ mod tests {
     }
 
     #[test]
+    fn test_agent_env_fallback() {
+        // SAFETY: Test isolation
+        unsafe {
+            env::remove_var(AGENT_ENV_VAR);
+            env::set_var("AGENT", "generic-agent");
+        }
+
+        let result = resolve_agent(None);
+        assert_eq!(result, Some("generic-agent".to_string()));
+
+        unsafe {
+            env::remove_var("AGENT");
+        }
+    }
+
+    #[test]
+    fn test_botbus_agent_takes_precedence_over_agent() {
+        // SAFETY: Test isolation
+        unsafe {
+            env::set_var(AGENT_ENV_VAR, "botbus-agent");
+            env::set_var("AGENT", "generic-agent");
+        }
+
+        let result = resolve_agent(None);
+        assert_eq!(result, Some("botbus-agent".to_string()));
+
+        unsafe {
+            env::remove_var(AGENT_ENV_VAR);
+            env::remove_var("AGENT");
+        }
+    }
+
+    #[test]
     fn test_no_identity() {
         // SAFETY: Test isolation
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
+            env::remove_var("AGENT");
         }
 
         let result = resolve_agent(None);
@@ -112,6 +155,7 @@ mod tests {
         // SAFETY: Test isolation
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
+            env::remove_var("AGENT");
         }
 
         let result = require_agent(None);

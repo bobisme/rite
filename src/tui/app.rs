@@ -350,6 +350,10 @@ impl App {
                     KeyCode::Char('s') if ctrl => {
                         self.send_input_message()?;
                     }
+                    // Ctrl+J inserts newline (intercept before tui-textarea's delete-to-beginning binding)
+                    KeyCode::Char('j') if ctrl => {
+                        self.input.insert_str("\n");
+                    }
                     // Forward all other keys to tui-textarea (including Enter for newlines)
                     _ => {
                         use tui_textarea::Input;

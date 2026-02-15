@@ -61,6 +61,10 @@ pub struct Hook {
 
     /// Whether this hook is active
     pub active: bool,
+
+    /// Optional description for identification/deduplication
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 /// How to release the claim acquired when a hook fires.
@@ -193,6 +197,7 @@ mod tests {
             priority: 0,
             require_flag: None,
             active: true,
+            description: None,
         };
 
         let json = serde_json::to_string(&hook).unwrap();
@@ -327,6 +332,7 @@ mod tests {
             priority: 0,
             require_flag: Some("dev".to_string()),
             active: true,
+            description: None,
         };
 
         let json = serde_json::to_string(&hook).unwrap();
@@ -356,6 +362,7 @@ mod tests {
             priority: 0,
             require_flag: None,
             active: true,
+            description: None,
         };
 
         let json = serde_json::to_string(&hook).unwrap();

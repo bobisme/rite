@@ -404,6 +404,7 @@ pub enum ChannelsCommands {
 }
 
 #[derive(Subcommand)]
+#[allow(clippy::large_enum_variant)]
 pub enum HooksCommands {
     /// Add a new channel hook
     Add {

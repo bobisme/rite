@@ -340,6 +340,8 @@ pub struct ClaimInfo {
     pub active: bool,
     pub expires_at: DateTime<Utc>,
     pub expires_in_secs: i64,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 /// Parse a time specification (absolute or relative).
@@ -459,6 +461,7 @@ pub fn claims(
             active: c.active,
             expires_at: c.expires_at,
             expires_in_secs: (c.expires_at - now).num_seconds(),
+            message: c.message.clone(),
         })
         .collect();
 

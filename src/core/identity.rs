@@ -4,12 +4,14 @@
 //! 1. Explicit --agent flag
 //! 2. BOTBUS_AGENT environment variable
 //! 3. AGENT environment variable (generic fallback)
+//! 4. USER environment variable (only when stdout is a TTY — human convenience)
 //!
 //! BotBus is stateless about identity - it trusts whatever name is provided.
 //! The orchestrator/user is responsible for persisting identity across sessions.
 
 use anyhow::{Result, anyhow};
 use std::env;
+use std::io::IsTerminal;
 
 /// Environment variable name for agent identity.
 pub const AGENT_ENV_VAR: &str = "BOTBUS_AGENT";
@@ -20,6 +22,7 @@ pub const AGENT_ENV_VAR: &str = "BOTBUS_AGENT";
 /// 1. Explicit agent name (from --agent flag)
 /// 2. BOTBUS_AGENT environment variable
 /// 3. AGENT environment variable (generic fallback)
+/// 4. USER environment variable (only when stdout is a TTY)
 ///
 /// Returns None if no identity is configured.
 pub fn resolve_agent(explicit: Option<&str>) -> Option<String> {
@@ -37,6 +40,14 @@ pub fn resolve_agent(explicit: Option<&str>) -> Option<String> {
 
     // 3. AGENT environment variable (generic fallback)
     if let Ok(name) = env::var("AGENT")
+        && !name.is_empty()
+    {
+        return Some(name);
+    }
+
+    // 4. USER env var — only in interactive TTY sessions (human convenience)
+    if std::io::stdout().is_terminal()
+        && let Ok(name) = env::var("USER")
         && !name.is_empty()
     {
         return Some(name);
@@ -71,9 +82,11 @@ pub fn format_export(agent_name: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use serial_test::serial;
     use std::env;
 
     #[test]
+    #[serial]
     fn test_explicit_takes_precedence() {
         // SAFETY: Test isolation
         unsafe {
@@ -91,6 +104,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_env_var_used_when_no_explicit() {
         // SAFETY: Test isolation
         unsafe {
@@ -106,6 +120,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_agent_env_fallback() {
         // SAFETY: Test isolation
         unsafe {
@@ -122,6 +137,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_botbus_agent_takes_precedence_over_agent() {
         // SAFETY: Test isolation
         unsafe {
@@ -139,6 +155,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_no_identity() {
         // SAFETY: Test isolation
         unsafe {
@@ -151,6 +168,7 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_require_agent_error() {
         // SAFETY: Test isolation
         unsafe {

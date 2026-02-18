@@ -475,13 +475,14 @@ fn create_separator_line(width: usize) -> Line<'static> {
 }
 
 fn format_message(msg: &crate::core::message::Message, max_width: usize) -> Vec<Line<'static>> {
-    use crate::core::message::MessageMeta;
-
     let local_time: DateTime<Local> = msg.ts.with_timezone(&Local);
     let datetime_str = local_time.format("%Y-%m-%d %H:%M").to_string();
 
     // Early return for deleted message tombstones (should be filtered out, but defensive)
-    if matches!(&msg.meta, Some(MessageMeta::Deleted { .. })) {
+    if matches!(
+        &msg.meta,
+        Some(crate::core::message::MessageMeta::Deleted { .. })
+    ) {
         let dim_italic = Style::default()
             .fg(Color::DarkGray)
             .add_modifier(Modifier::ITALIC);
@@ -495,12 +496,7 @@ fn format_message(msg: &crate::core::message::Message, max_width: usize) -> Vec<
         ];
     }
 
-    let is_system = matches!(
-        &msg.meta,
-        Some(MessageMeta::System { .. } | MessageMeta::Claim { .. } | MessageMeta::Release { .. })
-    );
-
-    if is_system {
+    if is_system_message(msg) {
         return format_system_message(msg, &datetime_str, max_width);
     }
 
@@ -574,6 +570,20 @@ fn format_message(msg: &crate::core::message::Message, max_width: usize) -> Vec<
     result_lines.push(Line::from(""));
 
     result_lines
+}
+
+fn is_system_message(msg: &crate::core::message::Message) -> bool {
+    use crate::core::message::MessageMeta;
+
+    matches!(
+        &msg.meta,
+        Some(
+            MessageMeta::System { .. }
+                | MessageMeta::Claim { .. }
+                | MessageMeta::ClaimExtended { .. }
+                | MessageMeta::Release { .. }
+        )
+    )
 }
 
 /// Format a system message with lightning bolt glyph and dim italic styling.
@@ -909,4 +919,29 @@ fn draw_help_overlay(f: &mut Frame) {
         .alignment(Alignment::Left);
 
     f.render_widget(help, popup_area);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_system_message;
+    use crate::core::message::{Message, MessageMeta};
+
+    #[test]
+    fn treats_claim_extensions_as_system_messages() {
+        let msg = Message::new("botbox-dev", "claims", "Claim extended").with_meta(
+            MessageMeta::ClaimExtended {
+                patterns: vec!["agent://botbox-dev".to_string()],
+                ttl_secs: 600,
+            },
+        );
+
+        assert!(is_system_message(&msg));
+    }
+
+    #[test]
+    fn does_not_treat_regular_messages_as_system_messages() {
+        let msg = Message::new("botbox-dev", "general", "hello");
+
+        assert!(!is_system_message(&msg));
+    }
 }

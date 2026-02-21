@@ -273,7 +273,7 @@ fn draw_agents(f: &mut Frame, app: &App, area: Rect) {
                 && info.status == AgentStatus::Online
                 && let Some(msg) = &info.message
             {
-                let msg_indent = format!("{indent}    ");
+                let msg_indent = format!("{indent}  ");
                 let truncated = if msg.len() > 32 {
                     format!("{}...", &msg[..29])
                 } else {

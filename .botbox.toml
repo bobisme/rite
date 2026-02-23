@@ -14,7 +14,7 @@ install_command = "just install"
 
 # Companion tools to enable
 [tools]
-beads = true
+bones = true
 maw = true
 crit = true
 botbus = true

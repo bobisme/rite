@@ -1,7 +1,7 @@
 /target
 
 # bv (beads viewer) local config and caches
-.bv/
+.bones/
 tmp/
 # BotBus index (generated)
 .botbus/index.sqlite

@@ -48,11 +48,11 @@ At the end of your work, output exactly one of these completion signals:
       - MEDIUM: Error handling gaps, missing validation at boundaries
       - LOW: Code quality, naming, structure
       - INFO: Suggestions, style preferences, minor improvements
-      Use: maw exec $WS -- crit comment <id> "SEVERITY: <feedback>" --file <path> --line <line-or-range>
+      Use: maw exec $WS -- crit comment <id> --agent {{ AGENT }} "SEVERITY: <feedback>" --file <path> --line <line-or-range>
    i. Vote:
       - For `risk:critical` bones: ALWAYS BLOCK with comment "risk:critical requires human approval before merge"
-      - For other bones: maw exec $WS -- crit block <id> --reason "..." if any CRITICAL or HIGH issues exist
-      - maw exec $WS -- crit lgtm <id> if no CRITICAL or HIGH issues AND not risk:critical
+      - For other bones: maw exec $WS -- crit block <id> --agent {{ AGENT }} --reason "..." if any CRITICAL or HIGH issues exist
+      - maw exec $WS -- crit lgtm <id> --agent {{ AGENT }} if no CRITICAL or HIGH issues AND not risk:critical
 
 4. ANNOUNCE:
    bus send --agent {{ AGENT }} {{ PROJECT }} "Review complete: <review-id> — <LGTM|BLOCKED>" -L review-done
@@ -68,8 +68,8 @@ At the end of your work, output exactly one of these completion signals:
       - If properly fixed: no action needed (author already resolved it)
       - If NOT fixed or partially fixed: maw exec $WS -- crit reply <thread-id> --agent {{ AGENT }} "Still an issue: <what's wrong>"
    f. Vote:
-      - All issues resolved: maw exec $WS -- crit lgtm <review-id> -m "Fixes verified"
-      - Issues remain: maw exec $WS -- crit block <review-id> --reason "N threads still unresolved"
+      - All issues resolved: maw exec $WS -- crit lgtm <review-id> --agent {{ AGENT }} -m "Fixes verified"
+      - Issues remain: maw exec $WS -- crit block <review-id> --agent {{ AGENT }} --reason "N threads still unresolved"
 
 Key rules:
 - Process exactly one review per cycle, then STOP.

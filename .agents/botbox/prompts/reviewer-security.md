@@ -103,13 +103,13 @@ At the end of your work, output exactly one of these completion signals:
       - HIGH: Security weaknesses likely exploitable with effort
       - MEDIUM: Defense-in-depth gaps, missing hardening
       - LOW: Security best practice violations, minor hardening
-      Use: maw exec $WS -- crit comment <id> "SEVERITY: <feedback>" --file <path> --line <line-or-range>
+      Use: maw exec $WS -- crit comment <id> --agent {{ AGENT }} "SEVERITY: <feedback>" --file <path> --line <line-or-range>
 
    f. Vote:
       - For `risk:critical` bones: ALWAYS BLOCK, regardless of code quality.
         Add comment: "risk:critical requires human approval before merge"
-      - For other bones: maw exec $WS -- crit block <id> --reason "..." if ANY security issues exist (CRITICAL, HIGH, or MEDIUM)
-      - maw exec $WS -- crit lgtm <id> only if no security concerns found AND not risk:critical
+      - For other bones: maw exec $WS -- crit block <id> --agent {{ AGENT }} --reason "..." if ANY security issues exist (CRITICAL, HIGH, or MEDIUM)
+      - maw exec $WS -- crit lgtm <id> --agent {{ AGENT }} only if no security concerns found AND not risk:critical
 
 4. ANNOUNCE:
    bus send --agent {{ AGENT }} {{ PROJECT }} "Security review complete: <review-id> — <LGTM|BLOCKED>" -L review-done
@@ -125,8 +125,8 @@ At the end of your work, output exactly one of these completion signals:
       - If properly fixed: no action needed (author already resolved it)
       - If NOT fixed or partially fixed: maw exec $WS -- crit reply <thread-id> --agent {{ AGENT }} "Still vulnerable: <what's wrong>"
    f. Vote:
-      - All security issues resolved: maw exec $WS -- crit lgtm <review-id> -m "Security fixes verified"
-      - Issues remain: maw exec $WS -- crit block <review-id> --reason "N security threads still unresolved"
+      - All security issues resolved: maw exec $WS -- crit lgtm <review-id> --agent {{ AGENT }} -m "Security fixes verified"
+      - Issues remain: maw exec $WS -- crit block <review-id> --agent {{ AGENT }} --reason "N security threads still unresolved"
 
 Key rules:
 - Process exactly one review per cycle, then STOP.

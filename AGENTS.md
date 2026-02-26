@@ -193,7 +193,15 @@ Fast TUI for `.beads/issues.jsonl` with precomputed dependency metrics. For agen
 <!-- botbox:managed-start -->
 ## Botbox Workflow
 
-**New here?** Read [worker-loop.md](.agents/botbox/worker-loop.md) first — it covers the complete triage → start → work → finish cycle.
+### How to Make Changes
+
+1. **Create a bone** to track your work: `maw exec default -- bn create --title "..." --description "..."`
+2. **Create a workspace** for your changes: `maw ws create --random` — this gives you `ws/<name>/`
+3. **Edit files in your workspace** (`ws/<name>/`), never in `ws/default/`
+4. **Merge when done**: `maw ws merge <name> --destroy`
+5. **Close the bone**: `maw exec default -- bn done <id>`
+
+Do not create git branches manually — `maw ws create` handles branching for you. See [worker-loop.md](.agents/botbox/worker-loop.md) for the full triage → start → work → finish cycle.
 
 **All tools have `--help`** with usage examples. When unsure, run `<tool> --help` or `<tool> <command> --help`.
 
@@ -227,15 +235,15 @@ project-root/          ← bare repo (no source files here)
 
 | Operation | Command |
 |-----------|---------|
-| View next work | `maw exec default -- bn next` |
+| Triage (scores) | `maw exec default -- bn triage` |
+| Next bone | `maw exec default -- bn next` |
+| Next N bones | `maw exec default -- bn next N` (e.g., `bn next 4` for dispatch) |
 | Show bone | `maw exec default -- bn show <id>` |
-| Create | `maw exec default -- bn create --title "..." --kind task` |
+| Create | `maw exec default -- bn create --title "..." --description "..."` |
 | Start work | `maw exec default -- bn do <id>` |
 | Add comment | `maw exec default -- bn bone comment add <id> "message"` |
 | Close | `maw exec default -- bn done <id>` |
 | Add dependency | `maw exec default -- bn triage dep add <blocker> --blocks <blocked>` |
-| Triage (scores) | `maw exec default -- bn triage` |
-| Next bone | `maw exec default -- bn next` |
 | Search | `maw exec default -- bn search <query>` |
 
 Identity resolved from `$AGENT` env. No flags needed in agent loops.
@@ -246,18 +254,33 @@ Identity resolved from `$AGENT` env. No flags needed in agent loops.
 |-----------|---------|
 | Create workspace | `maw ws create <name>` |
 | List workspaces | `maw ws list` |
+| Check merge readiness | `maw ws merge <name> --check` |
 | Merge to main | `maw ws merge <name> --destroy` |
 | Destroy (no merge) | `maw ws destroy <name>` |
 | Run command in workspace | `maw exec <name> -- <command>` |
+| Diff workspace vs epoch | `maw ws diff <name>` |
+| Check workspace overlap | `maw ws overlap <name1> <name2>` |
 | View workspace history | `maw ws history <name>` |
 | Sync stale workspace | `maw ws sync <name>` |
 | Inspect merge conflicts | `maw ws conflicts <name>` |
 | Undo local workspace changes | `maw ws undo <name>` |
 
+**Inspecting a workspace (use git, not jj):**
+```bash
+maw exec <name> -- git status             # what changed (unstaged)
+maw exec <name> -- git log --oneline -5   # recent commits
+maw ws diff <name>                        # diff vs epoch (maw-native)
+```
+
+**Lead agent merge workflow** — after a worker finishes a bone:
+1. `maw ws list` — look for `active (+N to merge)` entries
+2. `maw ws merge <name> --check` — verify no conflicts
+3. `maw ws merge <name> --destroy` — merge and clean up
+
 **Workspace safety:**
 - Never merge or destroy `default`.
-- Prefer `maw ws merge <name> --check` before `maw ws merge <name> --destroy`.
-- Commit workspace changes with `maw exec <name> -- git add -A` and `maw exec <name> -- git commit -m "..."`.
+- Always `maw ws merge <name> --check` before `--destroy`.
+- Commit workspace changes with `maw exec <name> -- git add -A && maw exec <name> -- git commit -m "..."`.
 
 ### Protocol Quick Reference
 

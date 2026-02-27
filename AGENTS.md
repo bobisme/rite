@@ -217,8 +217,7 @@ project-root/          ← bare repo (no source files here)
 │   └── amber-reef/    ← another agent workspace
 ├── .manifold/         ← maw metadata/artifacts
 ├── .git/              ← git data (core.bare=true)
-├── AGENTS.md          ← stub redirecting to ws/default/AGENTS.md
-└── CLAUDE.md          ← symlink → AGENTS.md
+└── AGENTS.md          ← stub redirecting to ws/default/AGENTS.md
 ```
 
 **Key rules:**

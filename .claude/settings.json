@@ -4,14 +4,38 @@
       {
         "hooks": [
           {
-            "command": [
-              "botbox",
-              "hooks",
-              "run",
-              "check-bus-inbox",
-              "--project-root",
-              "/home/bob/src/botbus/ws/default"
-            ],
+            "command": "botbox hooks run check-bus-inbox --project-root /home/bob/src/botbus/ws/default",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      },
+      {
+        "hooks": [
+          {
+            "command": "botbox hooks run claim-agent --project-root /home/bob/src/botbus/ws/default",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "PreCompact": [
+      {
+        "hooks": [
+          {
+            "command": "botbox hooks run init-agent --project-root /home/bob/src/botbus/ws/default",
+            "type": "command"
+          }
+        ],
+        "matcher": ""
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "command": "botbox hooks run claim-agent --project-root /home/bob/src/botbus/ws/default",
             "type": "command"
           }
         ],
@@ -22,25 +46,16 @@
       {
         "hooks": [
           {
-            "command": [
-              "botbox",
-              "hooks",
-              "run",
-              "init-agent",
-              "--project-root",
-              "/home/bob/src/botbus/ws/default"
-            ],
+            "command": "botbox hooks run init-agent --project-root /home/bob/src/botbus/ws/default",
             "type": "command"
-          },
+          }
+        ],
+        "matcher": ""
+      },
+      {
+        "hooks": [
           {
-            "command": [
-              "botbox",
-              "hooks",
-              "run",
-              "check-jj",
-              "--project-root",
-              "/home/bob/src/botbus/ws/default"
-            ],
+            "command": "botbox hooks run claim-agent --project-root /home/bob/src/botbus/ws/default",
             "type": "command"
           }
         ],
@@ -49,3 +64,4 @@
     ]
   }
 }
+

@@ -29,7 +29,7 @@ Groom a set of ready bones to improve backlog quality. Use this when you need to
    - Create smaller child bones with `maw exec default -- bn create --title "..." --kind task` and `maw exec default -- bn triage dep add <earlier> --blocks <later>`.
    - Add sibling dependencies where order matters (see step 3 patterns).
    - Add a comment to the parent: `maw exec default -- bn bone comment add <parent-id> "Broken down into smaller tasks: <child-id>, ..."`
-5. Announce if you groomed multiple bones: `bus send --agent $AGENT $BOTBOX_PROJECT "Groomed N bones: <summary>" -L grooming`
+5. Announce if you groomed multiple bones: `bus send --agent $AGENT $EDICT_PROJECT "Groomed N bones: <summary>" -L grooming`
 
 ## Acceptance Criteria
 

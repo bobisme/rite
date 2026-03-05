@@ -47,7 +47,7 @@ If the task is already small and clear (one reviewable change), skip planning an
    - Parallel work is actually parallel (not chained when it doesn't need to be)
    - Dependencies reflect reality (you can't test without implementing)
    - **Phase ordering is present**: If the plan has phases, verify phase goals have dependency edges between them. If all phases have identical triage scores, the phase ordering is likely missing.
-8. **Announce.** `bus send --agent $AGENT $BOTBOX_PROJECT "Planned <spec-name>: N bones created" -L planning`
+8. **Announce.** `bus send --agent $AGENT $EDICT_PROJECT "Planned <spec-name>: N bones created" -L planning`
 
 ## What Makes a Good Bone
 

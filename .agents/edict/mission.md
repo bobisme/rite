@@ -69,7 +69,7 @@ maw exec default -- bn triage graph
 Announce the plan:
 
 ```bash
-bus send --agent $AGENT $BOTBOX_PROJECT "Mission <mission-id>: <title> — created N child bones" -L task-claim
+bus send --agent $AGENT $EDICT_PROJECT "Mission <mission-id>: <title> — created N child bones" -L task-claim
 ```
 
 ### 3. Dispatch Workers
@@ -82,8 +82,8 @@ WORKER=$(bus generate-name)
 maw ws create --random  # → e.g., frost-castle
 
 # Stake claims
-bus claims stake --agent $AGENT "bone://$BOTBOX_PROJECT/<child-id>" -m "<child-id>"
-bus claims stake --agent $AGENT "workspace://$BOTBOX_PROJECT/frost-castle" -m "<child-id>"
+bus claims stake --agent $AGENT "bone://$EDICT_PROJECT/<child-id>" -m "<child-id>"
+bus claims stake --agent $AGENT "workspace://$EDICT_PROJECT/frost-castle" -m "<child-id>"
 
 # Add mission context comment to child bone
 maw exec default -- bn bone comment add <child-id> \
@@ -91,13 +91,13 @@ maw exec default -- bn bone comment add <child-id> \
 
 # Spawn worker with mission env vars
 botty spawn --pass-env --timeout 600 $WORKER \
-  botbox run worker-loop \
-  --env "BOTBOX_BONE=<child-id>" \
-  --env "BOTBOX_WORKSPACE=frost-castle" \
-  --env "BOTBOX_MISSION=<mission-id>" \
-  --env "BOTBOX_MISSION_OUTCOME=Users can log in via OAuth providers" \
-  --env "BOTBOX_SIBLINGS=bd-001 (Add OAuth config) [owner:none, state:open]\nbd-002 (Add callback handler) [owner:storm-raven, state:doing]" \
-  --env "BOTBOX_FILE_HINTS=bd-001: likely edits src/config.rs\nbd-002: likely edits src/auth/callback.rs"
+  edict run worker-loop \
+  --env "EDICT_BONE=<child-id>" \
+  --env "EDICT_WORKSPACE=frost-castle" \
+  --env "EDICT_MISSION=<mission-id>" \
+  --env "EDICT_MISSION_OUTCOME=Users can log in via OAuth providers" \
+  --env "EDICT_SIBLINGS=bd-001 (Add OAuth config) [owner:none, state:open]\nbd-002 (Add callback handler) [owner:storm-raven, state:doing]" \
+  --env "EDICT_FILE_HINTS=bd-001: likely edits src/config.rs\nbd-002: likely edits src/auth/callback.rs"
 ```
 
 Maximum concurrent workers: `agents.dev.missions.maxWorkers` (default 4). Queue remaining children until a worker slot opens.
@@ -122,7 +122,7 @@ Each checkpoint:
 
 3. **Poll for completions** (cursor-based — track last-seen message ID):
    ```bash
-   bus history $BOTBOX_PROJECT -n 20 -L task-done --since <last-checkpoint-time>
+   bus history $EDICT_PROJECT -n 20 -L task-done --since <last-checkpoint-time>
    ```
 
 4. **Detect dead workers:** If a worker is not in `botty list` but its bone is still `doing`, trigger crash recovery (see below).
@@ -131,7 +131,7 @@ Each checkpoint:
 
 6. **Post checkpoint summary:**
    ```bash
-   bus send --agent $AGENT $BOTBOX_PROJECT "Mission <mission-id> checkpoint: K/N done, M active" -L feedback
+   bus send --agent $AGENT $EDICT_PROJECT "Mission <mission-id> checkpoint: K/N done, M active" -L feedback
    ```
 
 Exit the checkpoint loop when all children are done, or no workers are alive and all remaining bones are stuck.
@@ -148,8 +148,8 @@ Exit the checkpoint loop when all children are done, or no workers are alive and
 2. Worker dies again (`RETRY:1` marker already exists):
    - Comment: `"Worker died again after retry. Marking done with failure."`
    - Destroy workspace if it exists: `maw ws destroy <ws>`
-   - Release claims: `bus claims release --agent $AGENT "bone://$BOTBOX_PROJECT/<child-id>"`
-   - Announce: `bus send --agent $AGENT $BOTBOX_PROJECT "Bone <child-id> failed: worker died twice" -L task-blocked`
+   - Release claims: `bus claims release --agent $AGENT "bone://$EDICT_PROJECT/<child-id>"`
+   - Announce: `bus send --agent $AGENT $EDICT_PROJECT "Bone <child-id> failed: worker died twice" -L task-blocked`
 
 ### 6. Close the Mission
 
@@ -170,7 +170,7 @@ When all children are done:
 
 4. **Announce:**
    ```bash
-   bus send --agent $AGENT $BOTBOX_PROJECT "Mission <mission-id> complete: <title> — N children, all done" -L task-done
+   bus send --agent $AGENT $EDICT_PROJECT "Mission <mission-id> complete: <title> — N children, all done" -L task-done
    ```
 
 ## Risk Tags in Missions
@@ -199,7 +199,7 @@ Workers in a mission coordinate via labeled bus messages. Always include `missio
 Example:
 
 ```bash
-bus send --agent $AGENT $BOTBOX_PROJECT "Interface: createUser(name, email) returns User" \
+bus send --agent $AGENT $EDICT_PROJECT "Interface: createUser(name, email) returns User" \
   -L coord:interface -L "mission:bd-abc"
 ```
 
@@ -207,7 +207,7 @@ See [coordination](coordination.md) for the full protocol including sibling awar
 
 ## Configuration
 
-Mission settings in `.botbox.json` under `agents.dev.missions`:
+Mission settings in `.edict.toml` under `agents.dev.missions`:
 
 ```json
 {
@@ -237,13 +237,13 @@ Workers receive mission context via environment variables set by the dev-loop at
 
 | Variable | Set by | Read by | Value |
 |----------|--------|---------|-------|
-| `BOTBOX_MISSION` | dev-loop | agent-loop | Mission bone ID (e.g., `bd-abc`) |
-| `BOTBOX_BONE` | dev-loop | agent-loop | Assigned child bone ID — skip triage, work this bone |
-| `BOTBOX_WORKSPACE` | dev-loop | agent-loop | Pre-created workspace name — skip workspace creation |
-| `BOTBOX_MISSION_OUTCOME` | dev-loop | agent-loop | Outcome line from mission description — shared context |
-| `BOTBOX_SIBLINGS` | dev-loop | agent-loop | One line per sibling: `<id> (<title>) [owner:<name>, state:<state>]` |
-| `BOTBOX_FILE_HINTS` | dev-loop | agent-loop | Advisory file ownership: `<id>: likely edits <files>` per line |
+| `EDICT_MISSION` | dev-loop | agent-loop | Mission bone ID (e.g., `bd-abc`) |
+| `EDICT_BONE` | dev-loop | agent-loop | Assigned child bone ID — skip triage, work this bone |
+| `EDICT_WORKSPACE` | dev-loop | agent-loop | Pre-created workspace name — skip workspace creation |
+| `EDICT_MISSION_OUTCOME` | dev-loop | agent-loop | Outcome line from mission description — shared context |
+| `EDICT_SIBLINGS` | dev-loop | agent-loop | One line per sibling: `<id> (<title>) [owner:<name>, state:<state>]` |
+| `EDICT_FILE_HINTS` | dev-loop | agent-loop | Advisory file ownership: `<id>: likely edits <files>` per line |
 
-When `BOTBOX_BONE` and `BOTBOX_WORKSPACE` are set, agent-loop skips triage and starts working immediately on the assigned bone in the given workspace.
+When `EDICT_BONE` and `EDICT_WORKSPACE` are set, agent-loop skips triage and starts working immediately on the assigned bone in the given workspace.
 
-When `BOTBOX_MISSION` is set, agent-loop reads the mission bone for shared context and includes `mission:<id>` labels on bus messages.
+When `EDICT_MISSION` is set, agent-loop reads the mission bone for shared context and includes `mission:<id>` labels on bus messages.

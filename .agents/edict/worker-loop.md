@@ -13,9 +13,9 @@ Once bones exist, the worker loop takes over. Skip these steps if bones are alre
 
 ## Identity
 
-If spawned by `botbox run worker-loop`, your identity is provided as `$AGENT` (a random name like `storm-raven`). Otherwise, adopt `<project>-dev` as your name (e.g., `botbox-dev`). Run `bus whoami --agent $AGENT` first to confirm; if it returns a name, use it. It will generate a name if one isn't set.
+If spawned by `edict run worker-loop`, your identity is provided as `$AGENT` (a random name like `storm-raven`). Otherwise, adopt `<project>-dev` as your name (e.g., `edict-dev`). Run `bus whoami --agent $AGENT` first to confirm; if it returns a name, use it. It will generate a name if one isn't set.
 
-Your project channel is `$BOTBOX_PROJECT`. All bus commands must include `--agent $AGENT`. All announcements go to `$BOTBOX_PROJECT` with appropriate labels (e.g., `-L task-claim`, `-L review-request`).
+Your project channel is `$EDICT_PROJECT`. All bus commands must include `--agent $AGENT`. All announcements go to `$EDICT_PROJECT` with appropriate labels (e.g., `-L task-claim`, `-L review-request`).
 
 **Important:** Run all `bn` commands via `maw exec default --` (e.g., `maw exec default -- bn do ...`). This ensures they always run in the default workspace context. Run `crit` commands via `maw exec $WS --` to target the correct workspace.
 
@@ -56,7 +56,7 @@ Before triaging new work, check if you have unfinished work from a previous sess
 ### 1. Triage — find and groom work, then pick one small task (always run this, even if you already know what to work on)
 
 - **Mission context**: If a bone has a `mission:bd-xxx` label, you are working as part of a mission. Check the mission bone (`maw exec default -- bn show <mission-id>`) for shared outcome, constraints, and sibling context before starting work.
-- Check inbox: `bus inbox --agent $AGENT --channels $BOTBOX_PROJECT --mark-read`
+- Check inbox: `bus inbox --agent $AGENT --channels $EDICT_PROJECT --mark-read`
 - For messages that request work, create bones: `maw exec default -- bn create --title "..." --description "..." --kind task`
 - For questions or status checks, reply directly: `bus send --agent $AGENT <channel> "<reply>" -L triage-reply`
 - Check next work: `maw exec default -- bn next`
@@ -71,17 +71,17 @@ Before triaging new work, check if you have unfinished work from a previous sess
   5. **Comment your decomposition plan** on the parent bone: what you created, why, and any decisions you made.
   6. **Verify** with `maw exec default -- bn triage graph` — the graph should have at least one point where multiple tasks are unblocked simultaneously.
   7. Run `maw exec default -- bn next` again. Repeat until you have exactly one small, atomic task.
-- If the bone is claimed by another agent (`bus claims check --agent $AGENT "bone://$BOTBOX_PROJECT/<id>"`), skip it and pick the next recommendation. If all are claimed, stop with "No work available."
+- If the bone is claimed by another agent (`bus claims check --agent $AGENT "bone://$EDICT_PROJECT/<id>"`), skip it and pick the next recommendation. If all are claimed, stop with "No work available."
 
 ### 2. Start — claim and set up
 
 - `maw exec default -- bn do <bone-id>`
-- `bus claims stake --agent $AGENT "bone://$BOTBOX_PROJECT/<bone-id>" -m "<bone-id>"`
+- `bus claims stake --agent $AGENT "bone://$EDICT_PROJECT/<bone-id>" -m "<bone-id>"`
 - `maw ws create --random` — note the workspace name (e.g., `frost-castle`). Store as `$WS`.
 - **All file operations must use the workspace path** `ws/$WS/`. Use absolute paths for Read, Write, and Edit (e.g., `$PROJECT_ROOT/ws/$WS/src/file.rs`). For commands: `maw exec $WS -- <command>`.
 - **No `jj`**: this workflow is Git + maw. Keep workspace operations in `maw` and run `git` only via `maw exec $WS -- ...`.
-- `bus claims stake --agent $AGENT "workspace://$BOTBOX_PROJECT/$WS" -m "<bone-id>"`
-- `bus send --agent $AGENT $BOTBOX_PROJECT "Working on <bone-id>: <bone-title>" -L task-claim`
+- `bus claims stake --agent $AGENT "workspace://$EDICT_PROJECT/$WS" -m "<bone-id>"`
+- `bus send --agent $AGENT $EDICT_PROJECT "Working on <bone-id>: <bone-title>" -L task-claim`
 
 ### 3. Work — implement the task
 
@@ -98,7 +98,7 @@ You are stuck if: you attempted the same approach twice without progress, you ca
 
 If stuck:
 - Add a detailed comment with what you tried and where you got blocked: `maw exec default -- bn bone comment add <bone-id> "Blocked: ..."`
-- Post in the project channel: `bus send --agent $AGENT $BOTBOX_PROJECT "Stuck on <bone-id>: <summary>" -L task-blocked`
+- Post in the project channel: `bus send --agent $AGENT $EDICT_PROJECT "Stuck on <bone-id>: <summary>" -L task-blocked`
 - **If a tool behaved unexpectedly**, ask the responsible project for help (see [cross-channel](cross-channel.md)):
   1. Post to their channel: `bus send --agent $AGENT <tool-project> "Getting <error> when running <command>. Context: <details>. @<project>-dev" -L feedback`
   2. Create a local tracking bone: `maw exec default -- bn create --title "[tracking] Asked #<project> about <issue>" --tag tracking --kind task`
@@ -110,7 +110,7 @@ If stuck:
 
 After completing the implementation:
 
-- **Run quality checks before review**: Execute `maw exec $WS -- just check` (or the configured `checkCommand` from `.botbox.json`). Fix any failures before proceeding with review.
+- **Run quality checks before review**: Execute `maw exec $WS -- just check` (or the configured `checkCommand` from `.edict.toml`). Fix any failures before proceeding with review.
 - Commit your workspace changes:
   - `maw exec $WS -- git add -A`
   - `maw exec $WS -- git commit -m "<bone-id>: <summary>"`
@@ -134,25 +134,25 @@ After completing the implementation:
   - Explain what changed and why, not just a summary
 - Add a comment to the bone: `maw exec default -- bn bone comment add <bone-id> "Review requested: <review-id>, workspace: $WS (ws/$WS/)"`
 - **If requesting a specialist reviewer** (e.g., security):
-  - Announce with @mention to trigger spawn: `bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> for <bone-id>, @<reviewer>" -L review-request`
+  - Announce with @mention to trigger spawn: `bus send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id> for <bone-id>, @<reviewer>" -L review-request`
   - The @mention triggers auto-spawn hooks
 - **If requesting a general code review**:
   - Spawn a subagent to perform the review
-  - Announce: `bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> for <bone-id>, spawned subagent for review" -L review-request`
+  - Announce: `bus send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id> for <bone-id>, spawned subagent for review" -L review-request`
 - **STOP this iteration.** Do NOT close the bone, merge the workspace, or release claims. The reviewer will process the review, and you will resume in the next iteration via step 0.
 
 **risk:high** — Security review with failure-mode checklist:
-- Create crit review with security reviewer: `maw exec $WS -- crit reviews create --agent $AGENT --title "<bone-title>" --description "For <bone-id>: <summary>. risk:high — failure-mode checklist required. Please answer: 1) What failure modes exist? 2) What edge cases need validation? 3) How can we roll back if this breaks? 4) What monitoring/alerts should we add? 5) What input validation is needed?" --reviewers $BOTBOX_PROJECT-security`
+- Create crit review with security reviewer: `maw exec $WS -- crit reviews create --agent $AGENT --title "<bone-title>" --description "For <bone-id>: <summary>. risk:high — failure-mode checklist required. Please answer: 1) What failure modes exist? 2) What edge cases need validation? 3) How can we roll back if this breaks? 4) What monitoring/alerts should we add? 5) What input validation is needed?" --reviewers $EDICT_PROJECT-security`
 - Add comment to bone: `maw exec default -- bn bone comment add <bone-id> "Review requested: <review-id>, workspace: $WS (ws/$WS/)"`
-- Announce with @mention: `bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> for <bone-id>, @$BOTBOX_PROJECT-security" -L review-request`
+- Announce with @mention: `bus send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id> for <bone-id>, @$EDICT_PROJECT-security" -L review-request`
 - **STOP this iteration.**
 
 **risk:critical** — Security review + human approval:
-- Create crit review with security reviewer: `maw exec $WS -- crit reviews create --agent $AGENT --title "<bone-title>" --description "For <bone-id>: <summary>. risk:critical — requires human approval before merge." --reviewers $BOTBOX_PROJECT-security`
+- Create crit review with security reviewer: `maw exec $WS -- crit reviews create --agent $AGENT --title "<bone-title>" --description "For <bone-id>: <summary>. risk:critical — requires human approval before merge." --reviewers $EDICT_PROJECT-security`
 - Add comment to bone: `maw exec default -- bn bone comment add <bone-id> "Review requested: <review-id>, workspace: $WS (ws/$WS/)"`
-- Post to bus requesting human approval: `bus send --agent $AGENT $BOTBOX_PROJECT "risk:critical review for <bone-id>: requires human approval before merge. Review: <review-id> @<approver>" -L review-request`
-  - List of approvers from `.botbox.json` → `project.criticalApprovers`
-  - If no `criticalApprovers` configured, use project lead: `@$BOTBOX_PROJECT-lead`
+- Post to bus requesting human approval: `bus send --agent $AGENT $EDICT_PROJECT "risk:critical review for <bone-id>: requires human approval before merge. Review: <review-id> @<approver>" -L review-request`
+  - List of approvers from `.edict.toml` → `project.criticalApprovers`
+  - If no `criticalApprovers` configured, use project lead: `@$EDICT_PROJECT-lead`
 - **STOP this iteration.**
 
 See [review-request](review-request.md) for full details.
@@ -167,9 +167,9 @@ Then proceed with teardown:
 - `maw exec default -- bn bone comment add <bone-id> "Completed by $AGENT"`
 - `maw exec default -- bn done <bone-id> --reason "Completed"`
 - `maw ws merge $WS --destroy --message "feat: <bone-title>"` (use a conventional commit prefix: `feat:`, `fix:`, `chore:`, etc.; if merge conflict, preserve workspace and announce; maw v0.22.0+ produces linear squashed history and auto-moves main)
-- `maw push` (if pushMain enabled in `.botbox.json`; maw v0.24.0+ handles bookmark and push)
+- `maw push` (if pushMain enabled in `.edict.toml`; maw v0.24.0+ handles bookmark and push)
 - `bus claims release --agent $AGENT --all`
-- `bus send --agent $AGENT $BOTBOX_PROJECT "Completed <bone-id>: <bone-title>" -L task-done`
+- `bus send --agent $AGENT $EDICT_PROJECT "Completed <bone-id>: <bone-title>" -L task-done`
 
 ### 7. Release check — lead responsibility
 

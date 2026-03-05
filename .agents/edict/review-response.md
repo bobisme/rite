@@ -42,7 +42,7 @@ Run this when:
       - `maw exec $WS -- git commit -m "fix: address review feedback on <review-id>"`
    c. Re-request review: `maw exec $WS -- crit reviews request <review-id> --agent $AGENT --reviewers <reviewer>`
    d. Announce (include workspace name so the reviewer can find the fixed code):
-       `bus send --agent $AGENT $BOTBOX_PROJECT "Review feedback addressed: <review-id>, fixes in workspace $WS (ws/$WS/)" -L review-response`
+       `bus send --agent $AGENT $EDICT_PROJECT "Review feedback addressed: <review-id>, fixes in workspace $WS (ws/$WS/)" -L review-response`
 
 ## After LGTM
 
@@ -56,6 +56,6 @@ The actual code merge is handled by `maw ws merge` in the finish step — do not
 
 ## Assumptions
 
-- `BOTBOX_PROJECT` env var contains the project channel name.
+- `EDICT_PROJECT` env var contains the project channel name.
 - You are the author of the review (the agent that created it or requested it).
 - The workspace is still active — fixes are made in the workspace, not the main branch.

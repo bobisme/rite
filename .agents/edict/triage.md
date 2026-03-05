@@ -10,7 +10,7 @@ Find exactly one actionable bone, or determine there is no work available. Groom
 
 1. Resolve agent identity: use `--agent` argument if provided, otherwise `$AGENT` env var. If neither is set, stop and instruct the user. Run `bus whoami --agent $AGENT` first to confirm; if it returns a name, use it.
 2. Check inbox for new messages:
-   - `bus inbox --agent $AGENT --channels $BOTBOX_PROJECT --mark-read`
+   - `bus inbox --agent $AGENT --channels $EDICT_PROJECT --mark-read`
    - For each message that requests work (task request, bug report, feature ask), create a bone: `maw exec default -- bn create --title "..." --description "..." --tag <relevant-tags> --kind task`
    - For messages with `-L feedback` (reports from other agents or humans):
      - If it contains a bug report, feature request, or actionable work: create a bone with `maw exec default -- bn create`
@@ -38,7 +38,7 @@ Find exactly one actionable bone, or determine there is no work available. Groom
      - Create smaller child bones with `maw exec default -- bn create --title "..." --kind task` and `maw exec default -- bn triage dep add <earlier> --blocks <later>`.
      - Then run `maw exec default -- bn next` again to pick one of the children.
    - Repeat until you have exactly one small, atomic task.
-8. Verify the bone is not claimed by another agent: `bus claims check --agent $AGENT "bone://$BOTBOX_PROJECT/<bone-id>"`
+8. Verify the bone is not claimed by another agent: `bus claims check --agent $AGENT "bone://$EDICT_PROJECT/<bone-id>"`
    - If claimed by someone else, back off and run `maw exec default -- bn next` again excluding that bone.
    - If all candidates are claimed, output `NO_WORK_AVAILABLE` and stop.
 9. Output the single bone ID as the result.
@@ -47,6 +47,6 @@ Find exactly one actionable bone, or determine there is no work available. Groom
 
 ## Assumptions
 
-- `BOTBOX_PROJECT` env var contains the project channel name.
+- `EDICT_PROJECT` env var contains the project channel name.
 - `bn` is available and the bones database is initialized.
 - The agent will use the [start](start.md) workflow next to claim and begin work.

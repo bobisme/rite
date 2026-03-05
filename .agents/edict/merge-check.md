@@ -5,7 +5,7 @@ Verify preconditions and merge a worker's completed workspace.
 ## Preferred: Use protocol merge
 
 ```bash
-botbox protocol merge <workspace> --agent $AGENT
+edict protocol merge <workspace> --agent $AGENT
 ```
 
 This checks all preconditions (bone closed, review approved, no conflicts) and outputs the exact merge steps. Use `--execute` to run them directly, or `--force` to skip bone/review checks.
@@ -16,7 +16,7 @@ With `--format json`, returns structured output for automation.
 
 1. **Workspace exists** and is not `default`
 2. **Associated bone is closed** (found via claims)
-3. **Review is approved** (if review is enabled in `.botbox.json`)
+3. **Review is approved** (if review is enabled in `.edict.toml`)
 4. **No merge conflicts** (via `maw ws merge --check` pre-flight)
 
 If any check fails, the output explains why and what to do.
@@ -42,7 +42,7 @@ If merge produces conflicts, the workspace is preserved (not destroyed). Protoco
 
 ## Manual fallback
 
-If `botbox protocol merge` is unavailable, check manually:
+If `edict protocol merge` is unavailable, check manually:
 
 1. `maw exec $WS -- crit review <review-id>` — confirm LGTM, no blocks
 2. `maw exec default -- bn show <bone-id>` — confirm bone is done

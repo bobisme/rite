@@ -44,22 +44,22 @@ The botbus hook system watches for @mentions. When you send a message containing
    **risk:critical** — Security review + human approval:
    - MUST request security reviewer
    - Create crit review (see step 4)
-   - Post to bus requesting human approval: `bus send --agent $AGENT $BOTBOX_PROJECT "risk:critical review for <bone-id>: requires human approval before merge. Review: <review-id> @<approver>" -L review-request`
-   - List of approvers from `.botbox.json` → `project.criticalApprovers`
-   - If no `criticalApprovers` configured, use project lead or fallback: `@$BOTBOX_PROJECT-lead`
+   - Post to bus requesting human approval: `bus send --agent $AGENT $EDICT_PROJECT "risk:critical review for <bone-id>: requires human approval before merge. Review: <review-id> @<approver>" -L review-request`
+   - List of approvers from `.edict.toml` → `project.criticalApprovers`
+   - If no `criticalApprovers` configured, use project lead or fallback: `@$EDICT_PROJECT-lead`
 
 4. If requesting a **specialist reviewer** (e.g., security):
    ```bash
    # Step 1: Create review with reviewer assignment (one command)
-   maw exec $WS -- crit reviews create --agent $AGENT --title "<title>" --description "<summary>" --reviewers $BOTBOX_PROJECT-security
+   maw exec $WS -- crit reviews create --agent $AGENT --title "<title>" --description "<summary>" --reviewers $EDICT_PROJECT-security
 
    # Step 2: Announce with @mention (TRIGGERS THE SPAWN)
-   bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id> @$BOTBOX_PROJECT-security" -L review-request
+   bus send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id> @$EDICT_PROJECT-security" -L review-request
    ```
 
    If the review already exists (re-request after fixes), use `crit reviews request` instead:
    ```bash
-   maw exec $WS -- crit reviews request <review-id> --reviewers $BOTBOX_PROJECT-security --agent $AGENT
+   maw exec $WS -- crit reviews request <review-id> --reviewers $EDICT_PROJECT-security --agent $AGENT
    ```
 
    The reviewer name MUST match the project pattern: `<project>-<role>` (e.g., `myproject-security`, `botbus-security`). Do NOT use generic names like `security-reviewer` — those won't match any hooks.
@@ -72,7 +72,7 @@ The botbus hook system watches for @mentions. When you send a message containing
 
 6. If requesting a **general code review** (no specific specialist):
    - Spawn a subagent to perform the code review
-   - Announce: `bus send --agent $AGENT $BOTBOX_PROJECT "Review requested: <review-id>, spawned subagent for review" -L review-request`
+   - Announce: `bus send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id>, spawned subagent for review" -L review-request`
 
 The reviewer-loop finds open reviews via `crit reviews list` and processes them automatically.
 
@@ -84,4 +84,4 @@ The reviewer-loop finds open reviews via `crit reviews list` and processes them 
 
 ## Assumptions
 
-- `BOTBOX_PROJECT` env var contains the project channel name.
+- `EDICT_PROJECT` env var contains the project channel name.

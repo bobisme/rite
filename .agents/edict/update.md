@@ -14,8 +14,8 @@ Post a bone state update and notify the project channel.
 2. For `doing`: `maw exec default -- bn do <bone-id>`
    For `done`: `maw exec default -- bn done <bone-id>`
    For `open`: update the bone state as needed
-3. `bus send --agent $AGENT $BOTBOX_PROJECT "<bone-id> -> <state>" -L task-update`
+3. `bus send --agent $AGENT $EDICT_PROJECT "<bone-id> -> <state>" -L task-update`
 
 ## Assumptions
 
-- `BOTBOX_PROJECT` env var contains the project channel name.
+- `EDICT_PROJECT` env var contains the project channel name.

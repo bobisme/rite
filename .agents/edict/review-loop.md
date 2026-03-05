@@ -7,7 +7,7 @@ Your identity is `$AGENT`. All bus commands must include `--agent $AGENT`. Run `
 ## Loop
 
 1. Read new review requests:
-   - `bus inbox --agent $AGENT --channels $BOTBOX_PROJECT --mark-read`
+   - `bus inbox --agent $AGENT --channels $EDICT_PROJECT --mark-read`
    - `bus wait --agent $AGENT -L review-request -t 5` (optional)
 2. Find open reviews by iterating workspaces: `maw ws list --format json`, then `maw exec $WS -- crit inbox --agent $AGENT --format=json` per workspace
    - The reviewer-loop script handles this iteration automatically
@@ -30,7 +30,7 @@ Your identity is `$AGENT`. All bus commands must include `--agent $AGENT`. Run `
 5. Vote:
    - `maw exec $WS -- crit block <id> --reason "..."` if any CRITICAL or HIGH issues exist
    - `maw exec $WS -- crit lgtm <id>` if no CRITICAL or HIGH issues
-6. Post a summary in the project channel and tag the author: `bus send --agent $AGENT $BOTBOX_PROJECT "..." -L review-done`
+6. Post a summary in the project channel and tag the author: `bus send --agent $AGENT $EDICT_PROJECT "..." -L review-done`
 
 Focus on security and correctness. Ground findings in evidence — compiler output, documentation, or source code — not assumptions about API behavior.
 

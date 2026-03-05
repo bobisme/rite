@@ -422,9 +422,21 @@ fn check_index_up_to_date() -> bool {
 /// Commit all uncommitted changes in the data directory.
 pub fn commit(message: Option<String>) -> Result<()> {
     let dir = data_dir();
-    let msg = message.as_deref().unwrap_or("chore: manual commit");
+    let msg = match message {
+        Some(m) => m,
+        None => {
+            let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
+            let host = std::process::Command::new("hostname")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .map(|s| s.trim().to_string())
+                .unwrap_or_else(|| "unknown".to_string());
+            format!("chore: manual commit {now} on {host}")
+        }
+    };
 
-    match git::commit_all(&dir, msg)? {
+    match git::commit_all(&dir, &msg)? {
         true => println!("Committed changes: {}", msg),
         false => println!("Nothing to commit."),
     }

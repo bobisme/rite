@@ -349,7 +349,7 @@ Agents communicate via bus channels. You don't need to be expert on everything â
 
 **Conversations**: After sending a question, use `bus wait -c <channel> --mention -t <seconds>` to block until the other agent replies. This enables back-and-forth conversations across channels.
 
-**Project experts**: Each `<project>-dev` is the expert on their project. When stuck on a companion tool (bus, maw, crit, botty, bn), post a question to its project channel instead of guessing.
+**Project experts**: Each `<project>-dev` is the expert on their project. When stuck on a companion tool (bus, maw, crit, vessel, bn), post a question to its project channel instead of guessing.
 
 ### Cross-Project Communication
 

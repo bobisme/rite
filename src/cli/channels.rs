@@ -439,16 +439,26 @@ pub fn rename(old_name: &str, new_name: &str) -> Result<()> {
     if index.exists() {
         use rusqlite::Connection;
         let conn = Connection::open(&index)?;
-        conn.execute(
-            "UPDATE messages SET channel = ?1 WHERE channel = ?2",
-            [new_name, old_name],
-        )?;
-        // Update sync_state table (primary key can be updated in SQLite)
-        conn.execute(
-            "UPDATE sync_state SET channel = ?1 WHERE channel = ?2",
-            [new_name, old_name],
-        )?;
-        eprintln!("✓ Updated search index");
+        // Tables may not exist if index hasn't been built yet — skip gracefully
+        let has_messages: bool = conn
+            .query_row(
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='messages'",
+                [],
+                |row| row.get::<_, i64>(0),
+            )
+            .unwrap_or(0)
+            > 0;
+        if has_messages {
+            conn.execute(
+                "UPDATE messages SET channel = ?1 WHERE channel = ?2",
+                [new_name, old_name],
+            )?;
+            conn.execute(
+                "UPDATE sync_state SET channel = ?1 WHERE channel = ?2",
+                [new_name, old_name],
+            )?;
+            eprintln!("✓ Updated search index");
+        }
     }
 
     // 4. Update hooks that reference this channel

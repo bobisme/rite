@@ -440,17 +440,17 @@ pub fn rename(old_name: &str, new_name: &str) -> Result<()> {
         use rusqlite::Connection;
         let conn = Connection::open(&index)?;
         // Tables may not exist if index hasn't been built yet — skip gracefully
-        let has_messages: bool = conn
+        let has_index: bool = conn
             .query_row(
-                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='messages'",
+                "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='messages_fts_content'",
                 [],
                 |row| row.get::<_, i64>(0),
             )
             .unwrap_or(0)
             > 0;
-        if has_messages {
+        if has_index {
             conn.execute(
-                "UPDATE messages SET channel = ?1 WHERE channel = ?2",
+                "UPDATE messages_fts SET channel = ?1 WHERE channel = ?2",
                 [new_name, old_name],
             )?;
             conn.execute(

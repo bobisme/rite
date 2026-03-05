@@ -362,6 +362,7 @@ fn main() -> Result<()> {
                 Some(SyncCommands::Status) => cli::sync::status(format),
                 Some(SyncCommands::Log { count }) => cli::sync::log(*count, format),
                 Some(SyncCommands::Check) => cli::sync::check(format),
+                Some(SyncCommands::Commit { message }) => cli::sync::commit(message.clone()),
                 None => {
                     // Default: push
                     cli::sync::push()

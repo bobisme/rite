@@ -192,6 +192,47 @@ pub fn commit_files(data_dir: &Path, files: &[&str], message: &str) -> Result<()
     Ok(())
 }
 
+/// Commit all uncommitted changes in the data directory.
+///
+/// Returns true if a commit was made, false if there was nothing to commit.
+pub fn commit_all(data_dir: &Path, message: &str) -> Result<bool> {
+    if !check_git_available() {
+        bail!("git is not installed or not in PATH. Please install git to use sync features.");
+    }
+
+    if !is_git_repo(data_dir) {
+        bail!("Not a git repository. Run 'bus sync init' first.");
+    }
+
+    // Stage everything
+    let status = Command::new("git")
+        .current_dir(data_dir)
+        .args(["add", "-A"])
+        .status()
+        .context("Failed to run git add")?;
+
+    if !status.success() {
+        bail!("git add failed");
+    }
+
+    // Commit (disable GPG signing)
+    let output = Command::new("git")
+        .current_dir(data_dir)
+        .args(["-c", "commit.gpgsign=false", "commit", "-m", message])
+        .output()
+        .context("Failed to run git commit")?;
+
+    if !output.status.success() {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        if stderr.contains("nothing to commit") {
+            return Ok(false);
+        }
+        bail!("git commit failed: {}", stderr.trim());
+    }
+
+    Ok(true)
+}
+
 /// Push local commits to remote.
 pub fn push(data_dir: &Path) -> Result<()> {
     if !check_git_available() {

@@ -619,6 +619,13 @@ pub enum SyncCommands {
 
     /// Check sync repository health
     Check,
+
+    /// Commit all uncommitted changes in the data directory
+    Commit {
+        /// Commit message (default: "chore: manual commit")
+        #[arg(short, long)]
+        message: Option<String>,
+    },
 }
 
 #[derive(Subcommand)]

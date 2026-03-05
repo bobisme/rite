@@ -419,6 +419,19 @@ fn check_index_up_to_date() -> bool {
     }
 }
 
+/// Commit all uncommitted changes in the data directory.
+pub fn commit(message: Option<String>) -> Result<()> {
+    let dir = data_dir();
+    let msg = message.as_deref().unwrap_or("chore: manual commit");
+
+    match git::commit_all(&dir, msg)? {
+        true => println!("Committed changes: {}", msg),
+        false => println!("Nothing to commit."),
+    }
+
+    Ok(())
+}
+
 /// Pull and push (sync both ways).
 pub fn pull_and_push() -> Result<()> {
     pull()?;

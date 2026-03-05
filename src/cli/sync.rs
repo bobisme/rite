@@ -426,9 +426,19 @@ pub fn commit(message: Option<String>) -> Result<()> {
         Some(m) => m,
         None => {
             let now = chrono::Local::now().format("%Y-%m-%d %H:%M:%S");
-            let host = std::fs::read_to_string("/proc/sys/kernel/hostname")
+            let host = std::process::Command::new("hostname")
+                .output()
+                .ok()
+                .filter(|o| o.status.success())
+                .and_then(|o| String::from_utf8(o.stdout).ok())
                 .map(|s| s.trim().to_string())
-                .unwrap_or_else(|_| "unknown".to_string());
+                .filter(|s| !s.is_empty())
+                .or_else(|| {
+                    std::fs::read_to_string("/proc/sys/kernel/hostname")
+                        .map(|s| s.trim().to_string())
+                        .ok()
+                })
+                .unwrap_or_else(|| "unknown".to_string());
             format!("chore: manual commit {now} on {host}")
         }
     };

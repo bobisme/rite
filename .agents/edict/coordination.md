@@ -25,7 +25,7 @@ When dispatched as part of a mission, your prompt includes:
 
 The lead dev agent runs periodic checkpoints during missions:
 1. Counts children by state (open/doing/done)
-2. Checks for alive workers via `botty list`
+2. Checks for alive workers via `vessel list`
 3. Reads completion signals from bus history
 4. Posts checkpoint summaries: "Mission bd-xxx checkpoint: 3/5 done, 1 blocked"
 

@@ -90,7 +90,7 @@ maw exec default -- bn bone comment add <child-id> \
   "Mission context: <mission-id> — <outcome>. Siblings: <sibling-ids>. Workspace: frost-castle"
 
 # Spawn worker with mission env vars
-botty spawn --pass-env --timeout 600 $WORKER \
+vessel spawn --pass-env --timeout 600 $WORKER \
   edict run worker-loop \
   --env "EDICT_BONE=<child-id>" \
   --env "EDICT_WORKSPACE=frost-castle" \
@@ -116,7 +116,7 @@ Each checkpoint:
 
 2. **Check alive workers:**
    ```bash
-   botty list --format json
+   vessel list --format json
    ```
    Cross-reference with dispatched worker names.
 
@@ -125,7 +125,7 @@ Each checkpoint:
    bus history $EDICT_PROJECT -n 20 -L task-done --since <last-checkpoint-time>
    ```
 
-4. **Detect dead workers:** If a worker is not in `botty list` but its bone is still `doing`, trigger crash recovery (see below).
+4. **Detect dead workers:** If a worker is not in `vessel list` but its bone is still `doing`, trigger crash recovery (see below).
 
 5. **Dispatch queued children:** If a worker slot opened and unblocked children remain, dispatch a new worker.
 
@@ -140,7 +140,7 @@ Exit the checkpoint loop when all children are done, or no workers are alive and
 
 **One-retry-then-block policy** for crashed workers:
 
-1. Worker dies (not in `botty list`, bone still `doing`) with no `RETRY:1` marker in comments:
+1. Worker dies (not in `vessel list`, bone still `doing`) with no `RETRY:1` marker in comments:
    - Comment: `"Worker <name> died. RETRY:1 — reassigning."`
    - Check if workspace still exists; create new one if destroyed
    - Re-dispatch with a new worker name

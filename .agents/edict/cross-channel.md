@@ -4,7 +4,7 @@ Communicate with other projects: ask questions, report bugs, give feedback, and 
 
 ## When to use
 
-- A tool behaved unexpectedly (crit, maw, bus, botty, bn) — **ask the responsible project**
+- A tool behaved unexpectedly (crit, maw, bus, vessel, bn) — **ask the responsible project**
 - You found a bug or limitation in another project's tool
 - You have a feature suggestion for another project
 - You need clarification on how a tool works
@@ -23,7 +23,7 @@ Common channels:
 - `#botbus` — messaging, claims, hooks (`bus`)
 - `#botcrit` — code review (`crit`)
 - `#maw` — multi-agent workspaces (`maw`)
-- `#botty` — agent runtime (`botty`)
+- `#vessel` — agent runtime (`vessel`)
 - `#bones` — issue tracking (`bn`)
 
 ## Steps
@@ -81,4 +81,4 @@ When you encounter a `tracking`-tagged bone during triage:
 - Use `-L feedback` label on bus messages so the lead agent can filter for external reports
 - Include enough context for the other agent to understand and reproduce your issue
 - The `#projects` channel contains the registry of all projects
-- Default lead agent naming: `<project>-dev` (e.g., `botty-dev`, `botcrit-dev`)
+- Default lead agent naming: `<project>-dev` (e.g., `vessel-dev`, `botcrit-dev`)

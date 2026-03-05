@@ -190,8 +190,8 @@ Fast TUI for `.beads/issues.jsonl` with precomputed dependency metrics. For agen
 
 ---
 
-<!-- botbox:managed-start -->
-## Botbox Workflow
+<!-- edict:managed-start -->
+## Edict Workflow
 
 ### How to Make Changes
 
@@ -201,7 +201,7 @@ Fast TUI for `.beads/issues.jsonl` with precomputed dependency metrics. For agen
 4. **Merge when done**: `maw ws merge <name> --destroy --message "feat: <bone-title>"` (use conventional commit prefix: `feat:`, `fix:`, `chore:`, etc.)
 5. **Close the bone**: `maw exec default -- bn done <id>`
 
-Do not create git branches manually — `maw ws create` handles branching for you. See [worker-loop.md](.agents/botbox/worker-loop.md) for the full triage → start → work → finish cycle.
+Do not create git branches manually — `maw ws create` handles branching for you. See [worker-loop.md](.agents/edict/worker-loop.md) for the full triage → start → work → finish cycle.
 
 **All tools have `--help`** with usage examples. When unsure, run `<tool> --help` or `<tool> <command> --help`.
 
@@ -263,6 +263,10 @@ Identity resolved from `$AGENT` env. No flags needed in agent loops.
 | Sync stale workspace | `maw ws sync <name>` |
 | Inspect merge conflicts | `maw ws conflicts <name>` |
 | Undo local workspace changes | `maw ws undo <name>` |
+| List recovery snapshots | `maw ws recover` |
+| Recover destroyed workspace | `maw ws recover <name> --to <new-name>` |
+| Search recovery snapshots | `maw ws recover --search <pattern>` |
+| Show file from snapshot | `maw ws recover <name> --show <path>` |
 
 **Inspecting a workspace (use git, not jj):**
 ```bash
@@ -280,6 +284,7 @@ maw ws diff <name>                        # diff vs epoch (maw-native)
 - Never merge or destroy `default`.
 - Always `maw ws merge <name> --check` before `--destroy`.
 - Commit workspace changes with `maw exec <name> -- git add -A && maw exec <name> -- git commit -m "..."`.
+- **No work is ever lost in maw.** Recovery snapshots are created automatically on every destroy. If a workspace was destroyed and you suspect code is missing, ALWAYS run `maw ws recover` before concluding work was lost. Never reopen a bone or start over without checking recovery first.
 
 ### Protocol Quick Reference
 
@@ -287,21 +292,21 @@ Use these commands at protocol transitions to check state and get exact guidance
 
 | Step | Command | Who | Purpose |
 |------|---------|-----|---------|
-| Resume | `botbox protocol resume --agent $AGENT` | Worker | Detect in-progress work from previous session |
-| Start | `botbox protocol start <bone-id> --agent $AGENT` | Worker | Verify bone is ready, get start commands |
-| Review | `botbox protocol review <bone-id> --agent $AGENT` | Worker | Verify work is complete, get review commands |
-| Finish | `botbox protocol finish <bone-id> --agent $AGENT` | Worker | Verify review approved, get close/cleanup commands |
-| Merge | `botbox protocol merge <workspace> --agent $AGENT` | Lead | Check preconditions, detect conflicts, get merge steps |
-| Cleanup | `botbox protocol cleanup --agent $AGENT` | Worker | Check for held resources to release |
+| Resume | `edict protocol resume --agent $AGENT` | Worker | Detect in-progress work from previous session |
+| Start | `edict protocol start <bone-id> --agent $AGENT` | Worker | Verify bone is ready, get start commands |
+| Review | `edict protocol review <bone-id> --agent $AGENT` | Worker | Verify work is complete, get review commands |
+| Finish | `edict protocol finish <bone-id> --agent $AGENT` | Worker | Verify review approved, get close/cleanup commands |
+| Merge | `edict protocol merge <workspace> --agent $AGENT` | Lead | Check preconditions, detect conflicts, get merge steps |
+| Cleanup | `edict protocol cleanup --agent $AGENT` | Worker | Check for held resources to release |
 
-All commands support JSON output with `--format json` for parsing. If a command is unavailable or fails (exit code 1), fall back to manual steps documented in [start](.agents/botbox/start.md), [review-request](.agents/botbox/review-request.md), and [finish](.agents/botbox/finish.md).
+All commands support JSON output with `--format json` for parsing. If a command is unavailable or fails (exit code 1), fall back to manual steps documented in [start](.agents/edict/start.md), [review-request](.agents/edict/review-request.md), and [finish](.agents/edict/finish.md).
 
 ### Bones Conventions
 
 - Create a bone before starting work. Update state: `open` → `doing` → `done`.
 - Post progress comments during work for crash recovery.
-- **Run checks before requesting review**: `just check` (or your project's build/test command). Fix any failures before proceeding.
-- After finishing a bone, follow [finish.md](.agents/botbox/finish.md). **Workers: do NOT push** — the lead handles merges and pushes.
+- **Run checks before committing**: `just check` (or your project's build/test command). Fix any failures before proceeding.
+- After finishing a bone, follow [finish.md](.agents/edict/finish.md). **Workers: do NOT push** — the lead handles merges and pushes.
 - **Install locally** after releasing: `just install`
 
 ### Identity
@@ -358,7 +363,7 @@ Agents communicate via bus channels. You don't need to be expert on everything �
    maw exec default -- bn create --title "[tracking] <summary>" --tag tracking --kind task
    ```
 
-See [cross-channel.md](.agents/botbox/cross-channel.md) for the full workflow.
+See [cross-channel.md](.agents/edict/cross-channel.md) for the full workflow.
 
 ### Session Search (optional)
 
@@ -368,43 +373,43 @@ Use `cass search "error or problem"` to find how similar issues were solved in p
 ### Design Guidelines
 
 
-- [CLI tool design for humans, agents, and machines](.agents/botbox/design/cli-conventions.md)
+- [CLI tool design for humans, agents, and machines](.agents/edict/design/cli-conventions.md)
 
 
 
 ### Workflow Docs
 
 
-- [Find work from inbox and bones](.agents/botbox/triage.md)
+- [Find work from inbox and bones](.agents/edict/triage.md)
 
-- [Claim bone, create workspace, announce](.agents/botbox/start.md)
+- [Claim bone, create workspace, announce](.agents/edict/start.md)
 
-- [Change bone state (open/doing/done)](.agents/botbox/update.md)
+- [Change bone state (open/doing/done)](.agents/edict/update.md)
 
-- [Close bone, merge workspace, release claims](.agents/botbox/finish.md)
+- [Close bone, merge workspace, release claims](.agents/edict/finish.md)
 
-- [Full triage-work-finish lifecycle](.agents/botbox/worker-loop.md)
+- [Full triage-work-finish lifecycle](.agents/edict/worker-loop.md)
 
-- [Turn specs/PRDs into actionable bones](.agents/botbox/planning.md)
+- [Turn specs/PRDs into actionable bones](.agents/edict/planning.md)
 
-- [Explore unfamiliar code before planning](.agents/botbox/scout.md)
+- [Explore unfamiliar code before planning](.agents/edict/scout.md)
 
-- [Create and validate proposals before implementation](.agents/botbox/proposal.md)
+- [Create and validate proposals before implementation](.agents/edict/proposal.md)
 
-- [Request a review](.agents/botbox/review-request.md)
+- [Request a review](.agents/edict/review-request.md)
 
-- [Handle reviewer feedback (fix/address/defer)](.agents/botbox/review-response.md)
+- [Handle reviewer feedback (fix/address/defer)](.agents/edict/review-response.md)
 
-- [Reviewer agent loop](.agents/botbox/review-loop.md)
+- [Reviewer agent loop](.agents/edict/review-loop.md)
 
-- [Merge a worker workspace (protocol merge + conflict recovery)](.agents/botbox/merge-check.md)
+- [Merge a worker workspace (protocol merge + conflict recovery)](.agents/edict/merge-check.md)
 
-- [Validate toolchain health](.agents/botbox/preflight.md)
+- [Validate toolchain health](.agents/edict/preflight.md)
 
-- [Ask questions, report bugs, and track responses across projects](.agents/botbox/cross-channel.md)
+- [Ask questions, report bugs, and track responses across projects](.agents/edict/cross-channel.md)
 
-- [Report bugs/features to other projects](.agents/botbox/report-issue.md)
+- [Report bugs/features to other projects](.agents/edict/report-issue.md)
 
-- [groom](.agents/botbox/groom.md)
+- [groom](.agents/edict/groom.md)
 
-<!-- botbox:managed-end -->
+<!-- edict:managed-end -->

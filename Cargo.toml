@@ -1,6 +1,6 @@
 [package]
 name = "rite"
-version = "0.30.14"
+version = "0.31.0"
 edition = "2024"
 
 [[bin]]

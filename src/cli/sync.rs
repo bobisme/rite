@@ -33,8 +33,8 @@ pub fn init(remote_url: Option<String>) -> Result<()> {
         println!("  origin: {}", url.cyan());
         println!();
         println!("Next steps:");
-        println!("  - Use 'bus sync --push' to push changes");
-        println!("  - Use 'bus sync --pull' to pull changes");
+        println!("  - Use 'rite sync --push' to push changes");
+        println!("  - Use 'rite sync --pull' to pull changes");
         println!("  - Messages, claims, and releases will auto-commit");
     } else {
         println!();
@@ -92,12 +92,12 @@ pub fn pull() -> Result<()> {
                 }
                 Err(error) => {
                     warn!(%error, "failed to rebuild index after sync pull");
-                    eprintln!("  You can manually rebuild with: bus index rebuild");
+                    eprintln!("  You can manually rebuild with: rite index rebuild");
                 }
             },
             Err(error) => {
                 warn!(%error, "failed to open index after sync pull");
-                eprintln!("  You can manually rebuild with: bus index rebuild");
+                eprintln!("  You can manually rebuild with: rite index rebuild");
             }
         }
     }
@@ -120,7 +120,7 @@ pub fn status(format: OutputFormat) -> Result<()> {
                 println!("{}", "Git Status:".bold());
                 println!();
                 println!("{} Not a git repository", "Status:".yellow());
-                println!("  Run: bus sync init");
+                println!("  Run: rite sync init");
                 return Ok(());
             }
 
@@ -155,10 +155,10 @@ pub fn status(format: OutputFormat) -> Result<()> {
                 );
 
                 if info.ahead > 0 {
-                    println!("  → Run: bus sync push");
+                    println!("  → Run: rite sync push");
                 }
                 if info.behind > 0 {
-                    println!("  → Run: bus sync pull");
+                    println!("  → Run: rite sync pull");
                 }
             } else if info.remote_url.is_some() {
                 println!("{} Up to date with remote", "Sync:".green());
@@ -250,13 +250,13 @@ pub fn check(format: OutputFormat) -> Result<()> {
     if !git_available {
         // No git installed
     } else if !is_git_repo {
-        advice.push("bus sync init".to_string());
+        advice.push("rite sync init".to_string());
     } else if info.has_conflicts {
         // Has conflicts, needs manual resolution
     } else if info.ahead > 0 {
-        advice.push("bus sync push".to_string());
+        advice.push("rite sync push".to_string());
     } else if info.behind > 0 {
-        advice.push("bus sync pull".to_string());
+        advice.push("rite sync pull".to_string());
     }
 
     let result = SyncCheckResult {
@@ -297,7 +297,7 @@ pub fn check(format: OutputFormat) -> Result<()> {
                 println!("{} Git repository initialized", "✓".green());
             } else {
                 println!("{} Git repository not initialized", "✗".yellow());
-                println!("  → Run: bus sync init");
+                println!("  → Run: rite sync init");
             }
 
             if !result.is_git_repo {
@@ -337,11 +337,11 @@ pub fn check(format: OutputFormat) -> Result<()> {
             // Ahead/behind
             if result.ahead > 0 {
                 println!("{} {} commits ahead of remote", "!".yellow(), result.ahead);
-                println!("  → Run: bus sync push");
+                println!("  → Run: rite sync push");
             }
             if result.behind > 0 {
                 println!("{} {} commits behind remote", "!".yellow(), result.behind);
-                println!("  → Run: bus sync pull");
+                println!("  → Run: rite sync pull");
             }
             if result.ahead == 0 && result.behind == 0 && result.remote_configured {
                 println!("{} In sync with remote", "✓".green());
@@ -352,7 +352,7 @@ pub fn check(format: OutputFormat) -> Result<()> {
                 println!("{} Search index is up to date", "✓".green());
             } else {
                 println!("{} Search index needs rebuild", "!".yellow());
-                println!("  → Run: bus index rebuild --if-needed");
+                println!("  → Run: rite index rebuild --if-needed");
             }
 
             println!();

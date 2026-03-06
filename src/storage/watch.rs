@@ -84,10 +84,10 @@ mod tests {
     #[test]
     fn test_filter_channel_events() {
         let paths = vec![
-            std::path::PathBuf::from("/project/.botbus/channels/general.jsonl"),
-            std::path::PathBuf::from("/project/.botbus/channels/backend.jsonl"),
-            std::path::PathBuf::from("/project/.botbus/state.json"),
-            std::path::PathBuf::from("/project/.botbus/index.sqlite"),
+            std::path::PathBuf::from("/project/.rite/channels/general.jsonl"),
+            std::path::PathBuf::from("/project/.rite/channels/backend.jsonl"),
+            std::path::PathBuf::from("/project/.rite/state.json"),
+            std::path::PathBuf::from("/project/.rite/index.sqlite"),
         ];
 
         let channels = filter_channel_events(paths);

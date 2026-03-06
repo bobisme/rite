@@ -3,8 +3,8 @@
 # bv (beads viewer) local config and caches
 .bones/
 tmp/
-# BotBus index (generated)
-.botbus/index.sqlite
+# Rite index (generated)
+.rite/index.sqlite
 opencode.json
 .workspaces
 

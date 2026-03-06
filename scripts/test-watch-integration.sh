@@ -3,13 +3,13 @@
 set -e
 
 TEST_DIR=$(mktemp -d)
-export BOTBUS_DATA_DIR="$TEST_DIR"
-export BOTBUS_AGENT="test-agent"
+export RITE_DATA_DIR="$TEST_DIR"
+export RITE_AGENT="test-agent"
 
 echo "Test dir: $TEST_DIR"
 
 # Initialize
-cd ~/src/botbus
+cd ~/src/rite
 cargo run --quiet -- init
 
 # Create initial channel

@@ -1,4 +1,4 @@
-//! Auto-commit hooks for BotBus operations.
+//! Auto-commit hooks for Rite operations.
 //!
 //! These functions are called after operations to auto-commit changes to git.
 //! If git is not initialized, they silently do nothing.

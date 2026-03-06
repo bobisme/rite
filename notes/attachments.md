@@ -1,12 +1,12 @@
-# BotBus ↔ Telegram Attachments Bridge Design
+# Rite ↔ Telegram Attachments Bridge Design
 
 ## Overview
 
-This document outlines the design for bridging file attachments between BotBus messages and Telegram. Currently, BotBus supports three attachment types (File, Inline, Url) but the Telegram integration only displays attachment names as text. This design proposes a two-way attachment bridge that:
+This document outlines the design for bridging file attachments between Rite messages and Telegram. Currently, Rite supports three attachment types (File, Inline, Url) but the Telegram integration only displays attachment names as text. This design proposes a two-way attachment bridge that:
 
-- Sends BotBus attachments to Telegram users (with smart MIME type detection)
-- Captures Telegram attachments (photos, documents, audio, video) and bridges them back to BotBus
-- Uses unified content-addressed storage for all attachments (Telegram, CLI `bus send --attach`, agent APIs)
+- Sends Rite attachments to Telegram users (with smart MIME type detection)
+- Captures Telegram attachments (photos, documents, audio, video) and bridges them back to Rite
+- Uses unified content-addressed storage for all attachments (Telegram, CLI `rite send --attach`, agent APIs)
 - Handles storage, size limits, and format restrictions appropriately
 
 **Key Design Decisions**:
@@ -18,7 +18,7 @@ This document outlines the design for bridging file attachments between BotBus m
 
 ## Current State
 
-### BotBus Attachment System
+### Rite Attachment System
 
 The `Message` struct in `/src/core/message.rs` includes:
 - `attachments: Vec<Attachment>` - array of file attachments
@@ -109,7 +109,7 @@ Format in Telegram:
 
 ```
 Flow:
-BotBus file:src/config.rs
+Rite file:src/config.rs
   ↓
 Check file size & type
   ↓
@@ -198,7 +198,7 @@ Attachment: config.rs (type: file)
 
 Current behavior (line 155-157 in service.rs): Ignore all non-text messages.
 
-**New behavior**: Telegram daemon extracts media, downloads to cache, creates BotBus attachments
+**New behavior**: Telegram daemon extracts media, downloads to cache, creates Rite attachments
 
 ### Daemon Download Implementation
 
@@ -274,9 +274,9 @@ async fn handle_telegram_media(
 - If disk full during write, cleanup cache and retry
 - If hash collision detected (astronomically rare), append counter to filename
 
-### Supported Telegram Media → BotBus Attachment Mapping
+### Supported Telegram Media → Rite Attachment Mapping
 
-| Telegram Type | BotBus Type | Strategy |
+| Telegram Type | Rite Type | Strategy |
 |---------------|-------------|----------|
 | **Photo** | File | Download and store with unique name |
 | **Document** | File | Download and store with original filename |
@@ -288,7 +288,7 @@ async fn handle_telegram_media(
 
 ### Implementation Flow
 
-**Key principle**: Telegram daemon handles all downloads synchronously before publishing message to BotBus.
+**Key principle**: Telegram daemon handles all downloads synchronously before publishing message to Rite.
 
 ```
 Telegram Update received
@@ -308,9 +308,9 @@ If media present:
    ↓
    Create Attachment::File with cache path
   ↓
-Create BotBus message with attachments
+Create Rite message with attachments
   ↓
-Publish to BotBus channels
+Publish to Rite channels
 ```
 
 **Why daemon downloads**:
@@ -321,15 +321,15 @@ Publish to BotBus channels
 
 ### Storage Strategy
 
-**Challenge**: Where to store downloaded Telegram files? How to handle `bus send --attach`?
+**Challenge**: Where to store downloaded Telegram files? How to handle `rite send --attach`?
 
 **Design Decision**: Unified content-addressed attachment cache
 
-**Location**: `~/.local/share/botbus/attachments/`
+**Location**: `~/.local/share/rite/attachments/`
 
 **Directory Structure** (flat, hash-based):
 ```
-~/.local/share/botbus/attachments/
+~/.local/share/rite/attachments/
 ├── a3f8b9c2...d4e5.jpg
 ├── a3f8b9c2...d4e5.jpg.meta.json
 ├── f7e6d5c4...a1b2.pdf
@@ -345,7 +345,7 @@ Publish to BotBus channels
 - **Automatic deduplication**: Same file uploaded twice = same hash, stored once
 - **Simple lookups**: Hash → file is O(1) filesystem read
 - **No collisions**: SHA256 ensures uniqueness (collision astronomically rare)
-- **Source-agnostic**: Works for Telegram downloads, `bus send --attach`, agent APIs
+- **Source-agnostic**: Works for Telegram downloads, `rite send --attach`, agent APIs
 - **Easy cleanup**: Age-based on `mtime`, no complex queries needed
 - **Debuggable**: Just `cat {hash}.meta.json` to inspect
 
@@ -363,16 +363,16 @@ Publish to BotBus channels
   "telegram_file_unique_id": "AQADy...",  // Only if from Telegram
   "source_message_id": "01ARZ3NDEKTSV4RRFFQ69G5FAV",
   "source_channel": "general",
-  "source_project": "botbus"
+  "source_project": "rite"
 }
 ```
 
 **Lifecycle**:
-1. **Download/Copy**: Telegram daemon or `bus send --attach` writes file to cache
+1. **Download/Copy**: Telegram daemon or `rite send --attach` writes file to cache
 2. **Hash**: Compute SHA256 of content
 3. **Detect MIME**: Use `infer` crate to detect real file type (not extension)
 4. **Store**: Write `{hash}.{ext}` and `{hash}.{ext}.meta.json` atomically
-5. **Reference**: Store path in BotBus `Attachment::File { path: "~/.local/share/botbus/attachments/{hash}.{ext}" }`
+5. **Reference**: Store path in Rite `Attachment::File { path: "~/.local/share/rite/attachments/{hash}.{ext}" }`
 6. **Cleanup**: Age-based removal (files older than 7 days, configurable)
 
 **Size Management**:
@@ -395,22 +395,22 @@ fs::rename(&meta_tmp, &meta_path)?;
 
 ## Unified Attachment Storage
 
-All attachment sources (Telegram, `bus send --attach`, agent APIs) use the same storage mechanism:
+All attachment sources (Telegram, `rite send --attach`, agent APIs) use the same storage mechanism:
 
-### `bus send --attach` Integration
+### `rite send --attach` Integration
 
-When users run `bus send --attach <file>`, BotBus should:
+When users run `rite send --attach <file>`, Rite should:
 
 1. **Read file** from provided path
 2. **Compute hash** (SHA256)
 3. **Detect MIME type** (using `infer` crate)
 4. **Copy to cache** as `{hash}.{ext}` if not already present
 5. **Write metadata** as `{hash}.{ext}.meta.json`
-6. **Create message** with `Attachment::File { path: "~/.local/share/botbus/attachments/{hash}.{ext}" }`
+6. **Create message** with `Attachment::File { path: "~/.local/share/rite/attachments/{hash}.{ext}" }`
 
 **Example**:
 ```bash
-bus send general --attach ./screenshot.png "Here's the bug"
+rite send general --attach ./screenshot.png "Here's the bug"
 ```
 
 **Internals**:
@@ -439,7 +439,7 @@ if !cache_path.exists() {
         size_bytes: bytes.len() as u64,
         sha256: hash.clone(),
         downloaded_at: Utc::now(),
-        downloaded_by: env::var("BOTBUS_AGENT").unwrap_or_else(|_| "cli".to_string()),
+        downloaded_by: env::var("RITE_AGENT").unwrap_or_else(|_| "cli".to_string()),
         source: "cli".to_string(),
         telegram_file_id: None,
         telegram_file_unique_id: None,
@@ -464,13 +464,13 @@ let attachment = Attachment {
 
 **Storage**: Always absolute paths in cache directory
 ```
-/home/user/.local/share/botbus/attachments/a3f8b9c2...d4e5.jpg
+/home/user/.local/share/rite/attachments/a3f8b9c2...d4e5.jpg
 ```
 
 **In Messages**: Store absolute path in `Attachment::File { path }`
 ```rust
 AttachmentContent::File {
-    path: "/home/user/.local/share/botbus/attachments/a3f8b9c2...d4e5.jpg"
+    path: "/home/user/.local/share/rite/attachments/a3f8b9c2...d4e5.jpg"
 }
 ```
 
@@ -486,8 +486,8 @@ AttachmentContent::File {
 | Limit | Value | Reasoning |
 |-------|-------|-----------|
 | **Telegram upload max** | 50 MB | Telegram Bot API hard limit |
-| **BotBus message display** | 4000 chars | Telegram message limit |
-| **Inline content max** | 10 KB | BotBus storage efficiency |
+| **Rite message display** | 4000 chars | Telegram message limit |
+| **Inline content max** | 10 KB | Rite storage efficiency |
 | **File attachment max** | 50 MB | Same as Telegram |
 | **Voice/Audio max** | 20 MB | Telegram voice limit |
 
@@ -619,7 +619,7 @@ src/
 │   ├── client.rs       # TelegramClient with download/upload
 │   └── service.rs      # Daemon handles media in updates
 └── cli/
-    └── send.rs         # `bus send --attach` implementation
+    └── send.rs         # `rite send --attach` implementation
 ```
 
 ### `src/attachments/mod.rs`
@@ -861,13 +861,13 @@ pub enum AttachmentContent {
     {
       "name": "screenshot.jpg",
       "type": "file",
-      "path": "/home/user/.local/share/botbus/attachments/a3f8b9c2...d4e5.jpg"
+      "path": "/home/user/.local/share/rite/attachments/a3f8b9c2...d4e5.jpg"
     }
   ]
 }
 ```
 
-The attachment metadata lives in `/home/user/.local/share/botbus/attachments/a3f8b9c2...d4e5.jpg.meta.json`:
+The attachment metadata lives in `/home/user/.local/share/rite/attachments/a3f8b9c2...d4e5.jpg.meta.json`:
 ```json
 {
   "original_filename": "screenshot.jpg",
@@ -931,7 +931,7 @@ mime2ext = "0.1"
 **Deliverables**:
 - Telegram photos, documents, videos downloaded to cache
 - Metadata with `telegram_file_id` for reference
-- Messages with file attachments published to BotBus
+- Messages with file attachments published to Rite
 - Error handling for download failures
 
 ### Phase 3: Telegram Uploads (Bus → Telegram)
@@ -944,21 +944,21 @@ mime2ext = "0.1"
 6. Handle URL attachments (embed as links)
 
 **Deliverables**:
-- BotBus file attachments sent to Telegram as appropriate media types
+- Rite file attachments sent to Telegram as appropriate media types
 - Inline code formatted with syntax highlighting
 - URLs rendered as clickable links
 - Captions with original filenames
 
-### Phase 4: CLI Integration (`bus send --attach`)
+### Phase 4: CLI Integration (`rite send --attach`)
 
-1. Add `--attach <file>` flag to `bus send` command
+1. Add `--attach <file>` flag to `rite send` command
 2. Implement file reading and cache storage
 3. Use same `AttachmentCache` as Telegram daemon
 4. Support multiple attachments per message
 5. Validate file size limits
 
 **Deliverables**:
-- `bus send general --attach ./file.txt "message"` works
+- `rite send general --attach ./file.txt "message"` works
 - Files copied to cache with proper metadata
 - Deduplication works (same file = same hash)
 - Error messages for missing files, size limits
@@ -1019,7 +1019,7 @@ mime2ext = "0.1"
 
 ## Compatibility Notes
 
-### With Current BotBus Features
+### With Current Rite Features
 
 - **Labels**: Attachment type labels compatible with existing filtering
 - **DMs**: Attachments work in direct messages (no topic ID)
@@ -1100,7 +1100,7 @@ if cache_path.exists() {
 **Cache Directory Migration**:
 - If cache directory moves, all `Attachment::File` paths break
 - Consider storing relative paths: `attachments/{hash}.{ext}`
-- Resolve relative to `~/.local/share/botbus/` at read time
+- Resolve relative to `~/.local/share/rite/` at read time
 
 **MIME Type Misdetection**:
 - `infer` crate has comprehensive magic number database
@@ -1135,7 +1135,7 @@ error!("Failed to send attachment '{}': {}",
 This design provides a simple, unified attachment system:
 
 **Storage**:
-- Content-addressed cache (`~/.local/share/botbus/attachments/{hash}.{ext}`)
+- Content-addressed cache (`~/.local/share/rite/attachments/{hash}.{ext}`)
 - Sidecar JSON metadata (`.meta.json`) for Telegram file_id, source info, MIME type
 - Automatic deduplication (same content = same hash)
 - Simple cleanup (age-based + size-based on `mtime`)
@@ -1147,7 +1147,7 @@ This design provides a simple, unified attachment system:
 - **URL attachments**: Embed as clickable links
 
 **CLI Integration**:
-- `bus send --attach <file>` copies to cache with same format
+- `rite send --attach <file>` copies to cache with same format
 - Works identically to Telegram downloads
 - Deduplication across all sources
 

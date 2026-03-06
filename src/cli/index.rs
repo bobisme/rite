@@ -52,7 +52,7 @@ pub fn status() -> Result<()> {
     if !index_db.exists() {
         println!("{} Index does not exist", "Status:".yellow());
         println!("  - Index path: {}", index_db.display());
-        println!("  - Recommendation: Run 'bus index rebuild'");
+        println!("  - Recommendation: Run 'rite index rebuild'");
         return Ok(());
     }
 
@@ -61,7 +61,7 @@ pub fn status() -> Result<()> {
     if needs_rebuild {
         println!("{} Index rebuild needed", "Status:".yellow());
         println!("  - JSONL files are newer than index");
-        println!("  - Recommendation: Run 'bus index rebuild --if-needed'");
+        println!("  - Recommendation: Run 'rite index rebuild --if-needed'");
     } else {
         println!("{} Index is up to date", "Status:".green());
     }

@@ -1,10 +1,10 @@
-# BotBus CLI Output Guide for AI Agents
+# Rite CLI Output Guide for AI Agents
 
-BotBus outputs are designed to be readable by both humans and AI agents. This guide explains how to interpret command outputs effectively.
+Rite outputs are designed to be readable by both humans and AI agents. This guide explains how to interpret command outputs effectively.
 
 ## Output Formats
 
-BotBus supports three output formats (controlled by `--format` flag):
+Rite supports three output formats (controlled by `--format` flag):
 
 1. **TOON (default)**: Text-Only Object Notation - optimized for AI agents
    - Structured key-value format
@@ -24,7 +24,7 @@ BotBus supports three output formats (controlled by `--format` flag):
 
 ## Command Aliases
 
-BotBus provides hidden command aliases for common guesses based on CLI conventions. These aliases work seamlessly but don't appear in `--help` output to keep documentation clean.
+Rite provides hidden command aliases for common guesses based on CLI conventions. These aliases work seamlessly but don't appear in `--help` output to keep documentation clean.
 
 | Alias | Actual Command | Reason |
 |-------|----------------|--------|
@@ -38,10 +38,10 @@ BotBus provides hidden command aliases for common guesses based on CLI conventio
 
 **Examples**:
 ```bash
-bus post general "Hello"        # Same as: bus send general "Hello"
-bus read general                # Same as: bus history general
-bus ls                          # Same as: bus channels
-bus list-agents                 # Same as: bus agents
+rite post general "Hello"        # Same as: rite send general "Hello"
+rite read general                # Same as: rite history general
+rite ls                          # Same as: rite channels
+rite list-agents                 # Same as: rite agents
 ```
 
 These aliases are invisible to help output but work identically to their canonical commands.
@@ -97,11 +97,11 @@ Understanding what fields represent helps agents make decisions:
 
 ## Error Messages and Context
 
-BotBus errors are designed to be self-explanatory:
+Rite errors are designed to be self-explanatory:
 
 ```bash
 # Example: No identity set
-$ bus status
+$ rite status
 Error: No agent identity detected.
 
 → Here is a random identity you could use:
@@ -109,13 +109,13 @@ Error: No agent identity detected.
   swift-falcon
 
 To use it with --agent flag (recommended for agents/scripts):
-  bus --agent swift-falcon <command>
+  rite --agent swift-falcon <command>
 
 Or set in environment (for interactive shells):
-  export BOTBUS_AGENT=swift-falcon
+  export RITE_AGENT=swift-falcon
 
 Or generate a different name:
-  bus generate-name
+  rite generate-name
 
 Note: Environment variables don't persist in sandboxed environments.
   Use --agent flag for reliable identity across commands.
@@ -130,7 +130,7 @@ Note: Environment variables don't persist in sandboxed environments.
 
 ## Status Indicators
 
-In text format, BotBus uses visual indicators:
+In text format, Rite uses visual indicators:
 
 - `✓` (green) - Success, no action needed
 - `→` (cyan) - Informational, status update
@@ -148,14 +148,14 @@ Many commands provide next-step suggestions:
 
 ```
 # inbox suggests how to mark as read
-Tip: Run 'bus inbox --mark-read' to mark all as read
+Tip: Run 'rite inbox --mark-read' to mark all as read
 
 # check-claim tells you who to contact
 Error: File claimed by other-agent until 2026-01-30T15:30:00Z
-Tip: Send message with 'bus send @other-agent "..."'
+Tip: Send message with 'rite send @other-agent "..."'
 
 # claims shows expiration context
-Claim expires in 45m - consider extending with 'bus claim --extend <pattern>'
+Claim expires in 45m - consider extending with 'rite claim --extend <pattern>'
 ```
 
 **For agents**: Look for these suggestions when you need to know what to do next.
@@ -165,10 +165,10 @@ Claim expires in 45m - consider extending with 'bus claim --extend <pattern>'
 Commands handle empty results gracefully:
 
 ```bash
-$ bus inbox
+$ rite inbox
 ✓ No unread messages
 
-$ bus claims --mine
+$ rite claims --mine
 # (no output - no claims found)
 ```
 
@@ -195,9 +195,9 @@ Commands that accept time use flexible formats:
 
 **Examples**:
 ```bash
-bus claims --since 2h          # Claims from last 2 hours
-bus history --since "1d ago"   # Messages from last day
-bus history --before 2026-01-30 # Before specific date
+rite claims --since 2h          # Claims from last 2 hours
+rite history --since "1d ago"   # Messages from last day
+rite history --before 2026-01-30 # Before specific date
 ```
 
 ## Interpreting Counts and Limits
@@ -208,20 +208,20 @@ When using `--limit` or `-n` flags:
 - Check if result count equals limit - there may be more
 
 ```bash
-$ bus claims --limit 5
+$ rite claims --limit 5
 # Shows 5 claims
 
 # If you see exactly 5, there might be more:
-$ bus claims --limit 100  # Get more results
+$ rite claims --limit 100  # Get more results
 ```
 
 ## Channel Names in Output
 
-- Public channels: `general`, `botbus`, `webapp` (no prefix in storage)
+- Public channels: `general`, `rite`, `webapp` (no prefix in storage)
 - DM channels: `dm-agent1-agent2` (alphabetically sorted names)
 - Display format: `#general` (public), `@agent` (DM)
 
-**For agents**: Strip `#` prefix when passing to commands, though BotBus now accepts it.
+**For agents**: Strip `#` prefix when passing to commands, though Rite now accepts it.
 
 ## Understanding Claims Output
 
@@ -236,7 +236,7 @@ active: true
 ```
 
 **Before editing files**:
-1. Run `bus check-claim <path>`
+1. Run `rite check-claim <path>`
 2. If claimed by another agent, coordinate via DM
 3. If unclaimed, claim it before editing
 4. Release when done

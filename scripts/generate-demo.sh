@@ -3,27 +3,27 @@
 # Creates a temporary data directory with realistic-looking messages
 #
 # Usage:
-#   ./scripts/generate-demo.sh           # Creates demo, prints BOTBUS_DATA_DIR to set
+#   ./scripts/generate-demo.sh           # Creates demo, prints RITE_DATA_DIR to set
 #   eval $(./scripts/generate-demo.sh)   # Creates demo and exports the env var
 #
-# Then run: botbus ui
+# Then run: rite ui
 
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 
 # Create temp directory for demo data
-DEMO_DIR=$(mktemp -d /tmp/botbus-demo-XXXXXX)
-export BOTBUS_DATA_DIR="$DEMO_DIR"
+DEMO_DIR=$(mktemp -d /tmp/rite-demo-XXXXXX)
+export RITE_DATA_DIR="$DEMO_DIR"
 
 # Build if needed
-if [[ ! -x target/release/botbus ]]; then
+if [[ ! -x target/release/rite ]]; then
 	cargo build --release --quiet
 fi
-BOTBUS="./target/release/botbus"
+RITE="./target/release/rite"
 
 # Initialize
-$BOTBUS init >/dev/null 2>&1
+$RITE init >/dev/null 2>&1
 
 # Helper to send messages with specific agents
 send_as() {
@@ -31,7 +31,7 @@ send_as() {
 	local target="$2"
 	local message="$3"
 	shift 3
-	BOTBUS_AGENT="$agent" $BOTBUS send "$target" "$message" "$@" >/dev/null
+	RITE_AGENT="$agent" $RITE send "$target" "$message" "$@" >/dev/null
 }
 
 # --- Generate realistic multi-agent conversation ---
@@ -44,8 +44,8 @@ send_as "bold-tiger" general "Sure, it's all yours - I'm working on components/"
 send_as "swift-falcon" general "Thanks! Claiming the file now"
 
 # Claim some files
-BOTBUS_AGENT="swift-falcon" $BOTBUS claim "src/api/**" -m "Auth refactor" >/dev/null 2>&1 || true
-BOTBUS_AGENT="bold-tiger" $BOTBUS claim "src/components/**" -m "UI updates" >/dev/null 2>&1 || true
+RITE_AGENT="swift-falcon" $RITE claim "src/api/**" -m "Auth refactor" >/dev/null 2>&1 || true
+RITE_AGENT="bold-tiger" $RITE claim "src/components/**" -m "UI updates" >/dev/null 2>&1 || true
 
 send_as "swift-falcon" general "Claimed src/api/** - working on OAuth integration"
 send_as "quiet-owl" general "I can help with the database migrations when you're ready" -L offer
@@ -73,6 +73,6 @@ send_as "quiet-owl" general "I'll take a look now"
 send_as "bold-tiger" general "Same - reviewing the frontend integration parts"
 
 # Output the export command
-echo "export BOTBUS_DATA_DIR=\"$DEMO_DIR\""
+echo "export RITE_DATA_DIR=\"$DEMO_DIR\""
 echo "# Demo data created in: $DEMO_DIR" >&2
-echo "# Run: botbus ui" >&2
+echo "# Run: rite ui" >&2

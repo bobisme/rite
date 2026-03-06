@@ -3,11 +3,11 @@ use clap::Parser;
 use std::io::IsTerminal;
 use std::path::Path;
 
-use botbus::cli::{self, Cli, Commands, OutputFormat};
-use botbus::core::project::ensure_data_dir;
+use rite::cli::{self, Cli, Commands, OutputFormat};
+use rite::core::project::ensure_data_dir;
 
 fn main() -> Result<()> {
-    let _telemetry = botbus::telemetry::init();
+    let _telemetry = rite::telemetry::init();
 
     // Detect which binary name was used to invoke this program
     let _program_name = std::env::args()
@@ -18,7 +18,7 @@ fn main() -> Result<()> {
                 .and_then(|name| name.to_str())
                 .map(|s| s.to_string())
         })
-        .unwrap_or_else(|| "bus".to_string());
+        .unwrap_or_else(|| "rite".to_string());
 
     let cli = Cli::parse();
 

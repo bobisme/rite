@@ -4,8 +4,8 @@ set -e
 
 # Create temp directory for isolated testing
 TEST_DIR=$(mktemp -d)
-export BOTBUS_DATA_DIR="$TEST_DIR"
-export BOTBUS_AGENT="test-agent"
+export RITE_DATA_DIR="$TEST_DIR"
+export RITE_AGENT="test-agent"
 
 echo "=== Test: Channel refresh logic ==="
 echo "Using temp data dir: $TEST_DIR"

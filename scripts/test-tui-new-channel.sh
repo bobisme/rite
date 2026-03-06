@@ -4,8 +4,8 @@ set -e
 
 # Create temp directory for isolated testing
 TEST_DIR=$(mktemp -d)
-export BOTBUS_DATA_DIR="$TEST_DIR"
-export BOTBUS_AGENT="test-agent"
+export RITE_DATA_DIR="$TEST_DIR"
+export RITE_AGENT="test-agent"
 
 echo "=== Test: TUI shows new channels ==="
 echo "Using temp data dir: $TEST_DIR"
@@ -15,7 +15,7 @@ cargo run --quiet -- init
 
 # Start TUI in botty (background process that we can send commands to)
 echo "Starting TUI..."
-BOTTY_ID=$(botty spawn --name botbus-tui -- cargo run --quiet -- ui)
+BOTTY_ID=$(botty spawn --name rite-tui -- cargo run --quiet -- ui)
 echo "TUI started with botty ID: $BOTTY_ID"
 
 # Give TUI time to start and render

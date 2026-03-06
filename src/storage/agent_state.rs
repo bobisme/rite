@@ -1,6 +1,6 @@
 //! Per-agent state storage.
 //!
-//! Each agent has its own state file at `.botbus/agents/<AgentName>/state.json`
+//! Each agent has its own state file at `.rite/agents/<AgentName>/state.json`
 //! to avoid conflicts when multiple agents share a project.
 
 use anyhow::{Context, Result};
@@ -41,7 +41,7 @@ impl AgentState {
 /// Get the path to an agent's state file.
 pub fn agent_state_path(project_root: &Path, agent_name: &str) -> PathBuf {
     project_root
-        .join(".botbus")
+        .join(".rite")
         .join("agents")
         .join(agent_name)
         .join("state.json")
@@ -501,7 +501,7 @@ pub fn rename_channel_in_agent_states(
     old_name: &str,
     new_name: &str,
 ) -> Result<usize> {
-    let agents_dir = project_root.join(".botbus").join("agents");
+    let agents_dir = project_root.join(".rite").join("agents");
 
     // If agents directory doesn't exist, no states to update
     if !agents_dir.exists() {

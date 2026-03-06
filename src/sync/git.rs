@@ -1,4 +1,4 @@
-//! Git operations for BotBus data directory sync.
+//! Git operations for Rite data directory sync.
 
 use anyhow::{Context, Result, bail};
 use std::path::Path;
@@ -96,7 +96,7 @@ pub fn init_repo(data_dir: &Path, remote_url: Option<&str>) -> Result<()> {
             "commit.gpgsign=false",
             "commit",
             "-m",
-            "chore: initialize botbus data repo",
+            "chore: initialize rite data repo",
         ])
         .status()
         .context("Failed to commit git config files")?;
@@ -121,7 +121,7 @@ pub fn init_repo(data_dir: &Path, remote_url: Option<&str>) -> Result<()> {
                 "commit.gpgsign=false",
                 "commit",
                 "-m",
-                "chore: add existing botbus data",
+                "chore: add existing rite data",
             ])
             .status();
 
@@ -149,7 +149,7 @@ pub fn init_repo(data_dir: &Path, remote_url: Option<&str>) -> Result<()> {
             .context("Failed to push to remote")?;
 
         if !status.success() {
-            warn!("failed to push to remote during init; run 'bus sync --push' manually");
+            warn!("failed to push to remote during init; run 'rite sync --push' manually");
         }
     }
 
@@ -201,7 +201,7 @@ pub fn commit_all(data_dir: &Path, message: &str) -> Result<bool> {
     }
 
     if !is_git_repo(data_dir) {
-        bail!("Not a git repository. Run 'bus sync init' first.");
+        bail!("Not a git repository. Run 'rite sync init' first.");
     }
 
     // Stage everything
@@ -240,7 +240,7 @@ pub fn push(data_dir: &Path) -> Result<()> {
     }
 
     if !is_git_repo(data_dir) {
-        bail!("Not a git repository. Run 'bus sync init' first.");
+        bail!("Not a git repository. Run 'rite sync init' first.");
     }
 
     // Check if remote is configured
@@ -273,7 +273,7 @@ pub fn push(data_dir: &Path) -> Result<()> {
         } else if stderr.contains("authentication failed") || stderr.contains("Permission denied") {
             bail!("Authentication failed. Check your credentials or SSH keys.");
         } else if stderr.contains("rejected") {
-            bail!("Push rejected. Try pulling first with 'bus sync pull'.");
+            bail!("Push rejected. Try pulling first with 'rite sync pull'.");
         } else {
             bail!("git push failed: {}", stderr.trim());
         }
@@ -291,7 +291,7 @@ pub fn pull(data_dir: &Path) -> Result<bool> {
     }
 
     if !is_git_repo(data_dir) {
-        bail!("Not a git repository. Run 'bus sync init' first.");
+        bail!("Not a git repository. Run 'rite sync init' first.");
     }
 
     // Check if remote is configured
@@ -367,7 +367,7 @@ pub fn pull(data_dir: &Path) -> Result<bool> {
 /// Get git status (staged, unstaged, ahead/behind).
 pub fn status(data_dir: &Path) -> Result<String> {
     if !is_git_repo(data_dir) {
-        bail!("Not a git repository. Run 'bus sync init' first.");
+        bail!("Not a git repository. Run 'rite sync init' first.");
     }
 
     // Get short status
@@ -476,7 +476,7 @@ pub struct LogEntry {
 
 pub fn get_log(data_dir: &Path, count: usize) -> Result<Vec<LogEntry>> {
     if !is_git_repo(data_dir) {
-        bail!("Not a git repository. Run 'bus sync init' first.");
+        bail!("Not a git repository. Run 'rite sync init' first.");
     }
 
     let output = Command::new("git")
@@ -516,7 +516,7 @@ mod tests {
 
     #[test]
     fn test_check_git_available() {
-        // This test assumes git is installed (required for BotBus development)
+        // This test assumes git is installed (required for Rite development)
         assert!(check_git_available());
     }
 

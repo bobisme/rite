@@ -175,7 +175,7 @@ pub fn run(
         // Tip for DMs - mention the wait command
         println!(
             "{}",
-            format!("Tip: botbus wait -c {} -t 60 to wait for reply", target).dimmed()
+            format!("Tip: rite wait -c {} -t 60 to wait for reply", target).dimmed()
         );
     } else {
         println!("{} Message sent to #{}", "Sent:".green(), channel.cyan());
@@ -199,7 +199,10 @@ pub fn run(
                     pattern
                 );
             }
-            println!("  {}", format!("Release: bus release {}", pattern).dimmed());
+            println!(
+                "  {}",
+                format!("Release: rite release {}", pattern).dimmed()
+            );
         }
     }
 

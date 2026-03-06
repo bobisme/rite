@@ -82,9 +82,9 @@ pub fn run(name: Option<String>, description: Option<String>, project_root: &Pat
     println!("\n{}", "Then you can:".yellow());
     println!(
         "  {} Send a message",
-        "botbus send general \"Hello!\"".cyan()
+        "rite send general \"Hello!\"".cyan()
     );
-    println!("  {} View your identity", "botbus whoami".cyan());
+    println!("  {} View your identity", "rite whoami".cyan());
 
     Ok(())
 }

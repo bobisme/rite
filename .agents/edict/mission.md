@@ -69,7 +69,7 @@ maw exec default -- bn triage graph
 Announce the plan:
 
 ```bash
-bus send --agent $AGENT $EDICT_PROJECT "Mission <mission-id>: <title> — created N child bones" -L task-claim
+rite send --agent $AGENT $EDICT_PROJECT "Mission <mission-id>: <title> — created N child bones" -L task-claim
 ```
 
 ### 3. Dispatch Workers
@@ -78,12 +78,12 @@ For each unblocked child, dispatch a worker agent. The dev-loop handles this aut
 
 ```bash
 # Generate worker name and create workspace
-WORKER=$(bus generate-name)
+WORKER=$(rite generate-name)
 maw ws create --random  # → e.g., frost-castle
 
 # Stake claims
-bus claims stake --agent $AGENT "bone://$EDICT_PROJECT/<child-id>" -m "<child-id>"
-bus claims stake --agent $AGENT "workspace://$EDICT_PROJECT/frost-castle" -m "<child-id>"
+rite claims stake --agent $AGENT "bone://$EDICT_PROJECT/<child-id>" -m "<child-id>"
+rite claims stake --agent $AGENT "workspace://$EDICT_PROJECT/frost-castle" -m "<child-id>"
 
 # Add mission context comment to child bone
 maw exec default -- bn bone comment add <child-id> \
@@ -122,7 +122,7 @@ Each checkpoint:
 
 3. **Poll for completions** (cursor-based — track last-seen message ID):
    ```bash
-   bus history $EDICT_PROJECT -n 20 -L task-done --since <last-checkpoint-time>
+   rite history $EDICT_PROJECT -n 20 -L task-done --since <last-checkpoint-time>
    ```
 
 4. **Detect dead workers:** If a worker is not in `vessel list` but its bone is still `doing`, trigger crash recovery (see below).
@@ -131,7 +131,7 @@ Each checkpoint:
 
 6. **Post checkpoint summary:**
    ```bash
-   bus send --agent $AGENT $EDICT_PROJECT "Mission <mission-id> checkpoint: K/N done, M active" -L feedback
+   rite send --agent $AGENT $EDICT_PROJECT "Mission <mission-id> checkpoint: K/N done, M active" -L feedback
    ```
 
 Exit the checkpoint loop when all children are done, or no workers are alive and all remaining bones are stuck.
@@ -148,8 +148,8 @@ Exit the checkpoint loop when all children are done, or no workers are alive and
 2. Worker dies again (`RETRY:1` marker already exists):
    - Comment: `"Worker died again after retry. Marking done with failure."`
    - Destroy workspace if it exists: `maw ws destroy <ws>`
-   - Release claims: `bus claims release --agent $AGENT "bone://$EDICT_PROJECT/<child-id>"`
-   - Announce: `bus send --agent $AGENT $EDICT_PROJECT "Bone <child-id> failed: worker died twice" -L task-blocked`
+   - Release claims: `rite claims release --agent $AGENT "bone://$EDICT_PROJECT/<child-id>"`
+   - Announce: `rite send --agent $AGENT $EDICT_PROJECT "Bone <child-id> failed: worker died twice" -L task-blocked`
 
 ### 6. Close the Mission
 
@@ -170,7 +170,7 @@ When all children are done:
 
 4. **Announce:**
    ```bash
-   bus send --agent $AGENT $EDICT_PROJECT "Mission <mission-id> complete: <title> — N children, all done" -L task-done
+   rite send --agent $AGENT $EDICT_PROJECT "Mission <mission-id> complete: <title> — N children, all done" -L task-done
    ```
 
 ## Risk Tags in Missions
@@ -188,7 +188,7 @@ See [planning](planning.md) for how to assign risk tags.
 
 ## Coordination Labels
 
-Workers in a mission coordinate via labeled bus messages. Always include `mission:<mission-id>` alongside the coordination label.
+Workers in a mission coordinate via labeled rite messages. Always include `mission:<mission-id>` alongside the coordination label.
 
 | Label | When to use |
 |-------|-------------|
@@ -199,7 +199,7 @@ Workers in a mission coordinate via labeled bus messages. Always include `missio
 Example:
 
 ```bash
-bus send --agent $AGENT $EDICT_PROJECT "Interface: createUser(name, email) returns User" \
+rite send --agent $AGENT $EDICT_PROJECT "Interface: createUser(name, email) returns User" \
   -L coord:interface -L "mission:bd-abc"
 ```
 
@@ -246,4 +246,4 @@ Workers receive mission context via environment variables set by the dev-loop at
 
 When `EDICT_BONE` and `EDICT_WORKSPACE` are set, agent-loop skips triage and starts working immediately on the assigned bone in the given workspace.
 
-When `EDICT_MISSION` is set, agent-loop reads the mission bone for shared context and includes `mission:<id>` labels on bus messages.
+When `EDICT_MISSION` is set, agent-loop reads the mission bone for shared context and includes `mission:<id>` labels on rite messages.

@@ -148,7 +148,7 @@ pub fn list(
     if !channel_infos.is_empty() {
         // Suggest closing channels if there are any
         if let Some(first_channel) = channel_infos.first() {
-            advice.push(format!("bus channels close {}", first_channel.name));
+            advice.push(format!("rite channels close {}", first_channel.name));
         }
     }
 

@@ -33,7 +33,7 @@ fn test_claim_conflict_denied() {
         output.stderr_str()
     );
     assert!(
-        output.stderr_contains("botbus send @"),
+        output.stderr_contains("rite send @"),
         "Expected to suggest messaging, got: {}",
         output.stderr_str()
     );

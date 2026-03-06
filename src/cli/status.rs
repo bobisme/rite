@@ -99,7 +99,7 @@ fn collect_status(explicit_agent: Option<&str>) -> Result<StatusOutput> {
     if let Some(unread) = unread_total
         && unread > 0
     {
-        advice.push("bus inbox".to_string());
+        advice.push("rite inbox".to_string());
     }
 
     Ok(StatusOutput {
@@ -246,7 +246,7 @@ fn get_last_seen_times() -> HashMap<String, DateTime<Utc>> {
 
 fn print_status(status: &StatusOutput) {
     // Header
-    println!("{}", "BotBus Status".bold());
+    println!("{}", "Rite Status".bold());
     println!();
 
     // Agent identity

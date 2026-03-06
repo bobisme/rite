@@ -30,7 +30,7 @@ pub enum AttachmentSource {
         message_id: String,
         channel: String,
     },
-    /// Attachment from the CLI (`bus send --attach`)
+    /// Attachment from the CLI (`rite send --attach`)
     Cli { agent: String, channel: String },
 }
 

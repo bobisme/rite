@@ -1,11 +1,11 @@
-//! Initialize BotBus data directory.
+//! Initialize Rite data directory.
 
 use anyhow::Result;
 use colored::Colorize;
 
 use crate::core::project::{data_dir, ensure_data_dir};
 
-/// Initialize the BotBus data directory.
+/// Initialize the Rite data directory.
 ///
 /// This creates the global data directory structure if it doesn't exist.
 /// Safe to run multiple times - will just report the existing path.
@@ -16,9 +16,9 @@ pub fn run() -> Result<()> {
     ensure_data_dir()?;
 
     if existed {
-        println!("{} BotBus data directory already exists", "✓".green());
+        println!("{} Rite data directory already exists", "✓".green());
     } else {
-        println!("{} Created BotBus data directory", "✓".green());
+        println!("{} Created Rite data directory", "✓".green());
     }
 
     println!("  {}", path.display().to_string().cyan());
@@ -27,12 +27,9 @@ pub fn run() -> Result<()> {
     println!("Next steps:");
     println!(
         "  {} Set your agent identity",
-        "export BOTBUS_AGENT=$(botbus generate-name)".cyan()
+        "export RITE_AGENT=$(rite generate-name)".cyan()
     );
-    println!(
-        "  {} Send a message",
-        "botbus send general \"Hello!\"".cyan()
-    );
+    println!("  {} Send a message", "rite send general \"Hello!\"".cyan());
 
     Ok(())
 }

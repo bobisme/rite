@@ -1,6 +1,6 @@
 //! Doctor command for environment validation.
 //!
-//! Checks that the BotBus environment is properly configured for agent use.
+//! Checks that the Rite environment is properly configured for agent use.
 
 use anyhow::Result;
 use colored::Colorize;
@@ -136,7 +136,7 @@ fn check_data_dir(report: &mut DoctorReport) {
             name: "data_directory".to_string(),
             status: CheckStatus::Fail,
             message: format!("Data directory missing: {}", path.display()),
-            suggestion: Some("Run: botbus init".to_string()),
+            suggestion: Some("Run: rite init".to_string()),
         });
     }
 }
@@ -156,9 +156,7 @@ fn check_agent_identity(report: &mut DoctorReport) {
                     name: "agent_identity".to_string(),
                     status: CheckStatus::Warn,
                     message: format!("Agent name '{}' is not valid kebab-case", agent),
-                    suggestion: Some(
-                        "Use: export BOTBUS_AGENT=$(botbus generate-name)".to_string(),
-                    ),
+                    suggestion: Some("Use: export RITE_AGENT=$(rite generate-name)".to_string()),
                 });
             }
         }
@@ -166,8 +164,8 @@ fn check_agent_identity(report: &mut DoctorReport) {
             report.add(Check {
                 name: "agent_identity".to_string(),
                 status: CheckStatus::Warn,
-                message: "No agent identity set (BOTBUS_AGENT not defined)".to_string(),
-                suggestion: Some("Run: export BOTBUS_AGENT=$(botbus generate-name)".to_string()),
+                message: "No agent identity set (RITE_AGENT not defined)".to_string(),
+                suggestion: Some("Run: export RITE_AGENT=$(rite generate-name)".to_string()),
             });
         }
     }
@@ -196,7 +194,7 @@ fn check_channels_dir(report: &mut DoctorReport) {
             name: "channels_directory".to_string(),
             status: CheckStatus::Fail,
             message: "Channels directory missing".to_string(),
-            suggestion: Some("Run: botbus init".to_string()),
+            suggestion: Some("Run: rite init".to_string()),
         });
     }
 }
@@ -225,7 +223,7 @@ fn check_claims(report: &mut DoctorReport) {
                 name: "claims_storage".to_string(),
                 status: CheckStatus::Fail,
                 message: "Claims directory missing".to_string(),
-                suggestion: Some("Run: botbus init".to_string()),
+                suggestion: Some("Run: rite init".to_string()),
             });
         }
     }
@@ -352,14 +350,14 @@ fn check_git_available(report: &mut DoctorReport) {
             status: CheckStatus::Warn,
             message: "Git is not installed or not in PATH".to_string(),
             suggestion: Some(
-                "Install git to use sync features (bus sync init/push/pull)".to_string(),
+                "Install git to use sync features (rite sync init/push/pull)".to_string(),
             ),
         });
     }
 }
 
 fn print_report(report: &DoctorReport) {
-    println!("{}", "BotBus Doctor".bold());
+    println!("{}", "Rite Doctor".bold());
     println!();
 
     for check in &report.checks {
@@ -420,7 +418,7 @@ mod tests {
         // Set up environment
         unsafe {
             env::set_var(DATA_DIR_ENV_VAR, temp_path);
-            env::set_var("BOTBUS_AGENT", "test-agent");
+            env::set_var("RITE_AGENT", "test-agent");
         }
 
         // Create required directories
@@ -438,7 +436,7 @@ mod tests {
         // Cleanup
         unsafe {
             env::remove_var(DATA_DIR_ENV_VAR);
-            env::remove_var("BOTBUS_AGENT");
+            env::remove_var("RITE_AGENT");
         }
     }
 
@@ -450,7 +448,7 @@ mod tests {
 
         unsafe {
             env::set_var(DATA_DIR_ENV_VAR, temp_path);
-            env::remove_var("BOTBUS_AGENT");
+            env::remove_var("RITE_AGENT");
         }
 
         let mut report = DoctorReport::new();

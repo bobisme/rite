@@ -280,7 +280,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
             } else if !has_more {
                 println!();
                 println!(
-                    "{} Run 'bus inbox --mark-read' to mark all as read",
+                    "{} Run 'rite inbox --mark-read' to mark all as read",
                     "Tip:".dimmed()
                 );
             }
@@ -293,7 +293,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
 
             // Show advice if there are more messages
             if has_more {
-                println!("advice: bus mark-read <channel>");
+                println!("advice: rite mark-read <channel>");
             }
         }
     }
@@ -304,7 +304,7 @@ pub fn run(options: InboxOptions, explicit_agent: Option<&str>) -> Result<()> {
 /// Build the advice command based on the options used.
 /// Reconstructs the command with the same flags so users can copy-paste it.
 fn build_advice_command(options: &InboxOptions) -> String {
-    let mut cmd = String::from("bus inbox");
+    let mut cmd = String::from("rite inbox");
 
     // Add channels if specified
     if !options.channels.is_empty() {

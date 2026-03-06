@@ -83,7 +83,7 @@ pub struct ParsedBody {
 /// # Examples
 ///
 /// ```
-/// use botbus::core::flags::parse_flags;
+/// use rite::core::flags::parse_flags;
 ///
 /// let result = parse_flags("hello world !nohooks");
 /// assert_eq!(result.body, "hello world");

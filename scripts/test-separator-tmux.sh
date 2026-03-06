@@ -2,7 +2,7 @@
 # Test separator with tmux
 set -e
 
-SESSION="botbus-sep-test"
+SESSION="rite-sep-test"
 
 # Kill existing session if it exists
 tmux kill-session -t $SESSION 2>/dev/null || true
@@ -12,29 +12,29 @@ TEST_DIR=$(mktemp -d)
 echo "Test dir: $TEST_DIR"
 
 # Setup
-cd ~/src/botbus
+cd ~/src/rite
 cargo build
 
 # Create initial messages
-export BOTBUS_DATA_DIR="$TEST_DIR"
-export BOTBUS_AGENT="test-agent"
-./target/debug/botbus init
-./target/debug/botbus send general "Old message 1"
-./target/debug/botbus send general "Old message 2"
-./target/debug/botbus send general "Old message 3"
+export RITE_DATA_DIR="$TEST_DIR"
+export RITE_AGENT="test-agent"
+./target/debug/rite init
+./target/debug/rite send general "Old message 1"
+./target/debug/rite send general "Old message 2"
+./target/debug/rite send general "Old message 3"
 
 echo "Created 3 old messages"
 
 # Create tmux session with TUI
 tmux new-session -d -s $SESSION
-tmux send-keys -t $SESSION "cd ~/src/botbus && BOTBUS_DATA_DIR=$TEST_DIR BOTBUS_AGENT=viewer ./target/debug/botbus ui" C-m
+tmux send-keys -t $SESSION "cd ~/src/rite && RITE_DATA_DIR=$TEST_DIR RITE_AGENT=viewer ./target/debug/rite ui" C-m
 
 # Wait for TUI to start and capture initial sizes
 sleep 3
 
 # NOW send new message (after TUI has started and captured initial_sizes)
-export BOTBUS_AGENT="sender"
-./target/debug/botbus send general "NEW MESSAGE!"
+export RITE_AGENT="sender"
+./target/debug/rite send general "NEW MESSAGE!"
 
 echo "Sent new message"
 sleep 1

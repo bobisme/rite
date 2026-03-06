@@ -1,13 +1,13 @@
-//! Global path helpers for BotBus data storage.
+//! Global path helpers for Rite data storage.
 //!
-//! BotBus uses XDG Base Directory specification for storage:
-//! - Data: `$XDG_DATA_HOME/botbus/` (default: `~/.local/share/botbus/`)
+//! Rite uses XDG Base Directory specification for storage:
+//! - Data: `$XDG_DATA_HOME/rite/` (default: `~/.local/share/rite/`)
 //!
-//! For testing, set `BOTBUS_DATA_DIR` to override the data directory.
+//! For testing, set `RITE_DATA_DIR` to override the data directory.
 //!
 //! Directory structure:
 //! ```text
-//! ~/.local/share/botbus/
+//! ~/.local/share/rite/
 //!   channels/
 //!     general.jsonl
 //!     <channel>.jsonl
@@ -26,17 +26,17 @@ use std::path::PathBuf;
 use std::os::unix::fs::PermissionsExt;
 
 /// Environment variable to override the data directory (for testing).
-pub const DATA_DIR_ENV_VAR: &str = "BOTBUS_DATA_DIR";
+pub const DATA_DIR_ENV_VAR: &str = "RITE_DATA_DIR";
 
 /// Environment variable to override the cache directory (for testing).
-pub const CACHE_DIR_ENV_VAR: &str = "BOTBUS_CACHE_DIR";
+pub const CACHE_DIR_ENV_VAR: &str = "RITE_CACHE_DIR";
 
-/// Get the BotBus data directory.
+/// Get the Rite data directory.
 ///
 /// Checks in order:
-/// 1. `BOTBUS_DATA_DIR` environment variable (for testing)
-/// 2. XDG data directory (`$XDG_DATA_HOME/botbus/`)
-/// 3. Fallback: `~/.local/share/botbus/`
+/// 1. `RITE_DATA_DIR` environment variable (for testing)
+/// 2. XDG data directory (`$XDG_DATA_HOME/rite/`)
+/// 3. Fallback: `~/.local/share/rite/`
 ///
 /// Note: This function reads the env var each time, so tests can set different
 /// values for different test cases.
@@ -49,29 +49,29 @@ pub fn data_dir() -> PathBuf {
     }
 
     // 2. Try XDG-compliant path
-    if let Some(proj_dirs) = ProjectDirs::from("", "", "botbus") {
+    if let Some(proj_dirs) = ProjectDirs::from("", "", "rite") {
         return proj_dirs.data_dir().to_path_buf();
     }
 
-    // 3. Fallback: ~/.local/share/botbus/
+    // 3. Fallback: ~/.local/share/rite/
     if let Some(user_dirs) = directories::UserDirs::new() {
         return user_dirs
             .home_dir()
             .join(".local")
             .join("share")
-            .join("botbus");
+            .join("rite");
     }
 
     // Last resort: current directory (not ideal, but won't panic)
-    PathBuf::from(".botbus")
+    PathBuf::from(".rite")
 }
 
-/// Get the BotBus cache directory.
+/// Get the Rite cache directory.
 ///
 /// Checks in order:
-/// 1. `BOTBUS_CACHE_DIR` environment variable (for testing)
-/// 2. XDG cache directory (`$XDG_CACHE_HOME/botbus/`)
-/// 3. Fallback: `~/.cache/botbus/`
+/// 1. `RITE_CACHE_DIR` environment variable (for testing)
+/// 2. XDG cache directory (`$XDG_CACHE_HOME/rite/`)
+/// 3. Fallback: `~/.cache/rite/`
 pub fn cache_dir() -> PathBuf {
     if let Ok(dir) = env::var(CACHE_DIR_ENV_VAR)
         && !dir.is_empty()
@@ -79,15 +79,15 @@ pub fn cache_dir() -> PathBuf {
         return PathBuf::from(dir);
     }
 
-    if let Some(proj_dirs) = ProjectDirs::from("", "", "botbus") {
+    if let Some(proj_dirs) = ProjectDirs::from("", "", "rite") {
         return proj_dirs.cache_dir().to_path_buf();
     }
 
     if let Some(user_dirs) = directories::UserDirs::new() {
-        return user_dirs.home_dir().join(".cache").join("botbus");
+        return user_dirs.home_dir().join(".cache").join("rite");
     }
 
-    PathBuf::from(".botbus_cache")
+    PathBuf::from(".rite_cache")
 }
 
 /// Ensure the cache directory exists (owner-only permissions on Unix).

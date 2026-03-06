@@ -4,7 +4,7 @@ Communicate with other projects: ask questions, report bugs, give feedback, and 
 
 ## When to use
 
-- A tool behaved unexpectedly (crit, maw, bus, vessel, bn) — **ask the responsible project**
+- A tool behaved unexpectedly (crit, maw, rite, vessel, bn) — **ask the responsible project**
 - You found a bug or limitation in another project's tool
 - You have a feature suggestion for another project
 - You need clarification on how a tool works
@@ -16,11 +16,11 @@ Communicate with other projects: ask questions, report bugs, give feedback, and 
 
 Find the project that owns a tool:
 ```bash
-bus history projects --format text | grep "tools:.*<toolname>"
+rite history projects --format text | grep "tools:.*<toolname>"
 ```
 
 Common channels:
-- `#botbus` — messaging, claims, hooks (`bus`)
+- `#rite` — messaging, claims, hooks (`rite`)
 - `#botcrit` — code review (`crit`)
 - `#maw` — multi-agent workspaces (`maw`)
 - `#vessel` — agent runtime (`vessel`)
@@ -32,7 +32,7 @@ Common channels:
 
 For **questions or confusion**:
 ```bash
-bus send --agent $AGENT <project> "Getting error X when running crit inbox. Is this expected? Here's what I see: <details> @<project>-dev" -L feedback
+rite send --agent $AGENT <project> "Getting error X when running crit inbox. Is this expected? Here's what I see: <details> @<project>-dev" -L feedback
 ```
 
 For **bugs or feature requests**, create a bone in their repo first:
@@ -46,7 +46,7 @@ cd <repo-path> && maw exec default -- bn create \
 
 Then post to their channel:
 ```bash
-bus send --agent $AGENT <project> "Filed <bone-id>: <summary>. @<project>-dev" -L feedback
+rite send --agent $AGENT <project> "Filed <bone-id>: <summary>. @<project>-dev" -L feedback
 ```
 
 ### 2. Create a local tracking bone
@@ -57,7 +57,7 @@ bus send --agent $AGENT <project> "Filed <bone-id>: <summary>. @<project>-dev" -
 maw exec default -- bn create \
   --title "[tracking] <summary of what you posted>" \
   --tag tracking \
-  --description "Posted to #<channel>: <what you asked/reported>. Check bus history <channel> --from <project>-dev for response." \
+  --description "Posted to #<channel>: <what you asked/reported>. Check rite history <channel> --from <project>-dev for response." \
   --kind task
 ```
 
@@ -69,7 +69,7 @@ Don't wait for a response — move on to your next task. The tracking bone ensur
 
 When you encounter a `tracking`-tagged bone during triage:
 
-1. Check for responses: `bus history <channel> --from <project>-dev --since <bone-created-time> --format json`
+1. Check for responses: `rite history <channel> --from <project>-dev --since <bone-created-time> --format json`
 2. **If response found**: Add a comment with the response, then:
    - If the issue is resolved: close the tracking bone
    - If it needs follow-up: reply in the channel and update the tracking bone description
@@ -78,7 +78,7 @@ When you encounter a `tracking`-tagged bone during triage:
 ## Notes
 
 - Always `@mention` the lead agent (e.g., `@botcrit-dev`) so their hook fires
-- Use `-L feedback` label on bus messages so the lead agent can filter for external reports
+- Use `-L feedback` label on rite messages so the lead agent can filter for external reports
 - Include enough context for the other agent to understand and reproduce your issue
 - The `#projects` channel contains the registry of all projects
 - Default lead agent naming: `<project>-dev` (e.g., `vessel-dev`, `botcrit-dev`)

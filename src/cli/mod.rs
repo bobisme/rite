@@ -39,11 +39,11 @@ pub enum OutputFormat {
 }
 
 #[derive(Parser)]
-#[command(name = "botbus")]
+#[command(name = "rite")]
 #[command(author, version, about = "Chat-oriented coordination for AI coding agents", long_about = None)]
 pub struct Cli {
-    /// Agent identity (default: from BOTBUS_AGENT env var)
-    #[arg(short, long, global = true, env = "BOTBUS_AGENT")]
+    /// Agent identity (default: from RITE_AGENT env var)
+    #[arg(short, long, global = true, env = "RITE_AGENT")]
     pub agent: Option<String>,
 
     /// Suppress non-essential output
@@ -68,7 +68,7 @@ pub struct Cli {
 
 #[derive(Subcommand)]
 pub enum Commands {
-    /// Initialize the BotBus data directory
+    /// Initialize the Rite data directory
     Init,
 
     /// Check environment health and configuration
@@ -577,18 +577,18 @@ pub enum StatusesCommands {
 
 #[derive(Subcommand)]
 pub enum AgentsMdCommands {
-    /// Generate or update AGENTS.md with BotBus workflow instructions
+    /// Generate or update AGENTS.md with Rite workflow instructions
     Init {
         /// Explicit file path (default: auto-detect AGENTS.md, CLAUDE.md, etc.)
         #[arg(long)]
         file: Option<PathBuf>,
 
-        /// Remove BotBus instructions instead of adding/updating
+        /// Remove Rite instructions instead of adding/updating
         #[arg(long)]
         remove: bool,
     },
 
-    /// Print the BotBus section that would be added to AGENTS.md
+    /// Print the Rite section that would be added to AGENTS.md
     Show,
 }
 
@@ -596,7 +596,7 @@ pub enum AgentsMdCommands {
 pub enum SyncCommands {
     /// Initialize git repository in data directory
     Init {
-        /// Remote URL (e.g., git@github.com:user/botbus-data.git)
+        /// Remote URL (e.g., git@github.com:user/rite-data.git)
         #[arg(long)]
         remote: Option<String>,
     },

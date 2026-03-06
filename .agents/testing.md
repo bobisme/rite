@@ -1,17 +1,17 @@
 # Testing
 
-Integration tests use **isolated temp directories** to avoid touching real data (`~/.local/share/botbus/`).
+Integration tests use **isolated temp directories** to avoid touching real data (`~/.local/share/rite/`).
 
 ## Key Mechanism
 
-Set `BOTBUS_DATA_DIR` to a temp directory. All botbus commands will use that directory instead of the default location.
+Set `RITE_DATA_DIR` to a temp directory. All rite commands will use that directory instead of the default location.
 
 ## Test Harness (`tests/common/mod.rs`)
 
 - `TestProject::new()` — creates a temp dir, sets up `data/` and `project/` subdirectories
-- `project.agent("name")` — returns an `Agent` handle that runs commands with `BOTBUS_DATA_DIR` and `BOTBUS_AGENT` set
-- `agent.run(&["send", "general", "hello"])` — runs any botbus command in isolation
-- `BotbusOutput` — wraps stdout/stderr with `.assert_success()`, `.stdout_contains()`, etc.
+- `project.agent("name")` — returns an `Agent` handle that runs commands with `RITE_DATA_DIR` and `RITE_AGENT` set
+- `agent.run(&["send", "general", "hello"])` — runs any rite command in isolation
+- `RiteOutput` — wraps stdout/stderr with `.assert_success()`, `.stdout_contains()`, etc.
 
 ## Example: Two-Machine Sync
 

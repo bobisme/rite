@@ -4,7 +4,7 @@ use std::collections::HashSet;
 use std::path::Path;
 use ulid::Ulid;
 
-/// The fundamental unit of communication in BotBus.
+/// The fundamental unit of communication in Rite.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Message {
     /// Timestamp when the message was created

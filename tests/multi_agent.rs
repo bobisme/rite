@@ -1,10 +1,10 @@
 //! Multi-agent coordination simulation tests.
 //!
 //! These tests simulate realistic scenarios where multiple AI coding agents
-//! coordinate their work using BotBus.
+//! coordinate their work using Rite.
 //!
 //! In the stateless model:
-//! - Agents don't need to register - they just need BOTBUS_AGENT set
+//! - Agents don't need to register - they just need RITE_AGENT set
 //! - No "join" messages are auto-sent
 //! - Agent presence is derived from message history
 
@@ -391,7 +391,7 @@ fn test_whoami_per_agent() {
     let output1 = agent1.whoami();
     output1.assert_success();
     output1.assert_stdout_contains("FirstAgent");
-    // Agent runs with BOTBUS_AGENT env var set, shown as source (toon format)
+    // Agent runs with RITE_AGENT env var set, shown as source (toon format)
     output1.assert_stdout_contains("source:");
 
     let output2 = agent2.whoami();

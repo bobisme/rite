@@ -83,11 +83,11 @@ pub fn run(
                          {} Here is a random identity you could use:\n\n  \
                          {}\n\n\
                          To use it with --agent flag (recommended for agents/scripts):\n  \
-                         botbus --agent {} <command>\n\n\
+                         rite --agent {} <command>\n\n\
                          Or set in environment (for interactive shells):\n  \
-                         export BOTBUS_AGENT={}\n\n\
+                         export RITE_AGENT={}\n\n\
                          Or generate a different name:\n  \
-                         botbus generate-name\n\n\
+                         rite generate-name\n\n\
                          Note: Environment variables don't persist in sandboxed environments.\n  \
                          Use --agent flag for reliable identity across commands.",
                         "Error: No agent identity detected.".red().bold(),
@@ -207,15 +207,15 @@ mod tests {
         let result = run(OutputFormat::Text, None, Some("dev".to_string()));
         assert!(result.is_err());
 
-        // Check that the error message contains a suggested name and "botbus-dev"
+        // Check that the error message contains a suggested name and "rite-dev"
         let err_msg = result.unwrap_err().to_string();
         eprintln!("Error message: {}", err_msg);
-        assert!(err_msg.contains("botbus-dev") || err_msg.contains("suggested"));
+        assert!(err_msg.contains("rite-dev") || err_msg.contains("suggested"));
     }
 
     #[test]
     fn test_find_project_root() {
-        // Should find the botbus project root
+        // Should find the rite project root
         let root = find_project_root();
         assert!(root.is_some());
 

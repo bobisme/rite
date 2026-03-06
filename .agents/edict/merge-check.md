@@ -26,7 +26,7 @@ If any check fails, the output explains why and what to do.
 1. `maw ws merge <workspace> --destroy --message "feat: <bone-title>"` — merge and clean up (use conventional commit prefix: `feat:`, `fix:`, `chore:`, etc.)
 2. `crit reviews mark-merged <review-id>` — mark review as merged (if review exists)
 3. `maw push` — push to remote (if `pushMain` is enabled)
-4. `bus send` — announce merge on project channel
+4. `rite send` — announce merge on project channel
 
 ## Conflict recovery
 
@@ -48,4 +48,4 @@ If `edict protocol merge` is unavailable, check manually:
 2. `maw exec default -- bn show <bone-id>` — confirm bone is done
 3. `maw ws merge <workspace> --check` — pre-flight conflict detection
 4. `maw ws merge <workspace> --destroy --message "feat: <bone-title>"` — merge (use conventional commit prefix)
-5. `bus claims release --agent $AGENT --all` — release claims
+5. `rite claims release --agent $AGENT --all` — release claims

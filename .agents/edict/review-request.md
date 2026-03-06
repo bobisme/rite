@@ -13,13 +13,13 @@ Request a review using crit and announce it in the project channel.
 
 ## How Reviewer Spawning Works
 
-**Important**: Creating a review with `--reviewers` assigns the reviewer in crit (metadata), but does NOT spawn them. You still need an @mention in a bus message to trigger the spawn hook.
+**Important**: Creating a review with `--reviewers` assigns the reviewer in crit (metadata), but does NOT spawn them. You still need an @mention in a rite message to trigger the spawn hook.
 
-The botbus hook system watches for @mentions. When you send a message containing `@myproject-security`, the hook spawns the security reviewer agent.
+The rite hook system watches for @mentions. When you send a message containing `@myproject-security`, the hook spawns the security reviewer agent.
 
 ## Steps
 
-1. Resolve agent identity: use `--agent` argument if provided, otherwise `$AGENT` env var. If neither is set, stop and instruct the user. Run `bus whoami --agent $AGENT` first to confirm; if it returns a name, use it.
+1. Resolve agent identity: use `--agent` argument if provided, otherwise `$AGENT` env var. If neither is set, stop and instruct the user. Run `rite whoami --agent $AGENT` first to confirm; if it returns a name, use it.
 
 2. **Check the bone's risk tag** to determine review routing:
    - Get bone details: `maw exec default -- bn show <bone-id>`
@@ -44,7 +44,7 @@ The botbus hook system watches for @mentions. When you send a message containing
    **risk:critical** — Security review + human approval:
    - MUST request security reviewer
    - Create crit review (see step 4)
-   - Post to bus requesting human approval: `bus send --agent $AGENT $EDICT_PROJECT "risk:critical review for <bone-id>: requires human approval before merge. Review: <review-id> @<approver>" -L review-request`
+   - Post to rite requesting human approval: `rite send --agent $AGENT $EDICT_PROJECT "risk:critical review for <bone-id>: requires human approval before merge. Review: <review-id> @<approver>" -L review-request`
    - List of approvers from `.edict.toml` → `project.criticalApprovers`
    - If no `criticalApprovers` configured, use project lead or fallback: `@$EDICT_PROJECT-lead`
 
@@ -54,7 +54,7 @@ The botbus hook system watches for @mentions. When you send a message containing
    maw exec $WS -- crit reviews create --agent $AGENT --title "<title>" --description "<summary>" --reviewers $EDICT_PROJECT-security
 
    # Step 2: Announce with @mention (TRIGGERS THE SPAWN)
-   bus send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id> @$EDICT_PROJECT-security" -L review-request
+   rite send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id> @$EDICT_PROJECT-security" -L review-request
    ```
 
    If the review already exists (re-request after fixes), use `crit reviews request` instead:
@@ -62,7 +62,7 @@ The botbus hook system watches for @mentions. When you send a message containing
    maw exec $WS -- crit reviews request <review-id> --reviewers $EDICT_PROJECT-security --agent $AGENT
    ```
 
-   The reviewer name MUST match the project pattern: `<project>-<role>` (e.g., `myproject-security`, `botbus-security`). Do NOT use generic names like `security-reviewer` — those won't match any hooks.
+   The reviewer name MUST match the project pattern: `<project>-<role>` (e.g., `myproject-security`, `rite-security`). Do NOT use generic names like `security-reviewer` — those won't match any hooks.
 
 5. **Post review details to the bone** for crash recovery:
    ```bash
@@ -72,14 +72,14 @@ The botbus hook system watches for @mentions. When you send a message containing
 
 6. If requesting a **general code review** (no specific specialist):
    - Spawn a subagent to perform the code review
-   - Announce: `bus send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id>, spawned subagent for review" -L review-request`
+   - Announce: `rite send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id>, spawned subagent for review" -L review-request`
 
 The reviewer-loop finds open reviews via `crit reviews list` and processes them automatically.
 
 ## Common Mistakes
 
 - Using `--reviewer security` or `--reviewers security-reviewer` — these generic names don't match any hooks
-- Forgetting the @mention in the bus message — without it, no reviewer spawns
+- Forgetting the @mention in the rite message — without it, no reviewer spawns
 - Using the wrong project prefix — reviewer must be `<project>-<role>` where `<project>` matches the channel
 
 ## Assumptions

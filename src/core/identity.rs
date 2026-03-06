@@ -2,11 +2,11 @@
 //!
 //! Identity is determined by (in order of precedence):
 //! 1. Explicit --agent flag
-//! 2. BOTBUS_AGENT environment variable
+//! 2. RITE_AGENT environment variable
 //! 3. AGENT environment variable (generic fallback)
 //! 4. USER environment variable (only when stdout is a TTY — human convenience)
 //!
-//! BotBus is stateless about identity - it trusts whatever name is provided.
+//! Rite is stateless about identity - it trusts whatever name is provided.
 //! The orchestrator/user is responsible for persisting identity across sessions.
 
 use anyhow::{Result, anyhow};
@@ -14,13 +14,13 @@ use std::env;
 use std::io::IsTerminal;
 
 /// Environment variable name for agent identity.
-pub const AGENT_ENV_VAR: &str = "BOTBUS_AGENT";
+pub const AGENT_ENV_VAR: &str = "RITE_AGENT";
 
 /// Resolve the current agent identity.
 ///
 /// Checks in order:
 /// 1. Explicit agent name (from --agent flag)
-/// 2. BOTBUS_AGENT environment variable
+/// 2. RITE_AGENT environment variable
 /// 3. AGENT environment variable (generic fallback)
 /// 4. USER environment variable (only when stdout is a TTY)
 ///
@@ -31,7 +31,7 @@ pub fn resolve_agent(explicit: Option<&str>) -> Option<String> {
         return Some(name.to_string());
     }
 
-    // 2. BOTBUS_AGENT environment variable
+    // 2. RITE_AGENT environment variable
     if let Ok(name) = env::var(AGENT_ENV_VAR)
         && !name.is_empty()
     {
@@ -60,11 +60,11 @@ pub fn resolve_agent(explicit: Option<&str>) -> Option<String> {
 pub fn require_agent(explicit: Option<&str>) -> Result<String> {
     resolve_agent(explicit).ok_or_else(|| {
         anyhow!(
-            "BOTBUS_AGENT environment variable not set.\n\n\
+            "RITE_AGENT environment variable not set.\n\n\
              Set your identity:\n  \
-             export BOTBUS_AGENT=$(botbus generate-name)\n\n\
+             export RITE_AGENT=$(rite generate-name)\n\n\
              Or choose your own name (kebab-case preferred):\n  \
-             export BOTBUS_AGENT=my-agent-name"
+             export RITE_AGENT=my-agent-name"
         )
     })
 }
@@ -138,15 +138,15 @@ mod tests {
 
     #[test]
     #[serial]
-    fn test_botbus_agent_takes_precedence_over_agent() {
+    fn test_rite_agent_takes_precedence_over_agent() {
         // SAFETY: Test isolation
         unsafe {
-            env::set_var(AGENT_ENV_VAR, "botbus-agent");
+            env::set_var(AGENT_ENV_VAR, "rite-agent");
             env::set_var("AGENT", "generic-agent");
         }
 
         let result = resolve_agent(None);
-        assert_eq!(result, Some("botbus-agent".to_string()));
+        assert_eq!(result, Some("rite-agent".to_string()));
 
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
@@ -179,13 +179,13 @@ mod tests {
         let result = require_agent(None);
         assert!(result.is_err());
         let err = result.unwrap_err().to_string();
-        assert!(err.contains("BOTBUS_AGENT"));
+        assert!(err.contains("RITE_AGENT"));
         assert!(err.contains("generate-name"));
     }
 
     #[test]
     fn test_format_export() {
         let export = format_export("my-agent");
-        assert_eq!(export, "export BOTBUS_AGENT=my-agent");
+        assert_eq!(export, "export RITE_AGENT=my-agent");
     }
 }

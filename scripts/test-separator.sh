@@ -14,11 +14,11 @@ echo ""
 
 # Create temp directory
 TEST_DIR=$(mktemp -d)
-export BOTBUS_DATA_DIR="$TEST_DIR"
-export BOTBUS_AGENT="test-agent"
+export RITE_DATA_DIR="$TEST_DIR"
+export RITE_AGENT="test-agent"
 
 echo "Using temp dir: $TEST_DIR"
-cd ~/src/botbus
+cd ~/src/rite
 
 # Initialize and create "old" messages
 cargo run --quiet -- init
@@ -33,10 +33,10 @@ echo ""
 echo "Now do the following:"
 echo ""
 echo "  Terminal 1 (this one):"
-echo "    BOTBUS_DATA_DIR=$TEST_DIR cargo run -- ui"
+echo "    RITE_DATA_DIR=$TEST_DIR cargo run -- ui"
 echo ""
 echo "  Terminal 2 (after TUI starts):"
-echo "    BOTBUS_DATA_DIR=$TEST_DIR BOTBUS_AGENT=agent-2 \\"
+echo "    RITE_DATA_DIR=$TEST_DIR RITE_AGENT=agent-2 \\"
 echo "      cargo run -- send general 'New message!'"
 echo ""
 echo "You should see:"

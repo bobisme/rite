@@ -1,9 +1,9 @@
 //! Common test utilities for integration tests.
 //!
-//! Provides a harness for spawning botbus subprocesses and simulating
+//! Provides a harness for spawning rite subprocesses and simulating
 //! multi-agent coordination scenarios.
 //!
-//! Uses BOTBUS_DATA_DIR env var to isolate each test's data directory.
+//! Uses RITE_DATA_DIR env var to isolate each test's data directory.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -13,21 +13,21 @@ use tempfile::TempDir;
 
 static PROJECT_COUNTER: AtomicUsize = AtomicUsize::new(0);
 
-/// Get the path to the botbus binary.
-pub fn botbus_bin() -> PathBuf {
+/// Get the path to the rite binary.
+pub fn rite_bin() -> PathBuf {
     // Try release first, fall back to debug
-    let release = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/release/bus");
+    let release = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/release/rite");
     if release.exists() {
         return release;
     }
 
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/bus")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("target/debug/rite")
 }
 
-/// A test project with an isolated BotBus data directory.
+/// A test project with an isolated Rite data directory.
 ///
-/// Each TestProject gets its own temp directory that is set via BOTBUS_DATA_DIR
-/// env var when running botbus commands.
+/// Each TestProject gets its own temp directory that is set via RITE_DATA_DIR
+/// env var when running rite commands.
 pub struct TestProject {
     pub dir: TempDir,
     pub data_path: PathBuf,
@@ -40,7 +40,7 @@ impl TestProject {
     /// Create a new test project with isolated data directory.
     pub fn new() -> Self {
         let count = PROJECT_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let dir = TempDir::with_prefix(&format!("botbus-test-{}-", count))
+        let dir = TempDir::with_prefix(&format!("rite-test-{}-", count))
             .expect("Failed to create temp dir");
         let data_path = dir.path().join("data");
         let work_dir = dir.path().join("project");
@@ -60,7 +60,7 @@ impl TestProject {
     /// Create a new test project with a custom name (for debugging).
     pub fn with_name(name: &str) -> Self {
         let dir =
-            TempDir::with_prefix(&format!("botbus-{}-", name)).expect("Failed to create temp dir");
+            TempDir::with_prefix(&format!("rite-{}-", name)).expect("Failed to create temp dir");
         let data_path = dir.path().join("data");
         let work_dir = dir.path().join("project");
 
@@ -78,7 +78,7 @@ impl TestProject {
     /// Create an agent handle (no registration needed in stateless model).
     ///
     /// In the new model, agents don't need to register - they just need
-    /// BOTBUS_AGENT set when running commands.
+    /// RITE_AGENT set when running commands.
     pub fn agent(&mut self, name: &str) -> Agent {
         let agent = Agent {
             name: name.to_string(),
@@ -90,27 +90,27 @@ impl TestProject {
         agent
     }
 
-    /// Run a botbus command without agent context.
-    pub fn run_botbus(&self, args: &[&str]) -> BotbusOutput {
-        self.run_botbus_with_env(args, None)
+    /// Run a rite command without agent context.
+    pub fn run_rite(&self, args: &[&str]) -> RiteOutput {
+        self.run_rite_with_env(args, None)
     }
 
-    /// Run a botbus command with optional agent environment.
-    pub fn run_botbus_with_env(&self, args: &[&str], agent: Option<&str>) -> BotbusOutput {
-        let mut cmd = Command::new(botbus_bin());
+    /// Run a rite command with optional agent environment.
+    pub fn run_rite_with_env(&self, args: &[&str], agent: Option<&str>) -> RiteOutput {
+        let mut cmd = Command::new(rite_bin());
         cmd.current_dir(&self.work_dir);
-        cmd.env("BOTBUS_DATA_DIR", &self.data_path);
+        cmd.env("RITE_DATA_DIR", &self.data_path);
         cmd.args(args);
 
         if let Some(agent_name) = agent {
-            cmd.env("BOTBUS_AGENT", agent_name);
+            cmd.env("RITE_AGENT", agent_name);
         } else {
-            // Explicitly remove BOTBUS_AGENT to prevent env var leakage
-            cmd.env_remove("BOTBUS_AGENT");
+            // Explicitly remove RITE_AGENT to prevent env var leakage
+            cmd.env_remove("RITE_AGENT");
         }
 
-        let output = cmd.output().expect("Failed to execute botbus");
-        BotbusOutput::from(output)
+        let output = cmd.output().expect("Failed to execute rite");
+        RiteOutput::from(output)
     }
 
     /// Get message history for a channel (as raw JSONL content).
@@ -217,12 +217,12 @@ pub struct Agent {
 
 impl Agent {
     /// Send a message to a channel.
-    pub fn send(&self, target: &str, message: &str) -> BotbusOutput {
+    pub fn send(&self, target: &str, message: &str) -> RiteOutput {
         self.run(&["send", target, message])
     }
 
     /// Send a message with labels.
-    pub fn send_with_labels(&self, target: &str, message: &str, labels: &[&str]) -> BotbusOutput {
+    pub fn send_with_labels(&self, target: &str, message: &str, labels: &[&str]) -> RiteOutput {
         let mut args = vec!["send", target, message];
         for label in labels {
             args.push("-L");
@@ -232,7 +232,7 @@ impl Agent {
     }
 
     /// Get history filtered by label.
-    pub fn history_with_label(&self, channel: &str, labels: &[&str]) -> BotbusOutput {
+    pub fn history_with_label(&self, channel: &str, labels: &[&str]) -> RiteOutput {
         let mut args = vec!["history", channel];
         for label in labels {
             args.push("-L");
@@ -242,14 +242,14 @@ impl Agent {
     }
 
     /// Claim file patterns.
-    pub fn claim(&self, patterns: &[&str]) -> BotbusOutput {
+    pub fn claim(&self, patterns: &[&str]) -> RiteOutput {
         let mut args = vec!["claims", "stake"];
         args.extend(patterns);
         self.run(&args)
     }
 
     /// Claim with a message.
-    pub fn claim_with_message(&self, patterns: &[&str], message: &str) -> BotbusOutput {
+    pub fn claim_with_message(&self, patterns: &[&str], message: &str) -> RiteOutput {
         let mut args = vec!["claims", "stake"];
         args.extend(patterns);
         args.extend(&["-m", message]);
@@ -257,98 +257,98 @@ impl Agent {
     }
 
     /// Release all claims.
-    pub fn release_all(&self) -> BotbusOutput {
+    pub fn release_all(&self) -> RiteOutput {
         self.run(&["claims", "release", "--all"])
     }
 
     /// Release specific patterns.
-    pub fn release(&self, patterns: &[&str]) -> BotbusOutput {
+    pub fn release(&self, patterns: &[&str]) -> RiteOutput {
         let mut args = vec!["claims", "release"];
         args.extend(patterns);
         self.run(&args)
     }
 
     /// List claims.
-    pub fn claims(&self) -> BotbusOutput {
+    pub fn claims(&self) -> RiteOutput {
         self.run(&["claims"])
     }
 
     /// Get message history for a channel.
-    pub fn history(&self, channel: &str) -> BotbusOutput {
+    pub fn history(&self, channel: &str) -> RiteOutput {
         self.run(&["history", channel])
     }
 
     /// Get message history with count.
-    pub fn history_n(&self, channel: &str, count: usize) -> BotbusOutput {
+    pub fn history_n(&self, channel: &str, count: usize) -> RiteOutput {
         self.run(&["history", channel, "-n", &count.to_string()])
     }
 
     /// Get whoami output.
-    pub fn whoami(&self) -> BotbusOutput {
+    pub fn whoami(&self) -> RiteOutput {
         self.run(&["whoami"])
     }
 
     /// List agents (derived from message history).
-    pub fn agents(&self) -> BotbusOutput {
+    pub fn agents(&self) -> RiteOutput {
         self.run(&["agents"])
     }
 
     /// Search messages.
-    pub fn search(&self, query: &str) -> BotbusOutput {
+    pub fn search(&self, query: &str) -> RiteOutput {
         self.run(&["search", query])
     }
 
     /// Get inbox (unread messages).
-    pub fn inbox(&self, channel: &str) -> BotbusOutput {
+    pub fn inbox(&self, channel: &str) -> RiteOutput {
         self.run(&["inbox", "-c", channel, "--format", "text"])
     }
 
     /// Get inbox and mark as read.
-    pub fn inbox_mark_read(&self, channel: &str) -> BotbusOutput {
+    pub fn inbox_mark_read(&self, channel: &str) -> RiteOutput {
         self.run(&["inbox", "-c", channel, "--mark-read", "--format", "text"])
     }
 
     /// Mark a channel as read.
-    pub fn mark_read(&self, channel: &str) -> BotbusOutput {
+    pub fn mark_read(&self, channel: &str) -> RiteOutput {
         self.run(&["mark-read", channel])
     }
 
     /// Mark a channel as read at a specific offset.
-    pub fn mark_read_at(&self, channel: &str, offset: u64) -> BotbusOutput {
+    pub fn mark_read_at(&self, channel: &str, offset: u64) -> RiteOutput {
         self.run(&["mark-read", channel, "--offset", &offset.to_string()])
     }
 
     /// Get history with --show-offset.
-    pub fn history_with_offset(&self, channel: &str) -> BotbusOutput {
+    pub fn history_with_offset(&self, channel: &str) -> RiteOutput {
         self.run(&["history", channel, "--show-offset"])
     }
 
     /// Get history after an offset.
-    pub fn history_after_offset(&self, channel: &str, offset: u64) -> BotbusOutput {
+    pub fn history_after_offset(&self, channel: &str, offset: u64) -> RiteOutput {
         self.run(&["history", channel, "--after-offset", &offset.to_string()])
     }
 
-    /// Run an arbitrary botbus command as this agent.
-    pub fn run(&self, args: &[&str]) -> BotbusOutput {
-        let mut cmd = Command::new(botbus_bin());
+    /// Run an arbitrary rite command as this agent.
+    pub fn run(&self, args: &[&str]) -> RiteOutput {
+        let mut cmd = Command::new(rite_bin());
         cmd.current_dir(&self.work_dir);
-        cmd.env("BOTBUS_DATA_DIR", &self.data_path);
-        cmd.env("BOTBUS_AGENT", &self.name);
+        cmd.env("RITE_DATA_DIR", &self.data_path);
+        cmd.env("RITE_AGENT", &self.name);
         cmd.args(args);
 
-        let output = cmd.output().expect("Failed to execute botbus");
-        BotbusOutput::from(output)
+        let output = cmd.output().expect("Failed to execute rite");
+        RiteOutput::from(output)
     }
 }
 
 /// Wrapper around Command output with helper methods.
-pub struct BotbusOutput {
+pub struct RiteOutput {
     pub status: std::process::ExitStatus,
     pub stdout: Vec<u8>,
     pub stderr: Vec<u8>,
 }
 
-impl From<Output> for BotbusOutput {
+impl From<Output> for RiteOutput {
     fn from(output: Output) -> Self {
         Self {
             status: output.status,
@@ -358,7 +358,7 @@ impl From<Output> for BotbusOutput {
     }
 }
 
-impl BotbusOutput {
+impl RiteOutput {
     pub fn success(&self) -> bool {
         self.status.success()
     }
@@ -442,8 +442,8 @@ impl TuiHarness {
 
     fn start_with_agent(project: &TestProject, agent: Option<&str>) -> Self {
         let count = TUI_SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
-        let session_name = format!("botbus-tui-{}-{}", std::process::id(), count);
-        let bin = botbus_bin();
+        let session_name = format!("rite-tui-{}-{}", std::process::id(), count);
+        let bin = rite_bin();
 
         let mut cmd = Command::new("tmux");
         cmd.args([
@@ -459,11 +459,11 @@ impl TuiHarness {
 
         // Set env vars
         cmd.arg("-e");
-        cmd.arg(format!("BOTBUS_DATA_DIR={}", project.data_path.display()));
+        cmd.arg(format!("RITE_DATA_DIR={}", project.data_path.display()));
 
         if let Some(agent_name) = agent {
             cmd.arg("-e");
-            cmd.arg(format!("BOTBUS_AGENT={}", agent_name));
+            cmd.arg(format!("RITE_AGENT={}", agent_name));
         }
 
         cmd.arg(&format!("{} ui", bin.display()));

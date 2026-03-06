@@ -1,10 +1,10 @@
-# BotBus Git Sync Design
+# Rite Git Sync Design
 
 ## Overview
 
-Enable multi-machine sync of BotBus data directory using git with GitHub (free tier). BotBus already uses event-sourced append-only JSONL files, making git sync trivial with union merge.
+Enable multi-machine sync of Rite data directory using git with GitHub (free tier). Rite already uses event-sourced append-only JSONL files, making git sync trivial with union merge.
 
-**Key insight**: BotBus architecture is already perfect for git sync:
+**Key insight**: Rite architecture is already perfect for git sync:
 - Messages use ULIDs (globally unique, time-sortable)
 - Claims/agents use event sourcing (created/released events)
 - SQLite is just a projection (can rebuild from JSONL)
@@ -16,7 +16,7 @@ Enable multi-machine sync of BotBus data directory using git with GitHub (free t
 
 **JSONL Event Logs** (source of truth, git-tracked):
 ```
-~/.local/share/botbus/
+~/.local/share/rite/
 ├── messages/
 │   ├── general.jsonl       # Messages with ULIDs
 │   ├── team.jsonl
@@ -47,7 +47,7 @@ Enable multi-machine sync of BotBus data directory using git with GitHub (free t
 
 ### Git Configuration
 
-**`.gitattributes`** (auto-created by `bus sync init`):
+**`.gitattributes`** (auto-created by `rite sync init`):
 ```gitattributes
 # Union merge for append-only JSONL
 *.jsonl merge=union
@@ -62,7 +62,7 @@ Enable multi-machine sync of BotBus data directory using git with GitHub (free t
 attachments/** binary
 ```
 
-**`.gitignore`** (auto-created by `bus sync init`):
+**`.gitignore`** (auto-created by `rite sync init`):
 ```gitignore
 # SQLite indexes (derived from JSONL)
 *.db
@@ -103,13 +103,13 @@ attachments/
 {"id":"01HQ2AAA","body":"from A"}      # Duplicate
 {"id":"01HQ2CCC","body":"from B"}
 
-# BotBus reads and dedupes
+# Rite reads and dedupes
 # → [01HQ2AAA, 01HQ2BBB, 01HQ2CCC]
 ```
 
 **Why this works**:
 - ULIDs are globally unique (no real duplicates)
-- BotBus dedupes by ULID when reading
+- Rite dedupes by ULID when reading
 - SQLite index rebuilt after merge (deduped)
 
 ## Workflow
@@ -118,26 +118,26 @@ attachments/
 
 ```bash
 # Initialize git repo in data dir
-bus sync init --remote git@github.com:user/botbus-data.git
-# → cd ~/.local/share/botbus
+rite sync init --remote git@github.com:user/rite-data.git
+# → cd ~/.local/share/rite
 # → git init
 # → Creates .gitattributes (union merge)
 # → Creates .gitignore (*.db, state.json, attachments/)
 # → git add .gitattributes .gitignore
-# → git commit -m "chore: initialize botbus data repo"
+# → git commit -m "chore: initialize rite data repo"
 # → git remote add origin <remote>
 # → git push -u origin main
 
 # Or: init without remote (local-only)
-bus sync init
+rite sync init
 # → Same but no remote configured
 ```
 
 ### Auto-Commit (Transparent)
 
-**After every BotBus operation**:
+**After every Rite operation**:
 ```bash
-bus send general "message"
+rite send general "message"
 # Internally:
 # 1. Appends to general.jsonl
 # 2. Updates SQLite index
@@ -147,9 +147,9 @@ bus send general "message"
 ```
 
 **Operations that trigger auto-commit**:
-- `bus send` - commit message JSONL
-- `bus claim` - commit claims.jsonl
-- `bus release` - commit claims.jsonl
+- `rite send` - commit message JSONL
+- `rite claim` - commit claims.jsonl
+- `rite release` - commit claims.jsonl
 - Agent registration - commit agents.jsonl
 - Channel operations - commit channels.jsonl
 
@@ -163,20 +163,20 @@ bus send general "message"
 
 ```bash
 # Push local changes
-bus sync
-# or: bus sync --push
+rite sync
+# or: rite sync --push
 # → git push origin main
 
 # Pull remote changes
-bus sync --pull
+rite sync --pull
 # → git fetch origin
 # → git merge origin/main
 #    (union merge handles JSONL automatically)
-# → bus index rebuild --if-needed
+# → rite index rebuild --if-needed
 #    (rebuild SQLite if JSONL changed)
 
 # Pull and push
-bus sync --pull --push
+rite sync --pull --push
 # → Pull first, then push
 ```
 
@@ -184,12 +184,12 @@ bus sync --pull --push
 
 ```bash
 # In cron: sync every hour
-0 * * * * cd ~/.local/share/botbus && bus sync --pull --push
+0 * * * * cd ~/.local/share/rite && rite sync --pull --push
 
 # Or: systemd timer
-# ~/.config/systemd/user/botbus-sync.timer
+# ~/.config/systemd/user/rite-sync.timer
 [Unit]
-Description=BotBus sync timer
+Description=Rite sync timer
 
 [Timer]
 OnCalendar=hourly
@@ -217,7 +217,7 @@ WantedBy=timers.target
 ### Implementation
 
 ```bash
-bus index rebuild
+rite index rebuild
 # → Drops all SQLite FTS tables
 # → Reads all messages from JSONL
 # → Dedupes by ULID
@@ -226,12 +226,12 @@ bus index rebuild
 # → Updates sync_state table
 
 # Check if rebuild needed
-bus index status
+rite index status
 # → Compares JSONL mtime vs index mtime
 # → Shows: "Index up to date" or "Needs rebuild (3 files changed)"
 
 # Auto-rebuild (called internally after sync)
-bus index rebuild --if-needed
+rite index rebuild --if-needed
 # → Only rebuilds if JSONL changed since last index
 ```
 
@@ -299,7 +299,7 @@ pub fn rebuild_index_from_jsonl(data_dir: &Path, index_path: &Path) -> Result<()
 Union merge prevents conflicts on JSONL files. If manual merge needed:
 ```bash
 # Manual merge (rare)
-bus sync --pull
+rite sync --pull
 # → git reports conflict on claims.jsonl
 # → Read both versions
 # → Combine and sort by timestamp
@@ -321,20 +321,20 @@ SQLite and attachments are gitignored. No conflicts.
 ### Network Failures
 
 ```bash
-bus sync --push
+rite sync --push
 # → git push fails (network down)
 # → Log error: "Sync failed: network unreachable"
 # → Keep local commits, retry later
 # → Exit code: 1
 
 # User can retry manually
-bus sync --push
+rite sync --push
 ```
 
 ### Merge Failures
 
 ```bash
-bus sync --pull
+rite sync --pull
 # → git merge fails (unexpected conflict)
 # → Abort merge: git merge --abort
 # → Log error with git output
@@ -344,11 +344,11 @@ bus sync --pull
 ### Index Rebuild Failures
 
 ```bash
-bus sync --pull
+rite sync --pull
 # → Merge succeeds
 # → Index rebuild fails (disk full, corrupt JSONL)
 # → Log error, leave old index
-# → User can fix and run: bus index rebuild
+# → User can fix and run: rite index rebuild
 ```
 
 ## GitHub Free Tier
@@ -372,10 +372,10 @@ bus sync --pull
 ### Phase 1: Core Git Sync
 
 **Commands**:
-- `bus sync init [--remote <url>]` - Initialize git repo
-- `bus sync` / `bus sync --push` - Push to remote
-- `bus sync --pull` - Pull from remote
-- `bus sync --pull --push` - Pull then push
+- `rite sync init [--remote <url>]` - Initialize git repo
+- `rite sync` / `rite sync --push` - Push to remote
+- `rite sync --pull` - Pull from remote
+- `rite sync --pull --push` - Pull then push
 
 **Auto-commit**:
 - Hook into message send, claim, agent registration
@@ -390,21 +390,21 @@ bus sync --pull
 ### Phase 2: Index Rebuild
 
 **Commands**:
-- `bus index rebuild` - Full rebuild
-- `bus index rebuild --if-needed` - Only if changed
-- `bus index status` - Check if rebuild needed
+- `rite index rebuild` - Full rebuild
+- `rite index rebuild --if-needed` - Only if changed
+- `rite index status` - Check if rebuild needed
 
 **Auto-rebuild**:
-- After `bus sync --pull`, check if JSONL changed
+- After `rite sync --pull`, check if JSONL changed
 - Background rebuild (non-blocking)
 - Progress indicator for large indexes
 
 ### Phase 3: Polish
 
 **Features**:
-- `bus sync status` - Show uncommitted changes, ahead/behind
-- `bus sync log` - Show recent sync history
-- `bus sync check` - Verify repo health
+- `rite sync status` - Show uncommitted changes, ahead/behind
+- `rite sync log` - Show recent sync history
+- `rite sync check` - Verify repo health
 - Systemd timer / cron examples
 - Documentation and examples
 
@@ -421,16 +421,16 @@ bus sync --pull
 - Reference-only with Telegram re-download
 
 **Implementation**:
-- `bus sync config --attachments [none|annex|syncthing]`
+- `rite sync config --attachments [none|annex|syncthing]`
 - Graceful handling of missing files
 - Placeholder display in TUI
 
 ## Migration
 
-**Existing BotBus installs**:
+**Existing Rite installs**:
 ```bash
 # User runs init on existing data dir
-bus sync init --remote git@github.com:user/botbus-data.git
+rite sync init --remote git@github.com:user/rite-data.git
 # → Detects existing JSONL files
 # → Creates .gitattributes, .gitignore
 # → Initial commit with all existing data
@@ -440,8 +440,8 @@ bus sync init --remote git@github.com:user/botbus-data.git
 **Fresh install**:
 ```bash
 # Clone existing data repo
-bus sync clone git@github.com:user/botbus-data.git
-# → Clones to ~/.local/share/botbus/
+rite sync clone git@github.com:user/rite-data.git
+# → Clones to ~/.local/share/rite/
 # → Rebuilds SQLite index from JSONL
 # → Ready to use
 ```
@@ -500,13 +500,13 @@ bus sync clone git@github.com:user/botbus-data.git
 **User experience**:
 ```bash
 # One-time setup
-bus sync init --remote git@github.com:me/botbus.git
+rite sync init --remote git@github.com:me/rite.git
 
 # Daily usage (transparent)
-bus send general "message"  # Auto-commits
+rite send general "message"  # Auto-commits
 
 # Periodic sync (manual or cron)
-bus sync --pull --push      # Sync with remotes
+rite sync --pull --push      # Sync with remotes
 
 # That's it!
 ```

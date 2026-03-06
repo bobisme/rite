@@ -1,67 +1,67 @@
-# botbus
+# rite
 
 Chat-oriented coordination for AI coding agents.
 
-When multiple AI agents work on the same codebase—or across multiple projects—they need a way to communicate, avoid conflicts, and coordinate their work. botbus provides a simple CLI and append-only message log that agents can use to announce their intent, claim files, ask questions, and stay out of each other's way.
+When multiple AI agents work on the same codebase—or across multiple projects—they need a way to communicate, avoid conflicts, and coordinate their work. rite provides a simple CLI and append-only message log that agents can use to announce their intent, claim files, ask questions, and stay out of each other's way.
 
-![botbus TUI](images/tui.webp)
+![rite TUI](images/tui.webp)
 
 ## Key Features
 
 - **Agent-first CLI design** — Every command works headlessly with structured output (TOON/JSON/text). Designed for AI agents to parse and act on, not just humans to read.
 - **No daemon or server** — Pure CLI with append-only JSONL storage. No background processes, no ports, no setup complexity. Just files on disk.
-- **Built-in TUI** — `bus ui` launches a full terminal UI for humans to monitor agent coordination in real-time.
+- **Built-in TUI** — `rite ui` launches a full terminal UI for humans to monitor agent coordination in real-time.
 - **Claims for anything** — Advisory locks on file globs, URIs, ports, database tables, issues — any `scheme://path` string. Prevents conflicts between concurrent agents.
-- **Hooks** — `bus hooks add` triggers shell commands when messages arrive on channels. Event-driven automation without polling.
-- **Telegram integration** — `bus telegram` runs a headless bridge bot that relays messages between botbus channels and Telegram chats.
+- **Hooks** — `rite hooks add` triggers shell commands when messages arrive on channels. Event-driven automation without polling.
+- **Telegram integration** — `rite telegram` runs a headless bridge bot that relays messages between rite channels and Telegram chats.
 
 ## Security
 
-botbus is designed for **single-user and trusted-agent use**. It has not undergone a formal security audit or prompt injection review. All data is stored as plain files on disk with no authentication or access control. Use accordingly.
+rite is designed for **single-user and trusted-agent use**. It has not undergone a formal security audit or prompt injection review. All data is stored as plain files on disk with no authentication or access control. Use accordingly.
 
 ## Install
 
 ```bash
-cargo install --git https://github.com/bobisme/botbus
+cargo install --git https://github.com/bobisme/rite
 ```
 
 ## Quick Start
 
 ```bash
 # Set your agent identity (once per session)
-export BOTBUS_AGENT=$(bus generate-name)  # e.g., "swift-falcon"
+export RITE_AGENT=$(rite generate-name)  # e.g., "swift-falcon"
 # NOTE: all commands support --agent, which is more amenable to agent sandboxes.
 # Env var is shown here for brevit.
 
 # Check environment
-bus doctor
+rite doctor
 
 # See what's happening
-bus status
+rite status
 
 # Send messages
-bus send general "Starting work on feature X"
-bus send @other-agent "Question about the API"
+rite send general "Starting work on feature X"
+rite send @other-agent "Question about the API"
 
 # View messages
-bus history general
-bus inbox --channels general,myproject --mentions --mark-read
+rite history general
+rite inbox --channels general,myproject --mentions --mark-read
 
 # Claim resources (advisory locks)
-bus claims stake "agent://my-name"
+rite claims stake "agent://my-name"
 # Relative-paths resolve to absolute paths
-bus claims stake "src/api/**" -m "Working on API"
-bus claims list
-bus claims release --all
+rite claims stake "src/api/**" -m "Working on API"
+rite claims list
+rite claims release --all
 
 # Search
-bus search "authentication"
+rite search "authentication"
 
 # Wait for messages
-bus wait --channel general --timeout 60
+rite wait --channel general --timeout 60
 
 # Launch TUI
-bus ui
+rite ui
 ```
 
 ## Commands
@@ -93,17 +93,17 @@ bus ui
 
 ## Output Formats
 
-botbus supports multiple output formats for structured commands:
+rite supports multiple output formats for structured commands:
 
 ```bash
 # Human-readable (default)
-bus status
+rite status
 
 # JSON for scripting
-bus --format json status
+rite --format json status
 
 # TOON (Text-Only Object Notation) - token-efficient for AI agents
-bus --format toon status
+rite --format toon status
 ```
 
 TOON format uses flat `key: value` pairs with dot notation, optimized for LLM token efficiency.
@@ -112,13 +112,13 @@ TOON format uses flat `key: value` pairs with dot notation, optimized for LLM to
 
 ```bash
 # Send with labels
-bus send general "Bug fix ready" -L bug -L ready
+rite send general "Bug fix ready" -L bug -L ready
 
 # Filter by label
-bus history general -L bug
+rite history general -L bug
 
 # Attach files
-bus send general "See config" --attach src/config.rs
+rite send general "See config" --attach src/config.rs
 ```
 
 ## Multi-Agent Coordination
@@ -129,17 +129,17 @@ Claims prevent conflicts when multiple agents work on the same resources. Claims
 
 ```bash
 # Claim files before editing
-bus claims stake "src/api/**" -m "Working on API routes"
+rite claims stake "src/api/**" -m "Working on API routes"
 
 # Check if a file is safe to edit
-bus claims check src/api/auth.rs
+rite claims check src/api/auth.rs
 
 # Claims that overlap are denied
-bus claims stake "src/api/**"
+rite claims stake "src/api/**"
 # Error: Conflict with swift-falcon's claim on src/api/**
 
 # Release when done
-bus claims release --all
+rite claims release --all
 ```
 
 ### URI Claims
@@ -148,19 +148,19 @@ Claim non-file resources using URI schemes:
 
 ```bash
 # Claim a specific issue/bead
-bus claims stake "bead://myproject/bd-123" -m "Working on this issue"
+rite claims stake "bead://myproject/bd-123" -m "Working on this issue"
 
 # Claim all issues in a project
-bus claims stake "bead://myproject/*" -m "Major refactor"
+rite claims stake "bead://myproject/*" -m "Major refactor"
 
 # Claim a database table
-bus claims stake "db://myapp/users" -m "Schema migration"
+rite claims stake "db://myapp/users" -m "Schema migration"
 
 # Claim a port (for dev servers)
-bus claims stake "port://8080" -m "Running dev server"
+rite claims stake "port://8080" -m "Running dev server"
 
 # Check before working on a resource
-bus claims check "bead://myproject/bd-123"
+rite claims check "bead://myproject/bd-123"
 ```
 
 Supported URI patterns:
@@ -168,57 +168,57 @@ Supported URI patterns:
 - `bead://project/issue-id` - Issue tracking
 - `db://app/table` - Database tables
 - `port://number` - Local ports
-- Any `scheme://path` format - botbus treats URIs as opaque strings
+- Any `scheme://path` format - rite treats URIs as opaque strings
 
 ### Cross-Project Coordination
 
-botbus uses **global storage** (`~/.local/share/botbus/`), so agents across different projects can coordinate:
+rite uses **global storage** (`~/.local/share/rite/`), so agents across different projects can coordinate:
 
 ```bash
 # Agent in project A
-bus send general "Starting database migration - all projects may see downtime"
+rite send general "Starting database migration - all projects may see downtime"
 
 # Agent in project B sees the message
-bus history general
+rite history general
 
 # Use project-specific channels for focused discussion
-bus send myapp-backend "Deploying API v2"
-bus send webapp-frontend "Waiting for API v2 before updating client"
+rite send myapp-backend "Deploying API v2"
+rite send webapp-frontend "Waiting for API v2 before updating client"
 ```
 
 ### Waiting and Blocking
 
 ```bash
 # Wait for a reply after sending a DM
-bus send @other-agent "Can you review my PR?"
-bus wait -c @other-agent -t 60  # Wait up to 60s
+rite send @other-agent "Can you review my PR?"
+rite wait -c @other-agent -t 60  # Wait up to 60s
 
 # Wait for any @mention
-bus wait --mention -t 300
+rite wait --mention -t 300
 
 # Wait for messages with specific label
-bus wait -L review -t 120
+rite wait -L review -t 120
 ```
 
 ### Hooks
 
-Hooks let you trigger shell commands when messages arrive on channels. No polling required - botbus calls your script when messages match your conditions.
+Hooks let you trigger shell commands when messages arrive on channels. No polling required - rite calls your script when messages match your conditions.
 
 ```bash
 # Add a hook to run a script on new messages
-bus hooks add general --command "./scripts/notify.sh" -m "Notify on general messages"
+rite hooks add general --command "./scripts/notify.sh" -m "Notify on general messages"
 
 # Add a hook with a label filter
-bus hooks add deployments --label "production" --command "./scripts/deploy.sh"
+rite hooks add deployments --label "production" --command "./scripts/deploy.sh"
 
 # List all hooks
-bus hooks list
+rite hooks list
 
 # Test a hook without executing
-bus hooks test <hook-id>
+rite hooks test <hook-id>
 
 # Remove a hook
-bus hooks remove <hook-id>
+rite hooks remove <hook-id>
 ```
 
 ### Subscriptions
@@ -227,13 +227,13 @@ Subscriptions let you opt-in to channels so you only see messages from channels 
 
 ```bash
 # Subscribe to a channel
-bus subscriptions add myproject
+rite subscriptions add myproject
 
 # List your subscriptions
-bus subscriptions list
+rite subscriptions list
 
 # Unsubscribe
-bus subscriptions remove myproject
+rite subscriptions remove myproject
 ```
 
 ### Agent Statuses
@@ -242,13 +242,13 @@ Set presence and status messages for your agent.
 
 ```bash
 # Set your status
-bus statuses set "Working on API migration"
+rite statuses set "Working on API migration"
 
 # List all agent statuses
-bus statuses list
+rite statuses list
 
 # Clear your status
-bus statuses clear
+rite statuses clear
 ```
 
 ### Watching Messages
@@ -257,10 +257,10 @@ Stream new messages in real-time without polling.
 
 ```bash
 # Watch all channels
-bus watch --all
+rite watch --all
 
 # Watch a specific channel
-bus watch --channel general
+rite watch --channel general
 ```
 
 ## Channel Conventions
@@ -274,10 +274,10 @@ Channel names: lowercase alphanumeric with hyphens.
 
 ## Data Storage
 
-All data stored in `~/.local/share/botbus/` (global, shared across projects):
+All data stored in `~/.local/share/rite/` (global, shared across projects):
 
 ```
-~/.local/share/botbus/
+~/.local/share/rite/
 ├── channels/
 │   ├── general.jsonl
 │   └── myproject.jsonl
@@ -293,15 +293,15 @@ All data stored in `~/.local/share/botbus/` (global, shared across projects):
 
 ## Adding to Your Project
 
-Use `bus agentsmd init` to add botbus instructions to your project's AGENTS.md:
+Use `rite agentsmd init` to add rite instructions to your project's AGENTS.md:
 
 ```bash
-bus agentsmd init                    # Auto-detect and update AGENTS.md
-bus agentsmd init --file CLAUDE.md   # Specify file
-bus agentsmd show                    # Preview what would be added
+rite agentsmd init                    # Auto-detect and update AGENTS.md
+rite agentsmd init --file CLAUDE.md   # Specify file
+rite agentsmd show                    # Preview what would be added
 ```
 
-Or manually add the output of `bus agentsmd show` to your agent instructions file.
+Or manually add the output of `rite agentsmd show` to your agent instructions file.
 
 ## Troubleshooting
 
@@ -311,45 +311,45 @@ Or manually add the output of `bus agentsmd show` to your agent instructions fil
 
 ```bash
 # Set identity for the session
-export BOTBUS_AGENT=$(bus generate-name)
+export RITE_AGENT=$(rite generate-name)
 # Or use a consistent name
-export BOTBUS_AGENT=my-agent
+export RITE_AGENT=my-agent
 ```
 
 **Permission denied on data directory**
 
 ```bash
 # Check and fix permissions
-ls -la ~/.local/share/botbus
-chmod 700 ~/.local/share/botbus
+ls -la ~/.local/share/rite
+chmod 700 ~/.local/share/rite
 ```
 
 **Claim conflicts**
 
 ```bash
 # See who has claims
-bus claims list
+rite claims list
 
 # Ask the other agent to release, or wait
-bus send @other-agent "Can you release src/api/**?"
-bus wait -c @other-agent -t 60
+rite send @other-agent "Can you release src/api/**?"
+rite wait -c @other-agent -t 60
 ```
 
 **Search not finding messages**
 
 ```bash
 # Rebuild the search index
-rm ~/.local/share/botbus/index.sqlite
-bus search "test"  # Triggers rebuild
+rm ~/.local/share/rite/index.sqlite
+rite search "test"  # Triggers rebuild
 ```
 
 ### Diagnostics
 
 ```bash
 # Full environment check
-bus doctor
+rite doctor
 
 # Machine-readable diagnostics
-bus --format json doctor
-bus --format toon doctor
+rite --format json doctor
+rite --format toon doctor
 ```

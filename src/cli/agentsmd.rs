@@ -1,13 +1,13 @@
 //! AGENTS.md management subcommand
 //!
-//! Generates and manages BotBus workflow instructions in AGENTS.md or similar files.
+//! Generates and manages Rite workflow instructions in AGENTS.md or similar files.
 
 use anyhow::{Context, Result};
 use std::path::{Path, PathBuf};
 
-/// Marker comments for identifying the BotBus section
-const MARKER_START: &str = "<!-- botbus-agent-instructions-v1 -->";
-const MARKER_END: &str = "<!-- end-botbus-agent-instructions -->";
+/// Marker comments for identifying the Rite section
+const MARKER_START: &str = "<!-- rite-agent-instructions-v1 -->";
+const MARKER_END: &str = "<!-- end-rite-agent-instructions -->";
 
 /// Files to search for (in priority order)
 const AGENT_FILES: &[&str] = &[
@@ -20,14 +20,14 @@ const AGENT_FILES: &[&str] = &[
     ".cursor/rules.md",
 ];
 
-/// The BotBus instructions content to insert
+/// The Rite instructions content to insert
 fn get_instructions_content() -> String {
     format!(
         r#"{MARKER_START}
 
-## BotBus Agent Coordination
+## Rite Agent Coordination
 
-This project uses [BotBus](https://github.com/anomalyco/botbus) for multi-agent coordination. BotBus uses global storage (~/.local/share/botbus/) shared across all projects.
+This project uses [Rite](https://github.com/anomalyco/rite) for multi-agent coordination. Rite uses global storage (~/.local/share/rite/) shared across all projects.
 
 ### Quick Start
 
@@ -35,36 +35,36 @@ This project uses [BotBus](https://github.com/anomalyco/botbus) for multi-agent 
 # Set your identity
 
 # Recommended: Use --agent flag (works in all environments, including sandboxed)
-botbus --agent my-agent status
-botbus --agent my-agent send general "message"
+rite --agent my-agent status
+rite --agent my-agent send general "message"
 
 # Alternative: Use env var (only persists in continuous shell sessions)
-export BOTBUS_AGENT=$(botbus generate-name)  # e.g., "swift-falcon"
-botbus status  # Uses BOTBUS_AGENT
+export RITE_AGENT=$(rite generate-name)  # e.g., "swift-falcon"
+rite status  # Uses RITE_AGENT
 
 # Note: In sandboxed environments (like Claude Code), env vars don't persist
 # between commands. Use --agent flag for each command in these environments.
 
 # Check what's happening
-botbus status              # Overview: agents, channels, claims
-botbus history             # Recent messages in #general
-botbus agents              # Who's been active
+rite status              # Overview: agents, channels, claims
+rite history             # Recent messages in #general
+rite agents              # Who's been active
 
 # Communicate
-botbus send general "Starting work on X"
-botbus send general "Done with X, ready for review"
-botbus send @other-agent "Question about Y"
+rite send general "Starting work on X"
+rite send general "Done with X, ready for review"
+rite send @other-agent "Question about Y"
 
 # Coordinate file access (claims use absolute paths internally)
-botbus claim "src/api/**" -m "Working on API routes"
-botbus check-claim src/api/routes.rs   # Check before editing
-botbus release --all                    # When done
+rite claim "src/api/**" -m "Working on API routes"
+rite check-claim src/api/routes.rs   # Check before editing
+rite release --all                    # When done
 ```
 
 ### Best Practices
 
-1. **Use --agent flag** or set BOTBUS_AGENT (stateless, doesn't persist across sandboxed commands)
-2. **Run `botbus status`** to see current state before starting work
+1. **Use --agent flag** or set RITE_AGENT (stateless, doesn't persist across sandboxed commands)
+2. **Run `rite status`** to see current state before starting work
 3. **Claim files** you plan to edit - overlapping claims are denied
 4. **Check claims** before editing files outside your claimed area
 5. **Send updates** on blockers, questions, or completed work
@@ -91,11 +91,11 @@ Keep messages concise and actionable:
 
 ```bash
 # After sending a DM, wait for reply
-botbus send @other-agent "Can you review this?"
-botbus wait -c @other-agent -t 60  # Wait up to 60s for reply
+rite send @other-agent "Can you review this?"
+rite wait -c @other-agent -t 60  # Wait up to 60s for reply
 
 # Wait for any @mention of you
-botbus wait --mention -t 120
+rite wait --mention -t 120
 ```
 
 {MARKER_END}"#
@@ -124,7 +124,7 @@ pub fn find_agent_file(project_root: &Path) -> Option<PathBuf> {
     None
 }
 
-/// Check if the file contains BotBus instructions
+/// Check if the file contains Rite instructions
 pub fn check_instructions(path: &Path) -> Result<bool> {
     let content = std::fs::read_to_string(path).context("Failed to read file")?;
     let has_start = content.contains(MARKER_START);
@@ -133,7 +133,7 @@ pub fn check_instructions(path: &Path) -> Result<bool> {
     match (has_start, has_end) {
         (true, true) => Ok(true),
         (false, false) => Ok(false),
-        _ => anyhow::bail!("Malformed BotBus instructions: mismatched markers"),
+        _ => anyhow::bail!("Malformed Rite instructions: mismatched markers"),
     }
 }
 
@@ -179,7 +179,7 @@ fn add_or_update_instructions(path: &Path) -> Result<String> {
         let new_content = format!("{before}{instructions}{after}");
 
         std::fs::write(path, &new_content).context("Failed to write file")?;
-        return Ok(format!("Updated BotBus section in {}", path.display()));
+        return Ok(format!("Updated Rite section in {}", path.display()));
     }
 
     // Add to end of file with a separator
@@ -196,7 +196,7 @@ fn add_or_update_instructions(path: &Path) -> Result<String> {
         std::fs::create_dir_all(parent).context("Failed to create parent directories")?;
     }
     std::fs::write(path, &new_content).context("Failed to write file")?;
-    Ok(format!("Added BotBus section to {}", path.display()))
+    Ok(format!("Added Rite section to {}", path.display()))
 }
 
 /// Remove instructions from a file
@@ -227,9 +227,9 @@ fn remove_instructions(path: &Path) -> Result<String> {
             };
 
             std::fs::write(path, &new_content).context("Failed to write file")?;
-            Ok(format!("Removed BotBus section from {}", path.display()))
+            Ok(format!("Removed Rite section from {}", path.display()))
         }
-        _ => anyhow::bail!("No BotBus instructions found in {}", path.display()),
+        _ => anyhow::bail!("No Rite instructions found in {}", path.display()),
     }
 }
 
@@ -243,7 +243,7 @@ pub fn run_init(file: Option<PathBuf>, remove: bool) -> Result<()> {
         let path = match &status {
             InstructionsStatus::Found { path } => path.clone(),
             InstructionsStatus::NotFound { path } => {
-                anyhow::bail!("No BotBus instructions found in {}", path.display());
+                anyhow::bail!("No Rite instructions found in {}", path.display());
             }
             InstructionsStatus::NoFile => {
                 anyhow::bail!("No agent instructions file found");
@@ -340,7 +340,7 @@ mod tests {
     fn test_check_instructions_absent() {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("AGENTS.md");
-        std::fs::write(&path, "# Agents\n\nNo botbus here").unwrap();
+        std::fs::write(&path, "# Agents\n\nNo rite here").unwrap();
 
         let result = check_instructions(&path).unwrap();
         assert!(!result);
@@ -377,7 +377,7 @@ mod tests {
         let content = std::fs::read_to_string(&path).unwrap();
         assert!(content.contains(MARKER_START));
         assert!(content.contains(MARKER_END));
-        assert!(content.contains("BotBus Agent Coordination")); // New content
+        assert!(content.contains("Rite Agent Coordination")); // New content
         assert!(!content.contains("Old content"));
         assert!(content.contains("Other stuff")); // Preserved
     }
@@ -387,7 +387,7 @@ mod tests {
         let tmp = TempDir::new().unwrap();
         let path = tmp.path().join("AGENTS.md");
         let content = format!(
-            "# Agents\n\n---\n\n{}\nBotBus stuff\n{}\n\n---\n\nMore content",
+            "# Agents\n\n---\n\n{}\nRite stuff\n{}\n\n---\n\nMore content",
             MARKER_START, MARKER_END
         );
         std::fs::write(&path, content).unwrap();
@@ -427,7 +427,7 @@ mod tests {
         add_or_update_instructions(&path).unwrap();
 
         let content = std::fs::read_to_string(&path).unwrap();
-        assert!(content.contains("BotBus Agent Coordination"));
+        assert!(content.contains("Rite Agent Coordination"));
         assert!(!content.contains("Old"));
     }
 }

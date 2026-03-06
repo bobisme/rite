@@ -2,7 +2,7 @@
 //!
 //! These tests verify that git sync works in complete isolation using temp directories.
 //! They test:
-//! - `bus sync init` (initialization)
+//! - `rite sync init` (initialization)
 //! - Auto-commit after operations
 //! - Two-machine sync simulation
 //! - Index rebuild after sync
@@ -42,7 +42,7 @@ fn disable_gpg_signing(dir: &Path) {
     git(dir, &["config", "commit.gpgsign", "false"]);
 }
 
-/// Test that `bus sync init` creates .git/, .gitattributes, .gitignore.
+/// Test that `rite sync init` creates .git/, .gitattributes, .gitignore.
 #[test]
 fn test_sync_init_creates_git_infrastructure() {
     let mut project = TestProject::with_name("sync-init");
@@ -98,7 +98,7 @@ fn test_sync_init_creates_git_infrastructure() {
     assert!(log_count >= 1, "Should have at least one commit after init");
 }
 
-/// Test that running `bus sync init` twice is safe (idempotent or graceful error).
+/// Test that running `rite sync init` twice is safe (idempotent or graceful error).
 #[test]
 fn test_sync_init_idempotent() {
     let mut project = TestProject::with_name("sync-init-twice");
@@ -265,8 +265,7 @@ fn test_two_machine_sync_simulation() {
     use tempfile::TempDir;
 
     // Create a bare git repo to act as the "origin"
-    let bare_repo_dir =
-        TempDir::with_prefix("botbus-bare-").expect("Failed to create bare repo dir");
+    let bare_repo_dir = TempDir::with_prefix("rite-bare-").expect("Failed to create bare repo dir");
     let bare_repo_path = bare_repo_dir.path();
 
     // Initialize bare repo
@@ -540,7 +539,7 @@ fn test_sync_claims_between_machines() {
 
     // Create bare repo
     let bare_repo_dir =
-        TempDir::with_prefix("botbus-bare-claims-").expect("Failed to create bare repo dir");
+        TempDir::with_prefix("rite-bare-claims-").expect("Failed to create bare repo dir");
     let bare_repo_path = bare_repo_dir.path();
 
     Command::new("git")

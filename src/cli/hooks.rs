@@ -61,7 +61,7 @@ pub fn add(
 ) -> Result<()> {
     if command.is_empty() {
         bail!(
-            "Command is required. Use -- before the command, e.g.:\n  bus hooks add --channel ch --claim pattern --cwd /tmp --release-on-exit -- echo hello"
+            "Command is required. Use -- before the command, e.g.:\n  rite hooks add --channel ch --claim pattern --cwd /tmp --release-on-exit -- echo hello"
         );
     }
 
@@ -803,10 +803,10 @@ fn evaluate_hooks_inner(
             command
                 .args(&hook.command[1..])
                 .current_dir(&hook.cwd)
-                .env("BOTBUS_CHANNEL", channel)
-                .env("BOTBUS_MESSAGE_ID", message_id)
-                .env("BOTBUS_AGENT", agent)
-                .env("BOTBUS_HOOK_ID", &hook.id)
+                .env("RITE_CHANNEL", channel)
+                .env("RITE_MESSAGE_ID", message_id)
+                .env("RITE_AGENT", agent)
+                .env("RITE_HOOK_ID", &hook.id)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
                 .stderr(std::process::Stdio::null());

@@ -1,23 +1,23 @@
-# botbus
+# rite
 
 Project type: Rust CLI (`cargo`)
-Tools: `beads`, `maw`, `crit`, `botbus`, `botty`
+Tools: `beads`, `maw`, `crit`, `rite`, `botty`
 Reviewer roles: security
 
 ## What This Is
 
-Chat-oriented coordination CLI for AI coding agents. When multiple agents work on the same codebase — or across projects — they need a way to communicate, claim resources, and stay out of each other's way. botbus provides that with zero infrastructure.
+Chat-oriented coordination CLI for AI coding agents. When multiple agents work on the same codebase — or across projects — they need a way to communicate, claim resources, and stay out of each other's way. rite provides that with zero infrastructure.
 
 **Design principles:**
 - **Zero infrastructure** — append-only JSONL on disk. No daemon, no server, no ports, no database.
-- **Agent-first, human-friendly** — every command works headlessly with structured output (TOON/JSON/text). Humans get `bus ui`.
+- **Agent-first, human-friendly** — every command works headlessly with structured output (TOON/JSON/text). Humans get `rite ui`.
 - **Claims for anything** — file globs, URIs (`bead://`, `db://`), ports — any string. Advisory locks, not enforced.
-- **Append-only** — JSONL files are the source of truth. SQLite indexes are derived and rebuildable (`bus index rebuild`).
-- **Convention over configuration** — sensible defaults, minimal setup. `bus send general "hello"` just works.
+- **Append-only** — JSONL files are the source of truth. SQLite indexes are derived and rebuildable (`rite index rebuild`).
+- **Convention over configuration** — sensible defaults, minimal setup. `rite send general "hello"` just works.
 
-**Architecture:** Single binary (`bus`). Storage at `~/.local/share/botbus/` — channels are `channels/<name>.jsonl`, claims in `claims.jsonl`, agent state in SQLite (derived). Telegram bridge (`bus telegram`) runs as a long-lived process. TUI (`bus ui`) is a separate mode.
+**Architecture:** Single binary (`rite`). Storage at `~/.local/share/rite/` — channels are `channels/<name>.jsonl`, claims in `claims.jsonl`, agent state in SQLite (derived). Telegram bridge (`rite telegram`) runs as a long-lived process. TUI (`rite ui`) is a separate mode.
 
-**Scope boundaries — botbus is a coordination primitive.** It is NOT a task runner, CI system, build tool, or general-purpose message queue. Push back on scope creep into: job scheduling, build automation, git operations beyond sync, file editing/patching, or process management.
+**Scope boundaries — rite is a coordination primitive.** It is NOT a task runner, CI system, build tool, or general-purpose message queue. Push back on scope creep into: job scheduling, build automation, git operations beyond sync, file editing/patching, or process management.
 
 ---
 
@@ -33,61 +33,61 @@ CI enforces these. Skipping them causes build failures and error emails.
 
 ## CLI Reference
 
-All commands support `--agent <name>` (or `BOTBUS_AGENT` env var), `--format toon|json|text`, `-q` (quiet), `-v` (verbose).
+All commands support `--agent <name>` (or `RITE_AGENT` env var), `--format toon|json|text`, `-q` (quiet), `-v` (verbose).
 
 ### Core
 
 | Command | Usage |
 |---------|-------|
-| `send` | `bus send <target> <message> [-L label] [--attach file] [--no-hooks]` |
-| `history` | `bus history [channel] [-n count] [-f] [--since/--before] [--from] [-L label]` |
-| `inbox` | `bus inbox [-c channels] [--all] [--mentions] [-n count] [--mark-read] [--count-only]` |
-| `mark-read` | `bus mark-read <channel>` |
-| `search` | `bus search <query> [-c channel] [-n count] [--from]` |
-| `wait` | `bus wait [-c channel] [--mention] [-L label] [-t timeout]` |
-| `watch` | `bus watch [channel]` — stream messages in real-time |
-| `status` | `bus status` — overview of agents, channels, claims |
+| `send` | `rite send <target> <message> [-L label] [--attach file] [--no-hooks]` |
+| `history` | `rite history [channel] [-n count] [-f] [--since/--before] [--from] [-L label]` |
+| `inbox` | `rite inbox [-c channels] [--all] [--mentions] [-n count] [--mark-read] [--count-only]` |
+| `mark-read` | `rite mark-read <channel>` |
+| `search` | `rite search <query> [-c channel] [-n count] [--from]` |
+| `wait` | `rite wait [-c channel] [--mention] [-L label] [-t timeout]` |
+| `watch` | `rite watch [channel]` — stream messages in real-time |
+| `status` | `rite status` — overview of agents, channels, claims |
 
 ### Claims (advisory locks)
 
 | Command | Usage |
 |---------|-------|
-| `claims stake` | `bus claims stake <patterns...> [-t ttl] [-m message]` |
-| `claims check` | `bus claims check <path>` |
-| `claims release` | `bus claims release [patterns...] [--all]` |
-| `claims list` | `bus claims list [--all] [--mine] [-n limit]` |
-| `claims refresh` | `bus claims refresh` — extend TTL |
+| `claims stake` | `rite claims stake <patterns...> [-t ttl] [-m message]` |
+| `claims check` | `rite claims check <path>` |
+| `claims release` | `rite claims release [patterns...] [--all]` |
+| `claims list` | `rite claims list [--all] [--mine] [-n limit]` |
+| `claims refresh` | `rite claims refresh` — extend TTL |
 
 ### Management
 
 | Command | Usage |
 |---------|-------|
-| `agents` | `bus agents [--active]` |
-| `channels` | `bus channels list\|close\|reopen\|delete\|rename` |
-| `hooks` | `bus hooks add\|list\|remove\|test` |
-| `subscriptions` | `bus subscriptions add\|remove\|list` |
-| `statuses` | `bus statuses set\|clear\|list` |
-| `messages` | `bus messages get <id>` |
+| `agents` | `rite agents [--active]` |
+| `channels` | `rite channels list\|close\|reopen\|delete\|rename` |
+| `hooks` | `rite hooks add\|list\|remove\|test` |
+| `subscriptions` | `rite subscriptions add\|remove\|list` |
+| `statuses` | `rite statuses set\|clear\|list` |
+| `messages` | `rite messages get <id>` |
 
 ### Sync & Infra
 
 | Command | Usage |
 |---------|-------|
-| `sync` | `bus sync init\|push\|pull\|status\|log\|check` |
-| `index` | `bus index rebuild\|status` |
-| `telegram` | `bus telegram` — run Telegram bridge |
-| `ui` | `bus ui [-c channel]` — terminal UI |
-| `init` | `bus init` — create data directory |
-| `doctor` | `bus doctor` — check environment health |
-| `generate-name` | `bus generate-name` — random kebab-case name |
-| `whoami` | `bus whoami` |
+| `sync` | `rite sync init\|push\|pull\|status\|log\|check` |
+| `index` | `rite index rebuild\|status` |
+| `telegram` | `rite telegram` — run Telegram bridge |
+| `ui` | `rite ui [-c channel]` — terminal UI |
+| `init` | `rite init` — create data directory |
+| `doctor` | `rite doctor` — check environment health |
+| `generate-name` | `rite generate-name` — random kebab-case name |
+| `whoami` | `rite whoami` |
 
 ### Attachments
 
 ```bash
-bus send general "see attached" --attach ./screenshot.png
-bus send general "link" --attach https://example.com/file.tar.gz
-bus send general "named" --attach "label:./path/to/file"
+rite send general "see attached" --attach ./screenshot.png
+rite send general "link" --attach https://example.com/file.tar.gz
+rite send general "named" --attach "label:./path/to/file"
 ```
 
 Files are stored in a content-addressed cache (SHA256). The Telegram bridge relays attachments bidirectionally.
@@ -99,7 +99,7 @@ Inline flags in message body suppress hook execution:
 - `!nochanhooks` — suppress channel hooks only
 - `!noathooks` — suppress @-mention hooks only
 
-Example: `bus send general "deploy done !nohooks"`
+Example: `rite send general "deploy done !nohooks"`
 
 Alternatively, use `--no-hooks` on the CLI.
 
@@ -111,28 +111,28 @@ Alternatively, use `--no-hooks` on the CLI.
 
 ```bash
 # Recommended: --agent flag (works in sandboxed environments)
-bus --agent my-agent send general "hello"
+rite --agent my-agent send general "hello"
 
 # Alternative: env var (doesn't persist across sandboxed commands)
-export BOTBUS_AGENT=$(bus generate-name)
+export RITE_AGENT=$(rite generate-name)
 ```
 
 ### Quick Start
 
 ```bash
-bus status                                    # What's happening?
-bus send general "Starting work on X"         # Announce
-bus send @other-agent "Question about Y"      # DM
-bus claims stake "src/api/**" -m "Working on API"  # Claim files
-bus claims check src/api/routes.rs            # Check before editing
-bus claims release --all                      # Release when done
-bus wait -c @other-agent -t 60               # Wait for reply
+rite status                                    # What's happening?
+rite send general "Starting work on X"         # Announce
+rite send @other-agent "Question about Y"      # DM
+rite claims stake "src/api/**" -m "Working on API"  # Claim files
+rite claims check src/api/routes.rs            # Check before editing
+rite claims release --all                      # Release when done
+rite wait -c @other-agent -t 60               # Wait for reply
 ```
 
 ### Channel Conventions
 
 - `#general` — cross-project coordination
-- `#project-name` — project-specific (e.g., `#botbus`)
+- `#project-name` — project-specific (e.g., `#rite`)
 - `@agent-name` — direct messages
 
 Names: lowercase alphanumeric with hyphens.
@@ -148,11 +148,11 @@ Keep messages concise and actionable:
 
 ## Development Notes
 
-- Storage: `~/.local/share/botbus/` (override with `BOTBUS_DATA_DIR`)
-- Identity: `BOTBUS_AGENT` env var or `--agent` flag
+- Storage: `~/.local/share/rite/` (override with `RITE_DATA_DIR`)
+- Identity: `RITE_AGENT` env var or `--agent` flag
 - Claims stored with absolute paths, displayed relative when in same directory tree
 - Git sync disables GPG signing in data repos automatically
-- JSONL is append-only; indexes derived via `bus index rebuild`
+- JSONL is append-only; indexes derived via `rite index rebuild`
 
 ### Output Formats
 
@@ -319,9 +319,9 @@ For manual sessions, use `<project>-dev` (e.g., `myapp-dev`).
 When working on a bone, stake claims to prevent conflicts:
 
 ```bash
-bus claims stake --agent $AGENT "bone://<project>/<id>" -m "<id>"
-bus claims stake --agent $AGENT "workspace://<project>/<ws>" -m "<id>"
-bus claims release --agent $AGENT --all  # when done
+rite claims stake --agent $AGENT "bone://<project>/<id>" -m "<id>"
+rite claims stake --agent $AGENT "workspace://<project>/<ws>" -m "<id>"
+rite claims release --agent $AGENT --all  # when done
 ```
 
 ### Reviews
@@ -330,33 +330,33 @@ Use `@<project>-<role>` mentions to request reviews:
 
 ```bash
 maw exec $WS -- crit reviews request <review-id> --reviewers $PROJECT-security --agent $AGENT
-bus send --agent $AGENT $PROJECT "Review requested: <review-id> @$PROJECT-security" -L review-request
+rite send --agent $AGENT $PROJECT "Review requested: <review-id> @$PROJECT-security" -L review-request
 ```
 
 The @mention triggers the auto-spawn hook for the reviewer.
 
 ### Bus Communication
 
-Agents communicate via bus channels. You don't need to be expert on everything — ask the right project.
+Agents communicate via rite channels. You don't need to be expert on everything — ask the right project.
 
 | Operation | Command |
 |-----------|---------|
-| Send message | `bus send --agent $AGENT <channel> "message" [-L label]` |
-| Check inbox | `bus inbox --agent $AGENT --channels <ch> [--mark-read]` |
-| Wait for reply | `bus wait -c <channel> --mention -t 120` |
-| Browse history | `bus history <channel> -n 20` |
-| Search messages | `bus search "query" -c <channel>` |
+| Send message | `rite send --agent $AGENT <channel> "message" [-L label]` |
+| Check inbox | `rite inbox --agent $AGENT --channels <ch> [--mark-read]` |
+| Wait for reply | `rite wait -c <channel> --mention -t 120` |
+| Browse history | `rite history <channel> -n 20` |
+| Search messages | `rite search "query" -c <channel>` |
 
-**Conversations**: After sending a question, use `bus wait -c <channel> --mention -t <seconds>` to block until the other agent replies. This enables back-and-forth conversations across channels.
+**Conversations**: After sending a question, use `rite wait -c <channel> --mention -t <seconds>` to block until the other agent replies. This enables back-and-forth conversations across channels.
 
-**Project experts**: Each `<project>-dev` is the expert on their project. When stuck on a companion tool (bus, maw, crit, vessel, bn), post a question to its project channel instead of guessing.
+**Project experts**: Each `<project>-dev` is the expert on their project. When stuck on a companion tool (rite, maw, crit, vessel, bn), post a question to its project channel instead of guessing.
 
 ### Cross-Project Communication
 
 **Don't suffer in silence.** If a tool confuses you or behaves unexpectedly, post to its project channel.
 
-1. Find the project: `bus history projects -n 50` (the #projects channel has project registry entries)
-2. Post question or feedback: `bus send --agent $AGENT <project> "..." -L feedback`
+1. Find the project: `rite history projects -n 50` (the #projects channel has project registry entries)
+2. Post question or feedback: `rite send --agent $AGENT <project> "..." -L feedback`
 3. For bugs, create bones in their repo first
 4. **Always create a local tracking bone** so you check back later:
    ```bash

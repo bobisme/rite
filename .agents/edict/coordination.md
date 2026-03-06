@@ -4,13 +4,13 @@ When working as part of a mission (multiple workers on related bones), use these
 
 ## Coordination Labels
 
-Use these labels on bus messages alongside `mission:<mission-id>`:
+Use these labels on rite messages alongside `mission:<mission-id>`:
 
 | Label | Purpose | Example |
 |-------|---------|---------|
-| `coord:interface` | Share API shape, types, or contracts that siblings depend on | `bus send --agent $AGENT $PROJECT "Interface: createUser(name, email) returns User" -L coord:interface -L "mission:bd-xxx"` |
-| `coord:blocker` | Flag a blocking dependency on a sibling's work | `bus send --agent $AGENT $PROJECT "Blocked by bd-yyy: need User type exported" -L coord:blocker -L "mission:bd-xxx"` |
-| `coord:handoff` | Transfer partial work or context to another worker | `bus send --agent $AGENT $PROJECT "Handoff bd-yyy: auth middleware done, needs route wiring" -L coord:handoff -L "mission:bd-xxx"` |
+| `coord:interface` | Share API shape, types, or contracts that siblings depend on | `rite send --agent $AGENT $PROJECT "Interface: createUser(name, email) returns User" -L coord:interface -L "mission:bd-xxx"` |
+| `coord:blocker` | Flag a blocking dependency on a sibling's work | `rite send --agent $AGENT $PROJECT "Blocked by bd-yyy: need User type exported" -L coord:blocker -L "mission:bd-xxx"` |
+| `coord:handoff` | Transfer partial work or context to another worker | `rite send --agent $AGENT $PROJECT "Handoff bd-yyy: auth middleware done, needs route wiring" -L coord:handoff -L "mission:bd-xxx"` |
 
 ## Sibling Awareness
 
@@ -26,7 +26,7 @@ When dispatched as part of a mission, your prompt includes:
 The lead dev agent runs periodic checkpoints during missions:
 1. Counts children by state (open/doing/done)
 2. Checks for alive workers via `vessel list`
-3. Reads completion signals from bus history
+3. Reads completion signals from rite history
 4. Posts checkpoint summaries: "Mission bd-xxx checkpoint: 3/5 done, 1 blocked"
 
 Workers don't need to do anything special for checkpoints — just keep working and post progress comments on your bone.

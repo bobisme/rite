@@ -1144,7 +1144,7 @@ mod tests {
     use std::fs;
     use tempfile::TempDir;
 
-    const DATA_DIR_ENV_VAR: &str = "BOTBUS_DATA_DIR";
+    const DATA_DIR_ENV_VAR: &str = "RITE_DATA_DIR";
 
     #[test]
     #[serial]
@@ -1154,7 +1154,7 @@ mod tests {
 
         unsafe {
             env::set_var(DATA_DIR_ENV_VAR, temp_path);
-            env::set_var("BOTBUS_AGENT", "test-agent");
+            env::set_var("RITE_AGENT", "test-agent");
         }
 
         let mut app = App::new(None).unwrap();
@@ -1172,7 +1172,7 @@ mod tests {
 
         unsafe {
             env::remove_var(DATA_DIR_ENV_VAR);
-            env::remove_var("BOTBUS_AGENT");
+            env::remove_var("RITE_AGENT");
         }
     }
 
@@ -1184,7 +1184,7 @@ mod tests {
 
         unsafe {
             env::set_var(DATA_DIR_ENV_VAR, temp_path);
-            env::set_var("BOTBUS_AGENT", "test-agent");
+            env::set_var("RITE_AGENT", "test-agent");
         }
 
         // Create channels directory
@@ -1218,7 +1218,7 @@ mod tests {
 
         unsafe {
             env::remove_var(DATA_DIR_ENV_VAR);
-            env::remove_var("BOTBUS_AGENT");
+            env::remove_var("RITE_AGENT");
         }
     }
 
@@ -1230,7 +1230,7 @@ mod tests {
 
         unsafe {
             env::set_var(DATA_DIR_ENV_VAR, temp_path);
-            env::set_var("BOTBUS_AGENT", "test-agent");
+            env::set_var("RITE_AGENT", "test-agent");
         }
 
         let channels_dir = temp.path().join("channels");
@@ -1256,7 +1256,7 @@ mod tests {
 
         unsafe {
             env::remove_var(DATA_DIR_ENV_VAR);
-            env::remove_var("BOTBUS_AGENT");
+            env::remove_var("RITE_AGENT");
         }
     }
 }

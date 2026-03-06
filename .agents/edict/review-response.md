@@ -2,7 +2,7 @@
 
 Handle reviewer feedback on a blocked or commented review. For each thread, decide whether to fix, address, or defer.
 
-Your identity is `$AGENT`. All crit and bus commands must include `--agent $AGENT`. Run `bus whoami --agent $AGENT` first if you need to confirm the identity.
+Your identity is `$AGENT`. All crit and rite commands must include `--agent $AGENT`. Run `rite whoami --agent $AGENT` first if you need to confirm the identity.
 
 ## Arguments
 
@@ -13,7 +13,7 @@ Your identity is `$AGENT`. All crit and bus commands must include `--agent $AGEN
 
 Run this when:
 - `maw exec $WS -- crit inbox --agent $AGENT` shows threads with new comments on your review (check each workspace)
-- `bus inbox` contains a `review-done` message indicating your review was blocked
+- `rite inbox` contains a `review-done` message indicating your review was blocked
 - You previously requested review and are checking back for feedback
 
 **Note:** All crit commands below use `maw exec $WS --` because the review exists in your workspace, not the repo root.
@@ -42,7 +42,7 @@ Run this when:
       - `maw exec $WS -- git commit -m "fix: address review feedback on <review-id>"`
    c. Re-request review: `maw exec $WS -- crit reviews request <review-id> --agent $AGENT --reviewers <reviewer>`
    d. Announce (include workspace name so the reviewer can find the fixed code):
-       `bus send --agent $AGENT $EDICT_PROJECT "Review feedback addressed: <review-id>, fixes in workspace $WS (ws/$WS/)" -L review-response`
+       `rite send --agent $AGENT $EDICT_PROJECT "Review feedback addressed: <review-id>, fixes in workspace $WS (ws/$WS/)" -L review-response`
 
 ## After LGTM
 

@@ -4,11 +4,11 @@ version = "1.0.15"
 push_main = false
 
 [project]
-name = "botbus"
+name = "rite"
 type = ["cli"]
 languages = []
-default_agent = "botbus-dev"
-channel = "botbus"
+default_agent = "rite-dev"
+channel = "rite"
 install_command = "just install"
 
 # Companion tools to enable
@@ -16,7 +16,7 @@ install_command = "just install"
 bones = true
 maw = true
 crit = true
-botbus = true
+rite = true
 vessel = true
 
 # Code review configuration

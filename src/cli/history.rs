@@ -65,7 +65,7 @@ pub fn run(options: HistoryOptions) -> Result<()> {
     let channel = resolve_channel(&raw_channel, agent.as_deref()).ok_or_else(|| {
         anyhow!(
             "Cannot resolve DM channel '{}' without agent identity.\n\
-             Set BOTBUS_AGENT or use --agent flag.",
+             Set RITE_AGENT or use --agent flag.",
             raw_channel
         )
     })?;
@@ -215,7 +215,7 @@ pub fn run_with_output(options: HistoryOptions) -> Result<HistoryOutput> {
     if total_available > messages.len() {
         // There are more messages to read
         advice.push(format!(
-            "bus history {} --after-offset {}",
+            "rite history {} --after-offset {}",
             options.channel.as_ref().unwrap_or(&"general".to_string()),
             next_offset
         ));

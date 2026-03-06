@@ -3,10 +3,10 @@
 set -e
 
 TEST_DIR=$(mktemp -d)
-export BOTBUS_DATA_DIR="$TEST_DIR"
-export BOTBUS_AGENT="test-agent"
+export RITE_DATA_DIR="$TEST_DIR"
+export RITE_AGENT="test-agent"
 
-cd ~/src/botbus
+cd ~/src/rite
 
 echo "Test dir: $TEST_DIR"
 

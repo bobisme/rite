@@ -190,7 +190,7 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
             eprintln!(
                 "   {}",
                 format!(
-                    "sleep {} && botbus claim {}",
+                    "sleep {} && rite claim {}",
                     wait_secs + 5,
                     options.patterns.join(" ")
                 )
@@ -206,7 +206,7 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
                 eprintln!(
                     "   {}",
                     format!(
-                        "botbus send @{} \"Can you release {}? I need to work on it\"",
+                        "rite send @{} \"Can you release {}? I need to work on it\"",
                         first_holder,
                         options.patterns.join(", ")
                     )
@@ -219,7 +219,7 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
                 );
                 eprintln!(
                     "   {}",
-                    format!("botbus release {}", options.patterns.join(" ")).dimmed()
+                    format!("rite release {}", options.patterns.join(" ")).dimmed()
                 );
             }
         }
@@ -473,7 +473,7 @@ pub fn claims(
         // Suggest releasing claims if the agent has any
         let has_agent_claims = claim_infos.iter().any(|c| c.agent == current_agent);
         if has_agent_claims {
-            advice.push("bus claims release --all".to_string());
+            advice.push("rite claims release --all".to_string());
         }
     }
 
@@ -1053,10 +1053,7 @@ mod tests {
     #[test]
     fn test_expand_pattern_uri() {
         // URIs pass through unchanged
-        assert_eq!(
-            expand_pattern("bead://botbus/bd-123"),
-            "bead://botbus/bd-123"
-        );
+        assert_eq!(expand_pattern("bead://rite/bd-123"), "bead://rite/bd-123");
         assert_eq!(expand_pattern("db://myapp/users"), "db://myapp/users");
         assert_eq!(expand_pattern("port://8080"), "port://8080");
     }
@@ -1064,10 +1061,7 @@ mod tests {
     #[test]
     fn test_display_pattern_uri() {
         // URIs display as-is
-        assert_eq!(
-            display_pattern("bead://botbus/bd-123"),
-            "bead://botbus/bd-123"
-        );
+        assert_eq!(display_pattern("bead://rite/bd-123"), "bead://rite/bd-123");
         assert_eq!(display_pattern("db://myapp/*"), "db://myapp/*");
     }
 
@@ -1075,31 +1069,22 @@ mod tests {
     fn test_uri_matches_pattern() {
         // Exact match
         assert!(uri_matches_pattern(
-            "bead://botbus/bd-123",
-            "bead://botbus/bd-123"
+            "bead://rite/bd-123",
+            "bead://rite/bd-123"
         ));
 
         // Wildcard suffix
-        assert!(uri_matches_pattern(
-            "bead://botbus/bd-123",
-            "bead://botbus/*"
-        ));
+        assert!(uri_matches_pattern("bead://rite/bd-123", "bead://rite/*"));
         assert!(uri_matches_pattern("db://myapp/users", "db://myapp/*"));
 
         // Double-star wildcard
-        assert!(uri_matches_pattern(
-            "bead://botbus/bd-123",
-            "bead://botbus/**"
-        ));
+        assert!(uri_matches_pattern("bead://rite/bd-123", "bead://rite/**"));
 
         // Prefix matching
-        assert!(uri_matches_pattern("bead://botbus/bd-123", "bead://botbus"));
+        assert!(uri_matches_pattern("bead://rite/bd-123", "bead://rite"));
 
         // Non-matches
-        assert!(!uri_matches_pattern(
-            "bead://other/bd-123",
-            "bead://botbus/*"
-        ));
+        assert!(!uri_matches_pattern("bead://other/bd-123", "bead://rite/*"));
         assert!(!uri_matches_pattern("db://myapp/users", "bead://myapp/*"));
     }
 
@@ -1107,24 +1092,18 @@ mod tests {
     fn test_uri_patterns_overlap() {
         // Same URI
         assert!(uri_patterns_overlap(
-            "bead://botbus/bd-123",
-            "bead://botbus/bd-123"
+            "bead://rite/bd-123",
+            "bead://rite/bd-123"
         ));
 
         // Wildcard overlaps specific
-        assert!(uri_patterns_overlap(
-            "bead://botbus/*",
-            "bead://botbus/bd-123"
-        ));
-        assert!(uri_patterns_overlap(
-            "bead://botbus/bd-123",
-            "bead://botbus/*"
-        ));
+        assert!(uri_patterns_overlap("bead://rite/*", "bead://rite/bd-123"));
+        assert!(uri_patterns_overlap("bead://rite/bd-123", "bead://rite/*"));
 
         // Different schemes don't overlap
         assert!(!uri_patterns_overlap(
-            "bead://botbus/bd-123",
-            "db://botbus/bd-123"
+            "bead://rite/bd-123",
+            "db://rite/bd-123"
         ));
 
         // Different paths don't overlap
@@ -1160,8 +1139,8 @@ mod tests {
     #[test]
     fn test_path_matches_pattern_mixed() {
         // File paths don't match URIs
-        assert!(!path_matches_pattern("src/main.rs", "bead://botbus/*"));
-        assert!(!path_matches_pattern("bead://botbus/bd-123", "src/**"));
+        assert!(!path_matches_pattern("src/main.rs", "bead://rite/*"));
+        assert!(!path_matches_pattern("bead://rite/bd-123", "src/**"));
     }
 
     // Integration tests that need project setup are moved to tests/integration/

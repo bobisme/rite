@@ -1,7 +1,7 @@
-//! Git-based multi-machine sync for BotBus data directory.
+//! Git-based multi-machine sync for Rite data directory.
 //!
 //! Enables transparent auto-commit and manual sync commands to sync
-//! BotBus data across machines using git with union merge strategy.
+//! Rite data across machines using git with union merge strategy.
 
 pub mod auto_commit;
 pub mod git;

@@ -6,14 +6,14 @@ mod common;
 
 use common::TestProject;
 
-/// Test that commands fail without BOTBUS_AGENT set.
+/// Test that commands fail without RITE_AGENT set.
 #[test]
 fn test_send_without_identity() {
     let project = TestProject::with_name("no-identity-send");
 
     // Don't register any agent, don't set env var
     // Try to send without agent context
-    let output = project.run_botbus(&["send", "general", "Hello"]);
+    let output = project.run_rite(&["send", "general", "Hello"]);
 
     output.assert_failure();
     assert!(
@@ -28,7 +28,7 @@ fn test_send_without_identity() {
 fn test_claim_without_identity() {
     let project = TestProject::with_name("no-identity-claim");
 
-    let output = project.run_botbus(&["claims", "stake", "src/**"]);
+    let output = project.run_rite(&["claims", "stake", "src/**"]);
 
     output.assert_failure();
     assert!(
@@ -43,7 +43,7 @@ fn test_claim_without_identity() {
 fn test_whoami_without_identity() {
     let project = TestProject::with_name("no-identity-whoami");
 
-    let output = project.run_botbus(&["whoami"]);
+    let output = project.run_rite(&["whoami"]);
 
     output.assert_failure();
     assert!(
@@ -74,7 +74,7 @@ fn test_invalid_channel_name() {
 
 // NOTE: test_duplicate_agent_registration was removed - with the stateless
 // agent model, there's no registration and no duplicate checking needed.
-// Agents are simply derived from BOTBUS_AGENT env var.
+// Agents are simply derived from RITE_AGENT env var.
 
 /// Test that invalid agent names are rejected.
 #[test]
@@ -82,11 +82,11 @@ fn test_invalid_agent_name() {
     let project = TestProject::with_name("invalid-agent");
 
     // Try agent name starting with number (invalid)
-    let output = project.run_botbus(&["register", "--name", "123Agent"]);
+    let output = project.run_rite(&["register", "--name", "123Agent"]);
     output.assert_failure();
 
     // Try agent name with dashes (invalid)
-    let output = project.run_botbus(&["register", "--name", "my-agent"]);
+    let output = project.run_rite(&["register", "--name", "my-agent"]);
     output.assert_failure();
 }
 
@@ -150,8 +150,8 @@ fn test_agent_flag_overrides_env() {
     project.agent("EnvAgent");
     project.agent("FlagAgent");
 
-    // Set BOTBUS_AGENT to EnvAgent, but use --agent FlagAgent
-    let output = project.run_botbus_with_env(&["--agent", "FlagAgent", "whoami"], Some("EnvAgent"));
+    // Set RITE_AGENT to EnvAgent, but use --agent FlagAgent
+    let output = project.run_rite_with_env(&["--agent", "FlagAgent", "whoami"], Some("EnvAgent"));
     output.assert_success();
 
     // Should show FlagAgent, not EnvAgent
@@ -174,7 +174,7 @@ fn test_command_from_subdirectory() {
     std::fs::create_dir_all(&subdir).expect("Failed to create subdir");
 
     // Run command from subdirectory using explicit project path
-    // (In real usage, botbus would auto-discover, but we're testing with temp dirs)
+    // (In real usage, rite would auto-discover, but we're testing with temp dirs)
     let output = agent.send("general", "Message from nested dir");
     output.assert_success();
 

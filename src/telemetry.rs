@@ -58,9 +58,7 @@ pub fn init() -> TelemetryGuard {
         Some(_) => init_otlp(),
         #[cfg(not(feature = "otel"))]
         Some(_) => {
-            tracing::warn!(
-                "OTEL_EXPORTER_OTLP_ENDPOINT set but botbus built without 'otel' feature"
-            );
+            tracing::warn!("OTEL_EXPORTER_OTLP_ENDPOINT set but rite built without 'otel' feature");
             init_noop()
         }
     }

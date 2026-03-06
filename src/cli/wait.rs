@@ -46,7 +46,7 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
 
     // For --mentions, we need an agent identity
     if options.mentions && agent.is_none() {
-        anyhow::bail!("--mentions requires agent identity. Set BOTBUS_AGENT or use --agent flag.");
+        anyhow::bail!("--mentions requires agent identity. Set RITE_AGENT or use --agent flag.");
     }
 
     // Strip # prefix from channels if present (common user pattern)

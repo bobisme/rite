@@ -1,6 +1,6 @@
 You are reviewer agent "{{ AGENT }}" for project "{{ PROJECT }}".
 
-IMPORTANT: Use --agent {{ AGENT }} on ALL rite and crit commands. Set EDICT_PROJECT={{ PROJECT }}.
+IMPORTANT: Use --agent {{ AGENT }} on ALL rite and seal commands. Set EDICT_PROJECT={{ PROJECT }}.
 
 Execute exactly ONE review cycle, then STOP. Do not process multiple reviews.
 
@@ -17,12 +17,12 @@ At the end of your work, output exactly one of these completion signals:
    Check the PENDING WORK section below — the reviewer-loop has pre-discovered which
    workspaces have reviews and threads needing attention, with exact commands to use.
    If no PENDING WORK section exists, iterate workspaces manually:
-     maw ws list, then for each: maw exec <ws> -- crit inbox --agent {{ AGENT }}
+     maw ws list, then for each: maw exec <ws> -- seal inbox --agent {{ AGENT }}
    Pick one review to process. If nothing pending, say "NO_REVIEWS_PENDING" and stop.
    rite statuses set --agent {{ AGENT }} "Review: <review-id>" --ttl 30m
 
 3. REVIEW (follow .agents/edict/review-loop.md):
-   a. Read the review and diff: maw exec {{ WORKSPACE }} -- crit review <id> and maw exec {{ WORKSPACE }} -- crit diff <id>
+   a. Read the review and diff: maw exec {{ WORKSPACE }} -- seal review <id> and maw exec {{ WORKSPACE }} -- seal diff <id>
    b. Read the full source files changed in the diff — use absolute paths (ws/{{ WORKSPACE }}/...)
    c. Check project config (e.g., Cargo.toml, package.json) for dependencies and settings
    d. RISK-AWARE REVIEW:
@@ -31,7 +31,7 @@ At the end of your work, output exactly one of these completion signals:
       - Look for `risk:high` or `risk:critical` tags
 
       If the bone has `risk:high`, verify that a security reviewer has addressed the failure-mode checklist:
-      - Check for crit comments covering: production failure scenarios, detection methods,
+      - Check for seal comments covering: production failure scenarios, detection methods,
         rollback strategy, dependency risks, and uncertain assumptions
       - If the failure-mode analysis is missing or incomplete, BLOCK and request security review
 
@@ -48,11 +48,11 @@ At the end of your work, output exactly one of these completion signals:
       - MEDIUM: Error handling gaps, missing validation at boundaries
       - LOW: Code quality, naming, structure
       - INFO: Suggestions, style preferences, minor improvements
-      Use: maw exec {{ WORKSPACE }} -- crit comment <id> --agent {{ AGENT }} "SEVERITY: <feedback>" --file <path> --line <line-or-range>
+      Use: maw exec {{ WORKSPACE }} -- seal comment <id> --agent {{ AGENT }} "SEVERITY: <feedback>" --file <path> --line <line-or-range>
    i. Vote:
       - For `risk:critical` bones: ALWAYS BLOCK with comment "risk:critical requires human approval before merge"
-      - For other bones: maw exec {{ WORKSPACE }} -- crit block <id> --agent {{ AGENT }} --reason "..." if any CRITICAL or HIGH issues exist
-      - maw exec {{ WORKSPACE }} -- crit lgtm <id> --agent {{ AGENT }} if no CRITICAL or HIGH issues AND not risk:critical
+      - For other bones: maw exec {{ WORKSPACE }} -- seal block <id> --agent {{ AGENT }} --reason "..." if any CRITICAL or HIGH issues exist
+      - maw exec {{ WORKSPACE }} -- seal lgtm <id> --agent {{ AGENT }} if no CRITICAL or HIGH issues AND not risk:critical
 
 4. ANNOUNCE:
    rite send --agent {{ AGENT }} {{ PROJECT }} "Review complete: <review-id> — <LGTM|BLOCKED>" -L review-done
@@ -60,21 +60,21 @@ At the end of your work, output exactly one of these completion signals:
 5. RE-REVIEW (if a review-response message or thread response indicates the author addressed feedback):
    The author's fixes are in their workspace, not the main branch.
    a. Find the workspace: check the PENDING WORK section, review-response rite message, or bone comments for workspace name.
-   b. Re-read the review: maw exec {{ WORKSPACE }} -- crit review <review-id>
+   b. Re-read the review: maw exec {{ WORKSPACE }} -- seal review <review-id>
       Look at each thread — which are resolved vs still open? What did the author reply?
    c. Read the actual fixed code from the workspace path (e.g., ws/{{ WORKSPACE }}/src/...) — don't trust replies alone.
    d. Run static analysis in the workspace: maw exec {{ WORKSPACE }} -- <analysis-command>
    e. For each thread:
       - If properly fixed: no action needed (author already resolved it)
-      - If NOT fixed or partially fixed: maw exec {{ WORKSPACE }} -- crit reply <thread-id> --agent {{ AGENT }} "Still an issue: <what's wrong>"
+      - If NOT fixed or partially fixed: maw exec {{ WORKSPACE }} -- seal reply <thread-id> --agent {{ AGENT }} "Still an issue: <what's wrong>"
    f. Vote:
-      - All issues resolved: maw exec {{ WORKSPACE }} -- crit lgtm <review-id> --agent {{ AGENT }} -m "Fixes verified"
-      - Issues remain: maw exec {{ WORKSPACE }} -- crit block <review-id> --agent {{ AGENT }} --reason "N threads still unresolved"
+      - All issues resolved: maw exec {{ WORKSPACE }} -- seal lgtm <review-id> --agent {{ AGENT }} -m "Fixes verified"
+      - Issues remain: maw exec {{ WORKSPACE }} -- seal block <review-id> --agent {{ AGENT }} --reason "N threads still unresolved"
 
 Key rules:
 - Process exactly one review per cycle, then STOP.
 - Focus on correctness and code quality. Ground findings in evidence — compiler output,
   documentation, or source code — not assumptions about API behavior.
-- All rite and crit commands use --agent {{ AGENT }}.
+- All rite and seal commands use --agent {{ AGENT }}.
 - STOP after completing one review. Do not loop.
 - Always output <promise>COMPLETE</promise> or <promise>BLOCKED</promise> at the end.

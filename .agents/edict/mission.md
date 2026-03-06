@@ -178,7 +178,7 @@ When all children are done:
 Each child bone gets its own risk tag independently. The mission bone itself does not have a risk tag — risk is assessed per child.
 
 - **risk:low** children skip review and merge directly after self-review
-- **risk:medium** (default) children go through standard crit review
+- **risk:medium** (default) children go through standard seal review
 - **risk:high** children require security review with failure-mode checklist
 - **risk:critical** children require human approval before merge, even within a mission
 

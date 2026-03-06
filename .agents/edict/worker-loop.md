@@ -17,7 +17,7 @@ If spawned by `edict run worker-loop`, your identity is provided as `$AGENT` (a 
 
 Your project channel is `$EDICT_PROJECT`. All rite commands must include `--agent $AGENT`. All announcements go to `$EDICT_PROJECT` with appropriate labels (e.g., `-L task-claim`, `-L review-request`).
 
-**Important:** Run all `bn` commands via `maw exec default --` (e.g., `maw exec default -- bn do ...`). This ensures they always run in the default workspace context. Run `crit` commands via `maw exec $WS --` to target the correct workspace.
+**Important:** Run all `bn` commands via `maw exec default --` (e.g., `maw exec default -- bn do ...`). This ensures they always run in the default workspace context. Run `seal` commands via `maw exec $WS --` to target the correct workspace.
 
 ## Loop
 
@@ -33,7 +33,7 @@ Before triaging new work, check if you have unfinished work from a previous sess
   2. Check if you still hold claims: `rite claims list --agent $AGENT --mine`
   3. Determine the state:
      - **If "Review requested: <review-id>" comment exists:**
-       - Check review status: `maw exec $WS -- crit review <review-id>`
+       - Check review status: `maw exec $WS -- seal review <review-id>`
        - **LGTM (approved)**: Follow [merge-check](merge-check.md), then go to step 6 (Finish)
        - **Blocked (changes requested)**: Follow [review-response](review-response.md) to fix issues and re-request review. Then STOP this iteration.
        - **Pending (no new activity)**: STOP this iteration. The reviewer has not responded yet.
@@ -122,14 +122,14 @@ After completing the implementation:
 **Risk-based branching:**
 
 **risk:low** — Skip review entirely:
-- Do NOT create a crit review
+- Do NOT create a seal review
 - Add self-review comment: `maw exec default -- bn bone comment add <bone-id> "Self-review: <brief what I verified>"`
 - Proceed directly to step 6 (Finish)
 
 **risk:medium** (default) — Standard review:
-- Create a crit review with reviewer assignment: `maw exec $WS -- crit reviews create --agent $AGENT --title "<bone-title>" --description "For <bone-id>: <summary of changes, what was done, why>" --reviewers <reviewer>`
+- Create a seal review with reviewer assignment: `maw exec $WS -- seal reviews create --agent $AGENT --title "<bone-title>" --description "For <bone-id>: <summary of changes, what was done, why>" --reviewers <reviewer>`
   - `--reviewers` assigns the reviewer in the same command (e.g., `--reviewers myproject-security`)
-  - Running via `maw exec $WS --` ensures crit knows which workspace contains the changes
+  - Running via `maw exec $WS --` ensures seal knows which workspace contains the changes
   - Always include the bone ID in the description so reviewers have context
   - Explain what changed and why, not just a summary
 - Add a comment to the bone: `maw exec default -- bn bone comment add <bone-id> "Review requested: <review-id>, workspace: $WS (ws/$WS/)"`
@@ -142,13 +142,13 @@ After completing the implementation:
 - **STOP this iteration.** Do NOT close the bone, merge the workspace, or release claims. The reviewer will process the review, and you will resume in the next iteration via step 0.
 
 **risk:high** — Security review with failure-mode checklist:
-- Create crit review with security reviewer: `maw exec $WS -- crit reviews create --agent $AGENT --title "<bone-title>" --description "For <bone-id>: <summary>. risk:high — failure-mode checklist required. Please answer: 1) What failure modes exist? 2) What edge cases need validation? 3) How can we roll back if this breaks? 4) What monitoring/alerts should we add? 5) What input validation is needed?" --reviewers $EDICT_PROJECT-security`
+- Create seal review with security reviewer: `maw exec $WS -- seal reviews create --agent $AGENT --title "<bone-title>" --description "For <bone-id>: <summary>. risk:high — failure-mode checklist required. Please answer: 1) What failure modes exist? 2) What edge cases need validation? 3) How can we roll back if this breaks? 4) What monitoring/alerts should we add? 5) What input validation is needed?" --reviewers $EDICT_PROJECT-security`
 - Add comment to bone: `maw exec default -- bn bone comment add <bone-id> "Review requested: <review-id>, workspace: $WS (ws/$WS/)"`
 - Announce with @mention: `rite send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id> for <bone-id>, @$EDICT_PROJECT-security" -L review-request`
 - **STOP this iteration.**
 
 **risk:critical** — Security review + human approval:
-- Create crit review with security reviewer: `maw exec $WS -- crit reviews create --agent $AGENT --title "<bone-title>" --description "For <bone-id>: <summary>. risk:critical — requires human approval before merge." --reviewers $EDICT_PROJECT-security`
+- Create seal review with security reviewer: `maw exec $WS -- seal reviews create --agent $AGENT --title "<bone-title>" --description "For <bone-id>: <summary>. risk:critical — requires human approval before merge." --reviewers $EDICT_PROJECT-security`
 - Add comment to bone: `maw exec default -- bn bone comment add <bone-id> "Review requested: <review-id>, workspace: $WS (ws/$WS/)"`
 - Post to rite requesting human approval: `rite send --agent $AGENT $EDICT_PROJECT "risk:critical review for <bone-id>: requires human approval before merge. Review: <review-id> @<approver>" -L review-request`
   - List of approvers from `.edict.toml` → `project.criticalApprovers`
@@ -160,8 +160,8 @@ See [review-request](review-request.md) for full details.
 ### 6. Finish — mandatory teardown (never skip)
 
 If a review was conducted:
-- Verify approval: `maw exec $WS -- crit review <review-id>` — confirm LGTM, no blocks
-- Mark review as merged: `maw exec $WS -- crit reviews mark-merged <review-id> --agent $AGENT`
+- Verify approval: `maw exec $WS -- seal review <review-id>` — confirm LGTM, no blocks
+- Mark review as merged: `maw exec $WS -- seal reviews mark-merged <review-id> --agent $AGENT`
 
 Then proceed with teardown:
 - `maw exec default -- bn bone comment add <bone-id> "Completed by $AGENT"`

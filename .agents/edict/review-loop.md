@@ -9,11 +9,11 @@ Your identity is `$AGENT`. All rite commands must include `--agent $AGENT`. Run 
 1. Read new review requests:
    - `rite inbox --agent $AGENT --channels $EDICT_PROJECT --mark-read`
    - `rite wait --agent $AGENT -L review-request -t 5` (optional)
-2. Find open reviews by iterating workspaces: `maw ws list --format json`, then `maw exec $WS -- crit inbox --agent $AGENT --format=json` per workspace
+2. Find open reviews by iterating workspaces: `maw ws list --format json`, then `maw exec $WS -- seal inbox --agent $AGENT --format=json` per workspace
    - The reviewer-loop script handles this iteration automatically
-3. For each review, gather context before commenting. Use `maw exec $WS --` for all crit commands targeting a workspace review:
-   a. Read the review and diff: `maw exec $WS -- crit review <id>` and `maw exec $WS -- crit diff <id>`
-      - `maw exec $WS -- crit review <id> --format=json` includes workspace info for reading source files
+3. For each review, gather context before commenting. Use `maw exec $WS --` for all seal commands targeting a workspace review:
+   a. Read the review and diff: `maw exec $WS -- seal review <id>` and `maw exec $WS -- seal diff <id>`
+      - `maw exec $WS -- seal review <id> --format=json` includes workspace info for reading source files
    b. Read the full source files changed in the diff from the **workspace path** (e.g., `ws/$WS/src/file.rs`), not project root
    c. Read project config (e.g., `Cargo.toml`) for edition and dependency versions
    d. Run static analysis in the workspace: `maw exec $WS -- cargo clippy 2>&1` — cite warnings in your comments
@@ -26,10 +26,10 @@ Your identity is `$AGENT`. All rite commands must include `--agent $AGENT`. Run 
    - **MEDIUM**: Error handling gaps, missing validation at boundaries
    - **LOW**: Code quality, naming, structure
    - **INFO**: Suggestions, style preferences, minor improvements
-   - `maw exec $WS -- crit comment <id> "SEVERITY: <feedback>" --file <path> --line <line-or-range>`
+   - `maw exec $WS -- seal comment <id> "SEVERITY: <feedback>" --file <path> --line <line-or-range>`
 5. Vote:
-   - `maw exec $WS -- crit block <id> --reason "..."` if any CRITICAL or HIGH issues exist
-   - `maw exec $WS -- crit lgtm <id>` if no CRITICAL or HIGH issues
+   - `maw exec $WS -- seal block <id> --reason "..."` if any CRITICAL or HIGH issues exist
+   - `maw exec $WS -- seal lgtm <id>` if no CRITICAL or HIGH issues
 6. Post a summary in the project channel and tag the author: `rite send --agent $AGENT $EDICT_PROJECT "..." -L review-done`
 
 Focus on security and correctness. Ground findings in evidence — compiler output, documentation, or source code — not assumptions about API behavior.
@@ -38,8 +38,8 @@ Focus on security and correctness. Ground findings in evidence — compiler outp
 
 When re-review is requested after a block, the author's fixes live in their **workspace**, not on the main branch. The main branch still has the pre-fix code until merge.
 
-1. Identify the workspace from `maw exec $WS -- crit review <id> --format=json` (workspace info is auto-detected from the change_id).
+1. Identify the workspace from `maw exec $WS -- seal review <id> --format=json` (workspace info is auto-detected from the change_id).
 2. Read source files from the **workspace path** (e.g., `ws/$WS/src/main.rs`), not from the project root.
 3. Run static analysis in the workspace: `maw exec $WS -- cargo clippy 2>&1`
 4. Verify each fix against the original issue — read actual code, don't just trust thread replies.
-5. If all issues are resolved: `maw exec $WS -- crit lgtm <id>`. If issues remain: `maw exec $WS -- crit reply <thread-id> --agent $AGENT "..."` explaining what's still wrong.
+5. If all issues are resolved: `maw exec $WS -- seal lgtm <id>`. If issues remain: `maw exec $WS -- seal reply <thread-id> --agent $AGENT "..."` explaining what's still wrong.

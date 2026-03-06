@@ -72,7 +72,7 @@ Apply tags during grooming when a bone clearly fits a category. Don't over-tag �
 - `should-fix` — Non-blocking review feedback (nice-to-have improvements)
 
 **Risk**
-- `risk:low` — Typo fixes, doc updates, config tweaks (self-review, no crit review)
+- `risk:low` — Typo fixes, doc updates, config tweaks (self-review, no seal review)
 - `risk:high` — Security-sensitive, data integrity, user-visible changes (security review + checklist)
 - `risk:critical` — Irreversible actions, migrations, regulated changes (human approval required)
 - Note: `risk:medium` is the default — no tag needed for standard work

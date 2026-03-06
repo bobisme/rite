@@ -24,7 +24,7 @@ If any check fails, the output explains why and what to do.
 ## Merge steps (output by protocol merge)
 
 1. `maw ws merge <workspace> --destroy --message "feat: <bone-title>"` — merge and clean up (use conventional commit prefix: `feat:`, `fix:`, `chore:`, etc.)
-2. `crit reviews mark-merged <review-id>` — mark review as merged (if review exists)
+2. `seal reviews mark-merged <review-id>` — mark review as merged (if review exists)
 3. `maw push` — push to remote (if `pushMain` is enabled)
 4. `rite send` — announce merge on project channel
 
@@ -44,7 +44,7 @@ If merge produces conflicts, the workspace is preserved (not destroyed). Protoco
 
 If `edict protocol merge` is unavailable, check manually:
 
-1. `maw exec $WS -- crit review <review-id>` — confirm LGTM, no blocks
+1. `maw exec $WS -- seal review <review-id>` — confirm LGTM, no blocks
 2. `maw exec default -- bn show <bone-id>` — confirm bone is done
 3. `maw ws merge <workspace> --check` — pre-flight conflict detection
 4. `maw ws merge <workspace> --destroy --message "feat: <bone-title>"` — merge (use conventional commit prefix)

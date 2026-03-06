@@ -13,4 +13,4 @@ Validate toolchain and environment before multi-agent work.
 3. `rite status`
 4. `maw exec default -- bn show --help`
 5. `maw doctor`
-6. `maw exec default -- crit doctor`
+6. `maw exec default -- seal doctor`

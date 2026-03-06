@@ -2,7 +2,7 @@
 
 **Mandatory teardown** after completing work on a bone. Never skip this, even on failure paths.
 
-All steps below are required — they clean up resources, prevent workspace leaks, and ensure the bone ledger stays consistent. Run `bn` commands via `maw exec default --` and `crit` commands via `maw exec $WS --`.
+All steps below are required — they clean up resources, prevent workspace leaks, and ensure the bone ledger stays consistent. Run `bn` commands via `maw exec default --` and `seal` commands via `maw exec $WS --`.
 
 ## Arguments
 
@@ -19,7 +19,7 @@ All steps below are required — they clean up resources, prevent workspace leak
    - Check the bone's risk tag: `maw exec default -- bn show <bone-id>` (look for `risk:low`, `risk:high`, `risk:critical` in tags)
    - **risk:low**: A review may not have been created — that's expected. Proceed directly to merge (step 6).
    - **risk:medium** (default, no tag): Standard path — review should already be LGTM before reaching finish.
-   - **risk:high**: Verify the security reviewer completed the failure-mode checklist (5 questions answered in review comments) before merge. Check: `maw exec $WS -- crit review <review-id>` and confirm comments address failure modes, edge cases, rollback, monitoring, and validation.
+   - **risk:high**: Verify the security reviewer completed the failure-mode checklist (5 questions answered in review comments) before merge. Check: `maw exec $WS -- seal review <review-id>` and confirm comments address failure modes, edge cases, rollback, monitoring, and validation.
    - **risk:critical**: Verify human approval exists. Check rite history for an approval message referencing the bone/review from a listed approver (`.edict.toml` → `project.criticalApprovers`): `rite history $EDICT_PROJECT -n 50`. If found, record the approval message ID in a bone comment: `maw exec default -- bn bone comment add <bone-id> "Human approval received: rite message <msg-id>"`. If no approval found, do NOT merge — instead post: `rite send --agent $AGENT $EDICT_PROJECT "risk:critical bone <bone-id> awaiting human approval before merge" -L review-request` and STOP.
 6. **Run checks before merging**: Run the project's check command in your workspace to verify changes compile and pass tests:
    - Check `.edict.toml` → `project.checkCommand` for the configured command

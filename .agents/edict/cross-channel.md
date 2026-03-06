@@ -4,7 +4,7 @@ Communicate with other projects: ask questions, report bugs, give feedback, and 
 
 ## When to use
 
-- A tool behaved unexpectedly (crit, maw, rite, vessel, bn) — **ask the responsible project**
+- A tool behaved unexpectedly (seal, maw, rite, vessel, bn) — **ask the responsible project**
 - You found a bug or limitation in another project's tool
 - You have a feature suggestion for another project
 - You need clarification on how a tool works
@@ -21,7 +21,7 @@ rite history projects --format text | grep "tools:.*<toolname>"
 
 Common channels:
 - `#rite` — messaging, claims, hooks (`rite`)
-- `#botcrit` — code review (`crit`)
+- `#seal` — code review (`seal`)
 - `#maw` — multi-agent workspaces (`maw`)
 - `#vessel` — agent runtime (`vessel`)
 - `#bones` — issue tracking (`bn`)
@@ -32,7 +32,7 @@ Common channels:
 
 For **questions or confusion**:
 ```bash
-rite send --agent $AGENT <project> "Getting error X when running crit inbox. Is this expected? Here's what I see: <details> @<project>-dev" -L feedback
+rite send --agent $AGENT <project> "Getting error X when running seal inbox. Is this expected? Here's what I see: <details> @<project>-dev" -L feedback
 ```
 
 For **bugs or feature requests**, create a bone in their repo first:
@@ -77,8 +77,8 @@ When you encounter a `tracking`-tagged bone during triage:
 
 ## Notes
 
-- Always `@mention` the lead agent (e.g., `@botcrit-dev`) so their hook fires
+- Always `@mention` the lead agent (e.g., `@seal-dev`) so their hook fires
 - Use `-L feedback` label on rite messages so the lead agent can filter for external reports
 - Include enough context for the other agent to understand and reproduce your issue
 - The `#projects` channel contains the registry of all projects
-- Default lead agent naming: `<project>-dev` (e.g., `vessel-dev`, `botcrit-dev`)
+- Default lead agent naming: `<project>-dev` (e.g., `vessel-dev`, `seal-dev`)

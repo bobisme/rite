@@ -10,7 +10,7 @@ Structure commands as `<tool> <nouns> <verb>`:
 # Good - plural nouns, verb at end
 bn list
 bn create
-crit reviews request
+seal reviews request
 maw workspaces create
 
 # Acceptable exceptions for common operations
@@ -74,11 +74,11 @@ Rules:
 
 ```bash
 # Good text output
-cr-kex3  bd-2qa  fix inbox orphan detection  PENDING  botcrit-dev
-cr-v486  bd-1nf  fix stale workspace check   MERGED   botcrit-dev
+cr-kex3  bd-2qa  fix inbox orphan detection  PENDING  seal-dev
+cr-v486  bd-1nf  fix stale workspace check   MERGED   seal-dev
 
 # Bad text output
-Review cr-kex3 was created by botcrit-dev for bone bd-2qa.
+Review cr-kex3 was created by seal-dev for bone bd-2qa.
 Title: "fix inbox orphan detection". Status: PENDING.
 ```
 

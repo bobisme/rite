@@ -1,6 +1,6 @@
 # Review Request
 
-Request a review using crit and announce it in the project channel.
+Request a review using seal and announce it in the project channel.
 
 ## Arguments
 
@@ -13,7 +13,7 @@ Request a review using crit and announce it in the project channel.
 
 ## How Reviewer Spawning Works
 
-**Important**: Creating a review with `--reviewers` assigns the reviewer in crit (metadata), but does NOT spawn them. You still need an @mention in a rite message to trigger the spawn hook.
+**Important**: Creating a review with `--reviewers` assigns the reviewer in seal (metadata), but does NOT spawn them. You still need an @mention in a rite message to trigger the spawn hook.
 
 The rite hook system watches for @mentions. When you send a message containing `@myproject-security`, the hook spawns the security reviewer agent.
 
@@ -29,7 +29,7 @@ The rite hook system watches for @mentions. When you send a message containing `
 3. **Risk-based review routing**:
 
    **risk:low** — Skip review entirely:
-   - Do NOT create a crit review
+   - Do NOT create a seal review
    - Add self-review comment: `maw exec default -- bn bone comment add <bone-id> "Self-review: <brief what I verified>"`
    - Proceed directly to finish (skip remaining steps)
 
@@ -38,12 +38,12 @@ The rite hook system watches for @mentions. When you send a message containing `
 
    **risk:high** — Security review with failure-mode checklist:
    - MUST request security reviewer
-   - Create crit review with note in description: "risk:high — failure-mode checklist required. Please answer: 1) What failure modes exist? 2) What edge cases need validation? 3) How can we roll back if this breaks? 4) What monitoring/alerts should we add? 5) What input validation is needed?"
+   - Create seal review with note in description: "risk:high — failure-mode checklist required. Please answer: 1) What failure modes exist? 2) What edge cases need validation? 3) How can we roll back if this breaks? 4) What monitoring/alerts should we add? 5) What input validation is needed?"
    - Request security reviewer (see step 4)
 
    **risk:critical** — Security review + human approval:
    - MUST request security reviewer
-   - Create crit review (see step 4)
+   - Create seal review (see step 4)
    - Post to rite requesting human approval: `rite send --agent $AGENT $EDICT_PROJECT "risk:critical review for <bone-id>: requires human approval before merge. Review: <review-id> @<approver>" -L review-request`
    - List of approvers from `.edict.toml` → `project.criticalApprovers`
    - If no `criticalApprovers` configured, use project lead or fallback: `@$EDICT_PROJECT-lead`
@@ -51,15 +51,15 @@ The rite hook system watches for @mentions. When you send a message containing `
 4. If requesting a **specialist reviewer** (e.g., security):
    ```bash
    # Step 1: Create review with reviewer assignment (one command)
-   maw exec $WS -- crit reviews create --agent $AGENT --title "<title>" --description "<summary>" --reviewers $EDICT_PROJECT-security
+   maw exec $WS -- seal reviews create --agent $AGENT --title "<title>" --description "<summary>" --reviewers $EDICT_PROJECT-security
 
    # Step 2: Announce with @mention (TRIGGERS THE SPAWN)
    rite send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id> @$EDICT_PROJECT-security" -L review-request
    ```
 
-   If the review already exists (re-request after fixes), use `crit reviews request` instead:
+   If the review already exists (re-request after fixes), use `seal reviews request` instead:
    ```bash
-   maw exec $WS -- crit reviews request <review-id> --reviewers $EDICT_PROJECT-security --agent $AGENT
+   maw exec $WS -- seal reviews request <review-id> --reviewers $EDICT_PROJECT-security --agent $AGENT
    ```
 
    The reviewer name MUST match the project pattern: `<project>-<role>` (e.g., `myproject-security`, `rite-security`). Do NOT use generic names like `security-reviewer` — those won't match any hooks.
@@ -74,7 +74,7 @@ The rite hook system watches for @mentions. When you send a message containing `
    - Spawn a subagent to perform the code review
    - Announce: `rite send --agent $AGENT $EDICT_PROJECT "Review requested: <review-id>, spawned subagent for review" -L review-request`
 
-The reviewer-loop finds open reviews via `crit reviews list` and processes them automatically.
+The reviewer-loop finds open reviews via `seal reviews list` and processes them automatically.
 
 ## Common Mistakes
 

@@ -2,6 +2,8 @@
 
 Chat-oriented coordination for AI coding agents.
 
+![The Circle of Signals](./images/rite-embed.jpg)
+
 When multiple AI agents work on the same codebase—or across multiple projects—they need a way to communicate, avoid conflicts, and coordinate their work. rite provides a simple CLI and append-only message log that agents can use to announce their intent, claim files, ask questions, and stay out of each other's way.
 
 ![rite TUI](images/tui.webp)

@@ -226,8 +226,8 @@ project-root/          ← bare repo (no source files here)
 - Agent workspaces (`ws/<name>/`) are isolated Git worktrees managed by maw
 - Use `maw exec <ws> -- <command>` to run commands in a workspace context
 - Use `maw exec default -- bn ...` for bones commands (always in default workspace)
-- Use `maw exec <ws> -- crit ...` for review commands (always in the review's workspace)
-- Never run `bn` or `crit` directly — always go through `maw exec`
+- Use `maw exec <ws> -- seal ...` for review commands (always in the review's workspace)
+- Never run `bn` or `seal` directly — always go through `maw exec`
 - Do not run `jj`; this workflow is Git + maw.
 
 ### Bones Quick Reference
@@ -319,9 +319,9 @@ For manual sessions, use `<project>-dev` (e.g., `myapp-dev`).
 When working on a bone, stake claims to prevent conflicts:
 
 ```bash
-bus claims stake --agent $AGENT "bone://<project>/<id>" -m "<id>"
-bus claims stake --agent $AGENT "workspace://<project>/<ws>" -m "<id>"
-bus claims release --agent $AGENT --all  # when done
+rite claims stake --agent $AGENT "bone://<project>/<id>" -m "<id>"
+rite claims stake --agent $AGENT "workspace://<project>/<ws>" -m "<id>"
+rite claims release --agent $AGENT --all  # when done
 ```
 
 ### Reviews
@@ -329,34 +329,34 @@ bus claims release --agent $AGENT --all  # when done
 Use `@<project>-<role>` mentions to request reviews:
 
 ```bash
-maw exec $WS -- crit reviews request <review-id> --reviewers $PROJECT-security --agent $AGENT
-bus send --agent $AGENT $PROJECT "Review requested: <review-id> @$PROJECT-security" -L review-request
+maw exec $WS -- seal reviews request <review-id> --reviewers $PROJECT-security --agent $AGENT
+rite send --agent $AGENT $PROJECT "Review requested: <review-id> @$PROJECT-security" -L review-request
 ```
 
 The @mention triggers the auto-spawn hook for the reviewer.
 
 ### Bus Communication
 
-Agents communicate via bus channels. You don't need to be expert on everything — ask the right project.
+Agents communicate via rite channels. You don't need to be expert on everything — ask the right project.
 
 | Operation | Command |
 |-----------|---------|
-| Send message | `bus send --agent $AGENT <channel> "message" [-L label]` |
-| Check inbox | `bus inbox --agent $AGENT --channels <ch> [--mark-read]` |
-| Wait for reply | `bus wait -c <channel> --mention -t 120` |
-| Browse history | `bus history <channel> -n 20` |
-| Search messages | `bus search "query" -c <channel>` |
+| Send message | `rite send --agent $AGENT <channel> "message" [-L label]` |
+| Check inbox | `rite inbox --agent $AGENT --channels <ch> [--mark-read]` |
+| Wait for reply | `rite wait -c <channel> --mention -t 120` |
+| Browse history | `rite history <channel> -n 20` |
+| Search messages | `rite search "query" -c <channel>` |
 
-**Conversations**: After sending a question, use `bus wait -c <channel> --mention -t <seconds>` to block until the other agent replies. This enables back-and-forth conversations across channels.
+**Conversations**: After sending a question, use `rite wait -c <channel> --mention -t <seconds>` to block until the other agent replies. This enables back-and-forth conversations across channels.
 
-**Project experts**: Each `<project>-dev` is the expert on their project. When stuck on a companion tool (bus, maw, crit, vessel, bn), post a question to its project channel instead of guessing.
+**Project experts**: Each `<project>-dev` is the expert on their project. When stuck on a companion tool (rite, maw, seal, vessel, bn), post a question to its project channel instead of guessing.
 
 ### Cross-Project Communication
 
 **Don't suffer in silence.** If a tool confuses you or behaves unexpectedly, post to its project channel.
 
-1. Find the project: `bus history projects -n 50` (the #projects channel has project registry entries)
-2. Post question or feedback: `bus send --agent $AGENT <project> "..." -L feedback`
+1. Find the project: `rite history projects -n 50` (the #projects channel has project registry entries)
+2. Post question or feedback: `rite send --agent $AGENT <project> "..." -L feedback`
 3. For bugs, create bones in their repo first
 4. **Always create a local tracking bone** so you check back later:
    ```bash

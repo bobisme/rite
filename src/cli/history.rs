@@ -78,7 +78,21 @@ pub fn run(options: HistoryOptions) -> Result<()> {
 
     match options.format {
         OutputFormat::Json => {
-            println!("{}", serde_json::to_string_pretty(&output)?);
+            if options.follow {
+                // Emit initial messages as JSONL (one compact JSON object per line)
+                {
+                    use std::io::Write;
+                    for msg in &output.messages {
+                        println!("{}", serde_json::to_string(msg)?);
+                    }
+                    std::io::stdout().flush()?;
+                }
+                // Continue streaming new messages as JSONL
+                let path = channel_path(&channel);
+                follow_channel_json(&path, options.timeout, options.follow_count)?;
+            } else {
+                println!("{}", serde_json::to_string_pretty(&output)?);
+            }
             return Ok(());
         }
         OutputFormat::Pretty => {
@@ -380,6 +394,61 @@ fn format_time_ago(ts: DateTime<Utc>) -> String {
     } else {
         format!("{}d ago", duration.num_days())
     }
+}
+
+fn follow_channel_json(
+    path: &Path,
+    timeout_secs: Option<u64>,
+    follow_count: Option<usize>,
+) -> Result<()> {
+    use crate::core::message::read_messages_from_offset;
+    use crate::core::project::channels_dir;
+    use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
+    use std::io::Write;
+    use std::time::{Duration, Instant};
+
+    let channels = channels_dir();
+    let (_watcher, rx) = watch_directory(&channels)?;
+
+    let mut offset = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
+    let start = Instant::now();
+    let mut messages_received: usize = 0;
+
+    loop {
+        if let Some(timeout) = timeout_secs
+            && start.elapsed() >= Duration::from_secs(timeout)
+        {
+            break;
+        }
+
+        if let Some(max_count) = follow_count
+            && messages_received >= max_count
+        {
+            break;
+        }
+
+        let changed = debounce_events(&rx, Duration::from_millis(100));
+        let channel_changes = filter_channel_events(changed);
+
+        let channel_name = path.file_stem().and_then(|s| s.to_str()).unwrap_or("");
+        if channel_changes.contains(&channel_name.to_string()) {
+            let (new_messages, new_offset) = read_messages_from_offset(path, offset)?;
+            for msg in &new_messages {
+                println!("{}", serde_json::to_string(msg)?);
+                std::io::stdout().flush()?;
+                messages_received += 1;
+
+                if let Some(max_count) = follow_count
+                    && messages_received >= max_count
+                {
+                    return Ok(());
+                }
+            }
+            offset = new_offset;
+        }
+    }
+
+    Ok(())
 }
 
 fn follow_channel(

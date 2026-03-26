@@ -24,7 +24,7 @@ release_instructions = """
 [tools]
 bones = true
 maw = true
-crit = true
+seal = true
 rite = true
 vessel = true
 

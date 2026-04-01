@@ -715,7 +715,8 @@ impl App {
         let mut agent_map: std::collections::HashMap<String, (AgentStatus, Option<String>)> =
             std::collections::HashMap::new();
 
-        // 1) Read agent:// claims for presence (online/afk)
+        // 1) Read claims for presence (online/afk)
+        //    An agent is Online if they hold ANY active claim, not just agent:// claims.
         if let Ok(all_claims) = read_records::<FileClaim>(&claims_path()) {
             // Build latest state per claim ID
             let mut active: std::collections::HashMap<ulid::Ulid, FileClaim> =
@@ -728,7 +729,8 @@ impl App {
             let mut sorted: Vec<_> = active.values().collect();
             sorted.sort_by_key(|c| c.ts);
 
-            for claim in sorted {
+            // First pass: extract agent names from agent:// patterns (for display name mapping)
+            for claim in &sorted {
                 for pattern in &claim.patterns {
                     if let Some(agent_name) = pattern.strip_prefix("agent://") {
                         let time_remaining = (claim.expires_at - now).num_seconds();
@@ -736,18 +738,33 @@ impl App {
 
                         let is_subagent = agent_name.contains('/');
                         let status = if claim.active && time_remaining >= 0 {
-                            // Active claim, not expired
                             AgentStatus::Online
                         } else if !is_subagent && time_since_update < 86400 {
-                            // Released or expired within last 24 hours
-                            // (subagents are ephemeral — skip them when not online)
                             AgentStatus::Afk
                         } else {
-                            // Too old (or expired subagent), skip
                             continue;
                         };
-                        // Newer claims override older ones (sorted oldest-first)
                         agent_map.insert(agent_name.to_string(), (status, None));
+                    }
+                }
+            }
+
+            // Second pass: check ALL claims by agent field — any valid claim means Online
+            for claim in &sorted {
+                let is_subagent = claim.agent.contains('/');
+                if claim.is_valid() {
+                    // Agent holds an active, non-expired claim — they're Online
+                    agent_map
+                        .entry(claim.agent.clone())
+                        .and_modify(|(s, _)| *s = AgentStatus::Online)
+                        .or_insert((AgentStatus::Online, None));
+                } else if !is_subagent {
+                    let time_since_update = (now - claim.ts).num_seconds();
+                    if time_since_update < 86400 {
+                        // Recently active but no valid claims — Afk (don't downgrade Online)
+                        agent_map
+                            .entry(claim.agent.clone())
+                            .or_insert((AgentStatus::Afk, None));
                     }
                 }
             }

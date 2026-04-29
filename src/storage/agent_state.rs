@@ -490,6 +490,34 @@ mod tests {
     }
 
     #[test]
+    fn test_remove_channel_from_agent_states() {
+        let temp = TempDir::new().unwrap();
+        let manager = AgentStateManager::new(temp.path(), "test-agent");
+
+        manager.subscribe("old-channel").unwrap();
+        manager.set_read_offset("old-channel", 100).unwrap();
+        manager
+            .set_last_read_id("old-channel", "test-id-123")
+            .unwrap();
+        manager
+            .mark_read("old-channel", 100, Some("test-id-123"))
+            .unwrap();
+
+        let updated = remove_channel_from_agent_states(temp.path(), "old-channel").unwrap();
+        assert_eq!(updated, 1);
+
+        let state = manager.load().unwrap();
+        assert!(
+            !state
+                .subscribed_channels
+                .contains(&"old-channel".to_string())
+        );
+        assert_eq!(state.read_offsets.get("old-channel"), None);
+        assert_eq!(state.last_read_ids.get("old-channel"), None);
+        assert_eq!(state.last_read_times.get("old-channel"), None);
+    }
+
+    #[test]
     fn test_multiple_subscriptions() {
         let temp = TempDir::new().unwrap();
         let path = temp.path().join("state.json");
@@ -581,6 +609,60 @@ pub fn rename_channel_in_agent_states(
         }
 
         // Save if anything changed
+        if changed {
+            manager.save(&state)?;
+            updated_count += 1;
+        }
+    }
+
+    Ok(updated_count)
+}
+
+/// Remove a channel from all agent state files.
+///
+/// This removes:
+/// - Keys in `read_offsets`
+/// - Keys in `last_read_ids`
+/// - Keys in `last_read_times`
+/// - Entries in `subscribed_channels`
+///
+/// Returns the number of agent states that were updated.
+pub fn remove_channel_from_agent_states(project_root: &Path, channel: &str) -> Result<usize> {
+    let agents_dir = project_root.join(".rite").join("agents");
+
+    if !agents_dir.exists() {
+        return Ok(0);
+    }
+
+    let mut updated_count = 0;
+    let entries = std::fs::read_dir(&agents_dir)
+        .with_context(|| format!("Failed to read agents directory: {}", agents_dir.display()))?;
+
+    for entry in entries {
+        let entry = entry.with_context(|| "Failed to read agent directory entry")?;
+        let agent_path = entry.path();
+
+        if !agent_path.is_dir() {
+            continue;
+        }
+
+        let agent_name = match agent_path.file_name().and_then(|n| n.to_str()) {
+            Some(name) => name,
+            None => continue,
+        };
+
+        let manager = AgentStateManager::new(project_root, agent_name);
+        let mut state = manager.load()?;
+        let mut changed = false;
+
+        changed |= state.read_offsets.remove(channel).is_some();
+        changed |= state.last_read_ids.remove(channel).is_some();
+        changed |= state.last_read_times.remove(channel).is_some();
+
+        let before_len = state.subscribed_channels.len();
+        state.subscribed_channels.retain(|c| c != channel);
+        changed |= state.subscribed_channels.len() != before_len;
+
         if changed {
             manager.save(&state)?;
             updated_count += 1;

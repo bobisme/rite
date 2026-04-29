@@ -48,7 +48,11 @@ pub fn run(mut options: SearchOptions) -> Result<()> {
     let fts_query = format!("body:{}", options.query);
 
     // Execute search
-    let results = if let Some(channel) = &options.channel {
+    let results = if let (Some(channel), Some(agent)) = (&options.channel, &options.from) {
+        syncer
+            .index()
+            .search_channel_from(&fts_query, channel, agent, options.count)?
+    } else if let Some(channel) = &options.channel {
         syncer
             .index()
             .search_channel(&fts_query, channel, options.count)?

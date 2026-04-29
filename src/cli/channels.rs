@@ -329,22 +329,65 @@ pub fn delete(channel: &str) -> Result<()> {
     state_file.save(&state)?;
     eprintln!("✓ Removed from state");
 
-    // 2. Remove from FTS index
-    let index = index_path();
-    if index.exists() {
-        use rusqlite::Connection;
-        let conn = Connection::open(&index)?;
-        conn.execute("DELETE FROM messages WHERE channel = ?1", [channel])?;
+    // 2. Remove from per-agent state
+    use crate::core::project::data_dir;
+    use crate::storage::agent_state::remove_channel_from_agent_states;
+    let updated_agents =
+        remove_channel_from_agent_states(&data_dir(), channel).with_context(|| {
+            format!(
+                "Failed to remove channel '{}' from per-agent state",
+                channel
+            )
+        })?;
+    if updated_agents > 0 {
+        eprintln!("✓ Updated {} agent state(s)", updated_agents);
+    }
+
+    // 3. Remove from FTS index
+    if remove_channel_from_index(&index_path(), channel)? {
         eprintln!("✓ Removed from search index");
     }
 
-    // 3. Delete the channel file
+    // 4. Delete the channel file
     std::fs::remove_file(&channel_file)
         .with_context(|| format!("Failed to delete channel file: {}", channel_file.display()))?;
     eprintln!("✓ Deleted channel file");
 
     eprintln!("\n{}", "Channel deleted successfully.".green());
     Ok(())
+}
+
+fn remove_channel_from_index(index: &std::path::Path, channel: &str) -> Result<bool> {
+    if !index.exists() {
+        return Ok(false);
+    }
+
+    use rusqlite::Connection;
+    let conn = Connection::open(index)?;
+    let mut changed = false;
+
+    let has_messages_fts = sqlite_table_exists(&conn, "messages_fts")?;
+    if has_messages_fts {
+        changed |= conn.execute("DELETE FROM messages_fts WHERE channel = ?1", [channel])? > 0;
+    }
+
+    let has_sync_state = sqlite_table_exists(&conn, "sync_state")?;
+    if has_sync_state {
+        changed |= conn.execute("DELETE FROM sync_state WHERE channel = ?1", [channel])? > 0;
+    }
+
+    Ok(changed || has_messages_fts || has_sync_state)
+}
+
+fn sqlite_table_exists(conn: &rusqlite::Connection, table: &str) -> Result<bool> {
+    Ok(conn
+        .query_row(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name = ?1",
+            [table],
+            |row| row.get::<_, i64>(0),
+        )
+        .unwrap_or(0)
+        > 0)
 }
 
 /// Rename a channel (admin only).
@@ -627,5 +670,36 @@ mod tests {
         );
         assert_eq!(state.read_offsets.get("old-channel"), None);
         assert_eq!(state.last_read_ids.get("old-channel"), None);
+    }
+
+    #[test]
+    #[serial]
+    fn test_remove_channel_from_index_uses_fts_tables() {
+        use crate::core::message::Message;
+        use crate::core::project::index_path;
+        use crate::index::SearchIndex;
+
+        let _env = TestEnv::new();
+        let mut index = SearchIndex::open(&index_path()).unwrap();
+        let messages = vec![
+            Message::new("test-agent", "delete-me", "delete this indexed message"),
+            Message::new("test-agent", "keep-me", "keep this indexed message"),
+        ];
+        index.index_messages(&messages).unwrap();
+        index.set_sync_offset("delete-me", 123).unwrap();
+        index.set_sync_offset("keep-me", 456).unwrap();
+
+        let removed = remove_channel_from_index(&index_path(), "delete-me").unwrap();
+        assert!(removed);
+
+        let delete_results = index
+            .search_channel("body:indexed", "delete-me", 10)
+            .unwrap();
+        assert!(delete_results.is_empty());
+
+        let keep_results = index.search_channel("body:indexed", "keep-me", 10).unwrap();
+        assert_eq!(keep_results.len(), 1);
+        assert_eq!(index.get_sync_offset("delete-me").unwrap(), 0);
+        assert_eq!(index.get_sync_offset("keep-me").unwrap(), 456);
     }
 }

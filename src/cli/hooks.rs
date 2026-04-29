@@ -800,12 +800,13 @@ fn evaluate_hooks_inner(
             false
         } else {
             let mut command = std::process::Command::new(&hook.command[0]);
+            let command_agent = hook_command_agent(hook, agent);
             command
                 .args(&hook.command[1..])
                 .current_dir(&hook.cwd)
                 .env("RITE_CHANNEL", channel)
                 .env("RITE_MESSAGE_ID", message_id)
-                .env("RITE_AGENT", agent)
+                .env("RITE_AGENT", command_agent)
                 .env("RITE_HOOK_ID", &hook.id)
                 .stdin(std::process::Stdio::null())
                 .stdout(std::process::Stdio::null())
@@ -889,6 +890,10 @@ fn evaluate_hooks_inner(
     Ok(results)
 }
 
+fn hook_command_agent<'a>(hook: &'a Hook, triggering_agent: &'a str) -> &'a str {
+    hook.claim_owner.as_deref().unwrap_or(triggering_agent)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -961,6 +966,58 @@ mod tests {
         let result = is_claim_available("agent://nonexistent-test-pattern-12345");
         assert!(result.is_ok());
         assert!(result.unwrap());
+    }
+
+    #[test]
+    fn test_hook_command_agent_uses_claim_owner() {
+        let hook = Hook {
+            id: "hk-owner".to_string(),
+            channel: "test".to_string(),
+            condition: HookCondition::ClaimAvailable {
+                pattern: "p".to_string(),
+            },
+            command: vec!["echo".to_string()],
+            cwd: PathBuf::from("/tmp"),
+            cooldown_secs: 30,
+            last_fired: None,
+            created_at: Utc::now(),
+            created_by: None,
+            claim_release: Some(ClaimRelease::OnExit),
+            claim_pattern: None,
+            claim_owner: Some("worker-agent".to_string()),
+            priority: 0,
+            require_flag: None,
+            active: true,
+            description: None,
+        };
+
+        assert_eq!(hook_command_agent(&hook, "trigger-agent"), "worker-agent");
+    }
+
+    #[test]
+    fn test_hook_command_agent_defaults_to_triggering_agent() {
+        let hook = Hook {
+            id: "hk-default".to_string(),
+            channel: "test".to_string(),
+            condition: HookCondition::MentionReceived {
+                agent: "helper".to_string(),
+            },
+            command: vec!["echo".to_string()],
+            cwd: PathBuf::from("/tmp"),
+            cooldown_secs: 30,
+            last_fired: None,
+            created_at: Utc::now(),
+            created_by: None,
+            claim_release: None,
+            claim_pattern: None,
+            claim_owner: None,
+            priority: 0,
+            require_flag: None,
+            active: true,
+            description: None,
+        };
+
+        assert_eq!(hook_command_agent(&hook, "trigger-agent"), "trigger-agent");
     }
 
     #[test]

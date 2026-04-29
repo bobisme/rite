@@ -338,6 +338,23 @@ fn test_search_across_agents() {
     // Search for review comments
     let output = reviewer.search("review");
     output.assert_success();
+
+    // Search with both channel and sender filters should apply both.
+    let output = dev.run(&[
+        "search",
+        "authentication",
+        "--channel",
+        "general",
+        "--from",
+        "Developer",
+        "--format",
+        "json",
+    ]);
+    output.assert_success();
+    let json: serde_json::Value = serde_json::from_str(&output.stdout_str()).unwrap();
+    let results = json["results"].as_array().unwrap();
+    assert_eq!(results.len(), 1);
+    assert_eq!(results[0]["agent"], "Developer");
 }
 
 /// Test DM (direct message) channels work correctly.

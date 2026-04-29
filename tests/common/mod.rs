@@ -476,8 +476,7 @@ impl TuiHarness {
         let status = cmd.status().expect("Failed to start tmux");
         assert!(status.success(), "Failed to start tmux session");
 
-        // Give TUI time to initialize
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        wait_for_initial_tui_paint(&socket_name, &session_name);
 
         Self {
             session_name,
@@ -488,19 +487,7 @@ impl TuiHarness {
 
     /// Capture the current pane content.
     pub fn capture(&self) -> String {
-        let output = Command::new("tmux")
-            .args([
-                "-L",
-                &self.socket_name,
-                "capture-pane",
-                "-t",
-                &self.session_name,
-                "-p",
-            ])
-            .output()
-            .expect("Failed to capture tmux pane");
-
-        String::from_utf8_lossy(&output.stdout).to_string()
+        capture_tmux_pane(&self.socket_name, &self.session_name)
     }
 
     /// Send keys to the TUI.
@@ -589,4 +576,26 @@ impl Drop for TuiHarness {
     fn drop(&mut self) {
         self.kill();
     }
+}
+
+fn wait_for_initial_tui_paint(socket_name: &str, session_name: &str) {
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_secs(2);
+
+    while start.elapsed() < timeout {
+        let content = capture_tmux_pane(socket_name, session_name);
+        if !content.trim().is_empty() {
+            return;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+}
+
+fn capture_tmux_pane(socket_name: &str, session_name: &str) -> String {
+    let output = Command::new("tmux")
+        .args(["-L", socket_name, "capture-pane", "-t", session_name, "-p"])
+        .output()
+        .expect("Failed to capture tmux pane");
+
+    String::from_utf8_lossy(&output.stdout).to_string()
 }

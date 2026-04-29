@@ -135,8 +135,8 @@ pub fn run(
     let parsed = parse_flags(&message);
     let hook_flags = parsed.flags;
 
-    // Parse attachments (format: "name:path" or just "path")
-    let parsed_attachments = parse_attachments(&attachments)?;
+    // Parse attachments (format: "name:path", "path", or "url:https://...")
+    let parsed_attachments = parse_attachments_for_channel(&attachments, &channel)?;
 
     // Store original body — flags are meaningful to downstream consumers
     let mut msg = Message::new(&agent_name, &channel, &message);
@@ -211,28 +211,17 @@ pub fn run(
     Ok(())
 }
 
-/// Parse attachment specifications and store file attachments in the cache.
-///
-/// Format: "name:path", "path" (name derived from filename), or "url:https://..."
-///
-/// File attachments are copied into the content-addressed cache (SHA256-based),
-/// providing deduplication and consistent paths for the Telegram bridge.
-///
-/// # Security
-/// File paths are canonicalized to prevent path traversal issues and ensure
-/// consistent path representation across different working directories.
-fn parse_attachments(specs: &[String]) -> Result<Vec<Attachment>> {
-    parse_attachments_for_channel(specs, "unknown")
-}
-
 fn parse_attachments_for_channel(specs: &[String], channel: &str) -> Result<Vec<Attachment>> {
     let mut attachments = Vec::new();
     let cwd = std::env::current_dir().unwrap_or_default();
 
     for spec in specs {
-        let attachment = if spec.starts_with("http://") || spec.starts_with("https://") {
+        let attachment = if let Some(url) = spec.strip_prefix("url:") {
+            let name = attachment_name_from_url(url);
+            Attachment::url(name, url)
+        } else if spec.starts_with("http://") || spec.starts_with("https://") {
             // URL attachment
-            let name = spec.rsplit('/').next().unwrap_or("link");
+            let name = attachment_name_from_url(spec);
             Attachment::url(name, spec)
         } else {
             // Try the whole spec as a path first (handles colons in filenames)
@@ -258,6 +247,21 @@ fn parse_attachments_for_channel(specs: &[String], channel: &str) -> Result<Vec<
     }
 
     Ok(attachments)
+}
+
+fn attachment_name_from_url(url: &str) -> String {
+    let without_fragment = url.split('#').next().unwrap_or(url);
+    let without_query = without_fragment
+        .split('?')
+        .next()
+        .unwrap_or(without_fragment);
+    without_query
+        .trim_end_matches('/')
+        .rsplit('/')
+        .next()
+        .filter(|name| !name.is_empty())
+        .unwrap_or("link")
+        .to_string()
 }
 
 /// Read a file, store it in the attachment cache, and return a File attachment.
@@ -426,6 +430,53 @@ mod tests {
         let messages: Vec<Message> = read_records(&channel_path("test-labeled")).unwrap();
         assert!(!messages.is_empty());
         assert_eq!(messages.last().unwrap().labels, vec!["bug", "ready"]);
+    }
+
+    #[test]
+    #[serial]
+    fn test_send_attachment_metadata_uses_resolved_channel() {
+        let _env = TestEnv::new();
+        let file_dir = TempDir::new().unwrap();
+        let file_path = file_dir.path().join("notes.txt");
+        std::fs::write(&file_path, "attachment body").unwrap();
+
+        run(
+            "#actual-channel".to_string(),
+            "See attached".to_string(),
+            None,
+            vec![],
+            vec![file_path.to_string_lossy().to_string()],
+            false,
+            Some("test-sender"),
+        )
+        .unwrap();
+
+        let messages: Vec<Message> = read_records(&channel_path("actual-channel")).unwrap();
+        let attachment = messages.last().unwrap().attachments.first().unwrap();
+        let crate::core::message::AttachmentContent::File { path } = &attachment.content else {
+            panic!("expected file attachment");
+        };
+
+        let cache = crate::attachments::AttachmentCache::new(crate::attachments::attachments_dir())
+            .unwrap();
+        let metadata = cache.read_metadata(std::path::Path::new(path)).unwrap();
+        assert_eq!(metadata.source_channel.as_deref(), Some("actual-channel"));
+    }
+
+    #[test]
+    fn test_parse_url_attachment_prefix() {
+        let attachments = parse_attachments_for_channel(
+            &["url:https://example.com/files/report.pdf?download=1".to_string()],
+            "general",
+        )
+        .unwrap();
+
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].name, "report.pdf");
+        let crate::core::message::AttachmentContent::Url { url } = &attachments[0].content else {
+            panic!("expected url attachment");
+        };
+        assert_eq!(url, "https://example.com/files/report.pdf?download=1");
     }
 
     #[test]

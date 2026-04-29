@@ -152,6 +152,23 @@ impl SearchIndex {
         self.search(&fts_query, limit)
     }
 
+    /// Search within a specific channel and from a specific agent.
+    pub fn search_channel_from(
+        &self,
+        query: &str,
+        channel: &str,
+        agent: &str,
+        limit: usize,
+    ) -> Result<Vec<SearchResult>> {
+        let fts_query = format!(
+            "{} AND channel:{} AND agent:{}",
+            query,
+            escape_fts5_term(channel),
+            escape_fts5_term(agent)
+        );
+        self.search(&fts_query, limit)
+    }
+
     /// Get sync offset for a channel.
     pub fn get_sync_offset(&self, channel: &str) -> Result<u64> {
         let offset: Option<i64> = self
@@ -277,6 +294,26 @@ mod tests {
 
         let results = index.search_from("body:Hello", "Alice", 10).unwrap();
         assert_eq!(results.len(), 1);
+        assert_eq!(results[0].agent, "Alice");
+    }
+
+    #[test]
+    fn test_search_channel_from_agent() {
+        let mut index = SearchIndex::open_in_memory().unwrap();
+
+        let messages = vec![
+            make_message("general", "Alice", "Investigating auth"),
+            make_message("general", "Bob", "Investigating auth"),
+            make_message("backend", "Alice", "Investigating auth"),
+        ];
+
+        index.index_messages(&messages).unwrap();
+
+        let results = index
+            .search_channel_from("body:Investigating", "general", "Alice", 10)
+            .unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].channel, "general");
         assert_eq!(results[0].agent, "Alice");
     }
 

@@ -137,7 +137,11 @@ pub fn run(options: HistoryOptions) -> Result<()> {
             // Text format: concise one-liner per message
             for msg in &output.messages {
                 let time_ago = format_time_ago(msg.ts);
-                println!("{}  {}  {}  {}", msg.id, msg.agent, time_ago, msg.body);
+                let labels = format_label_badges(&msg.labels);
+                println!(
+                    "{}  {}  {}  {}{}",
+                    msg.id, msg.agent, time_ago, labels, msg.body
+                );
             }
 
             // Follow mode
@@ -149,6 +153,21 @@ pub fn run(options: HistoryOptions) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn format_label_badges(labels: &[String]) -> String {
+    if labels.is_empty() {
+        String::new()
+    } else {
+        format!(
+            "{} ",
+            labels
+                .iter()
+                .map(|label| format!("[{}]", label))
+                .collect::<Vec<_>>()
+                .join("")
+        )
+    }
 }
 
 /// Run history and return structured output (for programmatic use).

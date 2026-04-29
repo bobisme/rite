@@ -9,8 +9,9 @@ use crate::core::channel::{dm_channel_name, is_valid_channel_name};
 use crate::core::flags::parse_flags;
 use crate::core::identity::require_agent;
 use crate::core::message::{Attachment, Message};
-use crate::core::project::channel_path;
+use crate::core::project::{channel_path, data_dir};
 use crate::storage::jsonl::append_record;
+use crate::sync::auto_commit::auto_commit_after_send;
 
 /// Simple message send (no labels or attachments) - for internal use and tests.
 pub fn run_simple(target: String, message: String, agent: Option<&str>) -> Result<()> {
@@ -153,6 +154,7 @@ pub fn run(
         .with_context(|| format!("Failed to send message to #{}", channel))?;
 
     // Auto-commit after sending (best-effort, silent on failure)
+    auto_commit_after_send(&data_dir(), &channel);
 
     // Evaluate channel hooks (may block briefly for --release-on-exit hooks)
     // Skip if CLI --no-hooks flag is set or !nohooks flag is in message

@@ -80,7 +80,7 @@ pub fn run(
                 OutputFormat::Pretty | OutputFormat::Text => {
                     format!(
                         "{}\n\n\
-                         {} Here is a random identity you could use:\n\n  \
+                         {} Here is a suggested identity you could use:\n\n  \
                          {}\n\n\
                          To use it with --agent flag (recommended for agents/scripts):\n  \
                          rite --agent {} <command>\n\n\

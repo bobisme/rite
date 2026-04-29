@@ -4,7 +4,7 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::Path;
 
 /// Project-level state stored in state.json.
@@ -101,8 +101,9 @@ impl ProjectState {
 
         let file = OpenOptions::new()
             .create(true)
+            .read(true)
             .write(true)
-            .truncate(true)
+            .truncate(false)
             .open(&self.path)
             .with_context(|| {
                 format!(
@@ -113,6 +114,10 @@ impl ProjectState {
 
         file.lock_exclusive()
             .with_context(|| "Failed to acquire exclusive lock on state file")?;
+
+        let mut file_ref = &file;
+        file_ref.seek(SeekFrom::Start(0))?;
+        file.set_len(0)?;
 
         let json =
             serde_json::to_string_pretty(state).with_context(|| "Failed to serialize state")?;

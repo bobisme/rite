@@ -7,7 +7,7 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output};
+use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use tempfile::TempDir;
 
@@ -285,7 +285,7 @@ impl Agent {
 
     /// Get whoami output.
     pub fn whoami(&self) -> RiteOutput {
-        self.run(&["whoami"])
+        self.run(&["whoami", "--format", "pretty"])
     }
 
     /// List agents (derived from message history).
@@ -300,12 +300,12 @@ impl Agent {
 
     /// Get inbox (unread messages).
     pub fn inbox(&self, channel: &str) -> RiteOutput {
-        self.run(&["inbox", "-c", channel, "--format", "text"])
+        self.run(&["inbox", "-c", channel, "--format", "pretty"])
     }
 
     /// Get inbox and mark as read.
     pub fn inbox_mark_read(&self, channel: &str) -> RiteOutput {
-        self.run(&["inbox", "-c", channel, "--mark-read", "--format", "text"])
+        self.run(&["inbox", "-c", channel, "--mark-read", "--format", "pretty"])
     }
 
     /// Mark a channel as read.
@@ -320,7 +320,7 @@ impl Agent {
 
     /// Get history with --show-offset.
     pub fn history_with_offset(&self, channel: &str) -> RiteOutput {
-        self.run(&["history", channel, "--show-offset"])
+        self.run(&["history", channel, "--show-offset", "--format", "pretty"])
     }
 
     /// Get history after an offset.
@@ -425,6 +425,7 @@ static TUI_SESSION_COUNTER: AtomicUsize = AtomicUsize::new(0);
 /// TUI test harness using tmux.
 pub struct TuiHarness {
     session_name: String,
+    socket_name: String,
     #[allow(dead_code)]
     data_path: PathBuf,
 }
@@ -443,10 +444,13 @@ impl TuiHarness {
     fn start_with_agent(project: &TestProject, agent: Option<&str>) -> Self {
         let count = TUI_SESSION_COUNTER.fetch_add(1, Ordering::SeqCst);
         let session_name = format!("rite-tui-{}-{}", std::process::id(), count);
+        let socket_name = format!("rite-tui-socket-{}-{}", std::process::id(), count);
         let bin = rite_bin();
 
         let mut cmd = Command::new("tmux");
         cmd.args([
+            "-L",
+            &socket_name,
             "new-session",
             "-d",
             "-s",
@@ -477,6 +481,7 @@ impl TuiHarness {
 
         Self {
             session_name,
+            socket_name,
             data_path: project.data_path.clone(),
         }
     }
@@ -484,7 +489,14 @@ impl TuiHarness {
     /// Capture the current pane content.
     pub fn capture(&self) -> String {
         let output = Command::new("tmux")
-            .args(["capture-pane", "-t", &self.session_name, "-p"])
+            .args([
+                "-L",
+                &self.socket_name,
+                "capture-pane",
+                "-t",
+                &self.session_name,
+                "-p",
+            ])
             .output()
             .expect("Failed to capture tmux pane");
 
@@ -494,7 +506,14 @@ impl TuiHarness {
     /// Send keys to the TUI.
     pub fn send_keys(&self, keys: &str) {
         let status = Command::new("tmux")
-            .args(["send-keys", "-t", &self.session_name, keys])
+            .args([
+                "-L",
+                &self.socket_name,
+                "send-keys",
+                "-t",
+                &self.session_name,
+                keys,
+            ])
             .status()
             .expect("Failed to send keys");
 
@@ -512,7 +531,14 @@ impl TuiHarness {
     /// Check if the session is still running.
     pub fn is_running(&self) -> bool {
         let output = Command::new("tmux")
-            .args(["has-session", "-t", &self.session_name])
+            .args([
+                "-L",
+                &self.socket_name,
+                "has-session",
+                "-t",
+                &self.session_name,
+            ])
+            .stderr(Stdio::null())
             .status();
 
         output.map(|s| s.success()).unwrap_or(false)
@@ -547,7 +573,14 @@ impl TuiHarness {
     /// Kill the tmux session (cleanup).
     pub fn kill(&self) {
         let _ = Command::new("tmux")
-            .args(["kill-session", "-t", &self.session_name])
+            .args([
+                "-L",
+                &self.socket_name,
+                "kill-session",
+                "-t",
+                &self.session_name,
+            ])
+            .stderr(Stdio::null())
             .status();
     }
 }

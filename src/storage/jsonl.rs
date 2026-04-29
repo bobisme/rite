@@ -202,22 +202,25 @@ pub fn read_records_from_offset<T: DeserializeOwned>(
     let reader = BufReader::new(&file);
     let mut records = Vec::new();
 
-    for line_result in reader.lines() {
-        let line =
-            line_result.with_context(|| format!("Failed to read from: {}", path.display()))?;
+    {
+        for line_result in reader.lines() {
+            let line =
+                line_result.with_context(|| format!("Failed to read from: {}", path.display()))?;
 
-        if line.trim().is_empty() {
-            continue;
+            if line.trim().is_empty() {
+                continue;
+            }
+
+            let record: T = serde_json::from_str(&line)
+                .with_context(|| format!("Failed to parse in {}: {}", path.display(), line))?;
+
+            records.push(record);
         }
-
-        let record: T = serde_json::from_str(&line)
-            .with_context(|| format!("Failed to parse in {}: {}", path.display(), line))?;
-
-        records.push(record);
     }
 
-    // Get the new offset
-    let mut file = File::open(path)?;
+    // Get the new offset while still holding the shared lock. Reopening after
+    // reading would leave a race where a concurrent append could be included
+    // in the returned offset without its records being returned.
     let new_offset = file.seek(SeekFrom::End(0))?;
 
     Ok((records, new_offset))

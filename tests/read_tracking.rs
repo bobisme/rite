@@ -178,6 +178,26 @@ fn test_mark_read_at_explicit_offset() {
 }
 
 #[test]
+fn test_mark_read_at_offset_zero_clears_previous_last_id() {
+    let mut project = TestProject::new();
+    let alice = project.agent("Alice");
+    let bob = project.agent("Bob");
+
+    bob.send("general", "Message before reset").assert_success();
+
+    alice.mark_read("general").assert_success();
+    let output = alice.run(&["inbox", "-c", "general", "--count-only"]);
+    output.assert_success();
+    assert_eq!(output.stdout_str().trim(), "0");
+
+    alice.mark_read_at("general", 0).assert_success();
+
+    let output = alice.run(&["inbox", "-c", "general", "--count-only"]);
+    output.assert_success();
+    assert_eq!(output.stdout_str().trim(), "1");
+}
+
+#[test]
 fn test_inbox_multiple_channels() {
     let mut project = TestProject::new();
     let alice = project.agent("Alice");
@@ -272,7 +292,7 @@ fn test_inbox_limit_per_channel_with_mark_read() {
         "3",
         "--mark-read",
         "--format",
-        "text",
+        "pretty",
     ]);
     output.assert_success();
     output.assert_stdout_contains("3 unread"); // Shows only 3 messages

@@ -10,8 +10,9 @@ use super::OutputFormat;
 use crate::core::claim::FileClaim;
 use crate::core::identity::{require_agent, resolve_agent};
 use crate::core::message::{Message, MessageMeta};
-use crate::core::project::{channel_path, claims_path};
+use crate::core::project::{channel_path, claims_path, data_dir};
 use crate::storage::jsonl::{append_if, append_record, read_records};
+use crate::sync::auto_commit::{auto_commit_after_claim, auto_commit_after_release};
 
 /// Check if a pattern looks like a URI (has a scheme like "bead://", "db://", etc.)
 fn is_uri(pattern: &str) -> bool {
@@ -241,6 +242,7 @@ pub fn claim(options: ClaimOptions) -> Result<()> {
     });
 
     append_record(&channel_path("claims"), &claim_msg)?;
+    auto_commit_after_claim(&data_dir(), &display_patterns);
 
     // Output (use absolute patterns for clarity)
     println!(
@@ -651,6 +653,7 @@ pub fn release(patterns: Vec<String>, release_all: bool, agent: Option<&str>) ->
     if released_count == 0 {
         println!("No claims to release.");
     } else {
+        auto_commit_after_release(&data_dir(), "claims");
         println!(
             "{} Released {} claim(s)",
             "Success:".green(),

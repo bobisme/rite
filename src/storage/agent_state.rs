@@ -9,7 +9,7 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 /// Per-agent state.
@@ -105,8 +105,9 @@ impl AgentStateManager {
 
         let file = OpenOptions::new()
             .create(true)
+            .read(true)
             .write(true)
-            .truncate(true)
+            .truncate(false)
             .open(&self.path)
             .with_context(|| {
                 format!(
@@ -117,6 +118,10 @@ impl AgentStateManager {
 
         file.lock_exclusive()
             .with_context(|| "Failed to acquire exclusive lock on agent state")?;
+
+        let mut file_ref = &file;
+        file_ref.seek(SeekFrom::Start(0))?;
+        file.set_len(0)?;
 
         let json = serde_json::to_string_pretty(state)
             .with_context(|| "Failed to serialize agent state")?;
@@ -236,6 +241,8 @@ impl AgentStateManager {
             s.last_read_times.insert(channel.to_string(), Utc::now());
             if let Some(id) = last_id {
                 s.last_read_ids.insert(channel.to_string(), id.to_string());
+            } else {
+                s.last_read_ids.remove(channel);
             }
         })?;
         Ok(())
@@ -351,6 +358,21 @@ mod tests {
         let cursor = manager.get_read_cursor("general").unwrap();
         assert_eq!(cursor.offset, 9999);
         assert_eq!(cursor.last_id, Some("01XYZ".to_string()));
+        assert!(cursor.last_time.is_some());
+    }
+
+    #[test]
+    fn test_mark_read_without_last_id_clears_stale_id() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("state.json");
+        let manager = AgentStateManager::from_path(&path);
+
+        manager.mark_read("general", 9999, Some("01XYZ")).unwrap();
+        manager.mark_read("general", 0, None).unwrap();
+
+        let cursor = manager.get_read_cursor("general").unwrap();
+        assert_eq!(cursor.offset, 0);
+        assert_eq!(cursor.last_id, None);
         assert!(cursor.last_time.is_some());
     }
 

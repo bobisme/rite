@@ -391,8 +391,8 @@ fn test_whoami_per_agent() {
     let output1 = agent1.whoami();
     output1.assert_success();
     output1.assert_stdout_contains("FirstAgent");
-    // Agent runs with RITE_AGENT env var set, shown as source (toon format)
-    output1.assert_stdout_contains("source:");
+    // Agent runs with RITE_AGENT env var set, shown as source.
+    output1.assert_stdout_contains("Source:");
 
     let output2 = agent2.whoami();
     output2.assert_success();

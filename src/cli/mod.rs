@@ -33,6 +33,7 @@ pub enum OutputFormat {
     /// Human-readable colored text
     Pretty,
     /// Concise text for AI agents
+    #[value(alias = "toon")]
     Text,
     /// JSON - standard machine-readable format
     Json,

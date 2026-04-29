@@ -3,7 +3,7 @@ use fs2::FileExt;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 use std::fs::{File, OpenOptions};
-use std::io::{Read, Write};
+use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 #[cfg(unix)]
@@ -120,8 +120,9 @@ impl TelegramConfigStore {
         let file = {
             OpenOptions::new()
                 .create(true)
+                .read(true)
                 .write(true)
-                .truncate(true)
+                .truncate(false)
                 .mode(0o600) // Set permissions atomically at creation
                 .open(&self.path)
                 .with_context(|| {
@@ -136,8 +137,9 @@ impl TelegramConfigStore {
         let file = {
             OpenOptions::new()
                 .create(true)
+                .read(true)
                 .write(true)
-                .truncate(true)
+                .truncate(false)
                 .open(&self.path)
                 .with_context(|| {
                     format!(
@@ -149,6 +151,10 @@ impl TelegramConfigStore {
 
         file.lock_exclusive()
             .with_context(|| "Failed to acquire exclusive lock on telegram config")?;
+
+        let mut file_ref = &file;
+        file_ref.seek(SeekFrom::Start(0))?;
+        file.set_len(0)?;
 
         let json = serde_json::to_string_pretty(config)
             .with_context(|| "Failed to serialize telegram config")?;

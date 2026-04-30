@@ -1,4 +1,4 @@
-use anyhow::Result;
+use anyhow::{Context, Result, bail};
 use chrono::Utc;
 use colored::Colorize;
 
@@ -8,32 +8,53 @@ use crate::core::project::statuses_path;
 use crate::core::status::AgentStatusEntry;
 use crate::storage::jsonl::{append_record, read_records};
 
+const MAX_STATUS_MESSAGE_CHARS: usize = 32;
+
 /// Parse a TTL string like "1h", "30m", "8h", "3600" into seconds.
 fn parse_ttl(ttl: &str) -> Result<u64> {
     let ttl = ttl.trim();
-    if let Some(hours) = ttl.strip_suffix('h') {
-        Ok(hours.parse::<u64>()? * 3600)
-    } else if let Some(mins) = ttl.strip_suffix('m') {
-        Ok(mins.parse::<u64>()? * 60)
-    } else if let Some(secs) = ttl.strip_suffix('s') {
-        Ok(secs.parse::<u64>()?)
-    } else {
-        Ok(ttl.parse::<u64>()?)
+
+    if ttl.is_empty() {
+        bail!("TTL cannot be empty");
     }
+
+    let (digits, multiplier) = if let Some(hours) = ttl.strip_suffix('h') {
+        (hours, 3600u64)
+    } else if let Some(mins) = ttl.strip_suffix('m') {
+        (mins, 60u64)
+    } else if let Some(secs) = ttl.strip_suffix('s') {
+        (secs, 1u64)
+    } else {
+        (ttl, 1u64)
+    };
+
+    if digits.is_empty() {
+        bail!("TTL missing numeric value");
+    }
+
+    let value = digits.parse::<u64>()?;
+    let seconds = value
+        .checked_mul(multiplier)
+        .with_context(|| "TTL is too large")?;
+
+    if seconds > i64::MAX as u64 {
+        bail!("TTL is too large");
+    }
+
+    Ok(seconds)
+}
+
+fn truncate_status_message(message: &str) -> String {
+    message.chars().take(MAX_STATUS_MESSAGE_CHARS).collect()
 }
 
 pub fn set(message: &str, ttl: &str, agent: Option<&str>, _format: OutputFormat) -> Result<()> {
     let agent_name = require_agent(agent)?;
 
-    // Truncate message to 32 chars
-    let message = if message.len() > 32 {
-        &message[..32]
-    } else {
-        message
-    };
+    let message = truncate_status_message(message);
 
     let ttl_secs = parse_ttl(ttl)?;
-    let entry = AgentStatusEntry::new(&agent_name, message, ttl_secs);
+    let entry = AgentStatusEntry::new(&agent_name, &message, ttl_secs);
     append_record(&statuses_path(), &entry)?;
 
     println!(
@@ -44,6 +65,36 @@ pub fn set(message: &str, ttl: &str, agent: Option<&str>, _format: OutputFormat)
     println!("  {} {}", agent_name.cyan(), message.dimmed());
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_ttl_handles_supported_units() {
+        assert_eq!(parse_ttl("30s").unwrap(), 30);
+        assert_eq!(parse_ttl("15m").unwrap(), 900);
+        assert_eq!(parse_ttl("2h").unwrap(), 7200);
+        assert_eq!(parse_ttl("45").unwrap(), 45);
+    }
+
+    #[test]
+    fn parse_ttl_rejects_empty_and_overflowing_values() {
+        assert!(parse_ttl("").is_err());
+        assert!(parse_ttl("h").is_err());
+        assert!(parse_ttl(&format!("{}h", u64::MAX)).is_err());
+        assert!(parse_ttl(&(i64::MAX as u64 + 1).to_string()).is_err());
+    }
+
+    #[test]
+    fn truncate_status_message_uses_char_boundaries() {
+        let message = "🙂".repeat(MAX_STATUS_MESSAGE_CHARS + 4);
+        let truncated = truncate_status_message(&message);
+
+        assert_eq!(truncated.chars().count(), MAX_STATUS_MESSAGE_CHARS);
+        assert!(truncated.is_char_boundary(truncated.len()));
+    }
 }
 
 pub fn clear(agent: Option<&str>, _format: OutputFormat) -> Result<()> {

@@ -455,19 +455,8 @@ async fn watch_loop(
     store: TelegramConfigStore,
     mut shutdown_rx: watch::Receiver<bool>,
 ) -> Result<()> {
-    let channels_dir = channels_dir();
-    if !channels_dir.exists() {
-        // Wait for shutdown if no channels dir
-        let _ = shutdown_rx.changed().await;
-        return Ok(());
-    }
-
-    let mut offsets = HashMap::new();
+    let mut offsets = baseline_existing_channel_offsets()?;
     let mut active = active_channels_set()?;
-
-    for channel in &active {
-        offsets.insert(channel.clone(), channel_len(channel));
-    }
 
     let mut last_sync = tokio::time::Instant::now();
     let mut interval = tokio::time::interval(WATCH_INTERVAL);
@@ -487,12 +476,6 @@ async fn watch_loop(
             }
             drop(guard);
 
-            active = active_channels_set()?;
-            for channel in &active {
-                offsets
-                    .entry(channel.clone())
-                    .or_insert_with(|| channel_len(channel));
-            }
             last_sync = tokio::time::Instant::now();
         }
 
@@ -511,9 +494,7 @@ async fn watch_loop(
                 }
 
                 active.insert(channel.clone());
-                offsets
-                    .entry(channel.clone())
-                    .or_insert_with(|| channel_len(channel));
+                offsets.entry(channel.clone()).or_insert(0);
                 ensure_topic_for_channel(&client, &config, &store, channel).await?;
             }
 
@@ -809,6 +790,39 @@ fn active_channels_set() -> Result<HashSet<String>> {
     Ok(channels.into_iter().collect())
 }
 
+fn baseline_existing_channel_offsets() -> Result<HashMap<String, u64>> {
+    let channels = list_existing_eligible_channels()?;
+    Ok(channels
+        .into_iter()
+        .map(|channel| {
+            let len = channel_len(&channel);
+            (channel, len)
+        })
+        .collect())
+}
+
+fn list_existing_eligible_channels() -> Result<Vec<String>> {
+    let dir = channels_dir();
+    if !dir.exists() {
+        return Ok(Vec::new());
+    }
+
+    let mut channels = Vec::new();
+    for entry in std::fs::read_dir(&dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.extension().is_some_and(|ext| ext == "jsonl")
+            && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+            && is_eligible_channel(name)
+        {
+            channels.push(name.to_string());
+        }
+    }
+
+    channels.sort();
+    Ok(channels)
+}
+
 fn list_active_channels() -> Result<Vec<String>> {
     let dir = channels_dir();
     if !dir.exists() {
@@ -976,4 +990,82 @@ fn is_system_message(msg: &Message) -> bool {
                 | MessageMeta::Release { .. }
         )
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::core::project::{DATA_DIR_ENV_VAR, ensure_data_dir};
+    use serial_test::serial;
+    use std::env;
+    use tempfile::TempDir;
+
+    struct TestEnv {
+        _dir: TempDir,
+    }
+
+    impl TestEnv {
+        fn new() -> Self {
+            Self::with_data_dir(true)
+        }
+
+        fn without_data_dir() -> Self {
+            Self::with_data_dir(false)
+        }
+
+        fn with_data_dir(create_data_dir: bool) -> Self {
+            let dir = TempDir::new().unwrap();
+            unsafe {
+                env::set_var(DATA_DIR_ENV_VAR, dir.path());
+            }
+
+            if create_data_dir {
+                ensure_data_dir().unwrap();
+            }
+
+            Self { _dir: dir }
+        }
+    }
+
+    impl Drop for TestEnv {
+        fn drop(&mut self) {
+            unsafe {
+                env::remove_var(DATA_DIR_ENV_VAR);
+            }
+        }
+    }
+
+    #[test]
+    #[serial]
+    fn baseline_offsets_do_not_require_channels_dir() {
+        let _env = TestEnv::without_data_dir();
+
+        let offsets = baseline_existing_channel_offsets().unwrap();
+
+        assert!(offsets.is_empty());
+    }
+
+    #[test]
+    #[serial]
+    fn baseline_offsets_start_existing_channels_at_end() {
+        let _env = TestEnv::new();
+        let message = Message::new("alice", "general", "already relayed");
+        crate::storage::jsonl::append_record(&channel_path("general"), &message).unwrap();
+
+        let offsets = baseline_existing_channel_offsets().unwrap();
+        let expected_len = channel_len("general");
+
+        assert_eq!(offsets.get("general").copied(), Some(expected_len));
+    }
+
+    #[test]
+    #[serial]
+    fn baseline_offsets_skip_system_channels() {
+        let _env = TestEnv::new();
+        std::fs::write(channel_path("_dm_alice_bob"), "{}\n").unwrap();
+
+        let offsets = baseline_existing_channel_offsets().unwrap();
+
+        assert!(!offsets.contains_key("_dm_alice_bob"));
+    }
 }

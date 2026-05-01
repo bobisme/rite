@@ -20,6 +20,8 @@ pub struct WaitOptions {
     pub channels: Vec<String>,
     /// Wait for messages with specific labels (any of them)
     pub labels: Vec<String>,
+    /// Wait only for messages from this agent
+    pub from: Option<String>,
     /// Timeout in seconds (0 = no timeout)
     pub timeout: u64,
     /// Output format
@@ -174,32 +176,18 @@ pub fn run(mut options: WaitOptions, explicit_agent: Option<&str>) -> Result<()>
                     continue;
                 }
 
-                // Check if message matches our filter.
-                // When --mentions + --channels: OR logic (mention from any channel
-                // OR any message from specified channels).
-                let is_mention = options.mentions && {
-                    let mention = format!("@{}", agent.as_ref().unwrap());
-                    msg.body.contains(&mention)
-                };
-                let is_in_channel = !options.channels.is_empty()
-                    && options.channels.iter().any(|c| c == &channel_name);
-
-                let matches = if options.mentions && !options.channels.is_empty() {
-                    // OR: @mention from any channel OR any message in specified channels
-                    is_mention || is_in_channel
-                } else if options.mentions {
-                    // Mentions only (any channel)
-                    is_mention
-                } else if !options.labels.is_empty() {
-                    // Labels only
-                    msg.has_any_label(&options.labels)
-                } else {
-                    // No filter = any message matches
-                    true
-                };
+                let matches = message_matches_wait_filters(
+                    &msg,
+                    &channel_name,
+                    agent.as_deref(),
+                    options.mentions,
+                    &options.channels,
+                    &options.labels,
+                    options.from.as_deref(),
+                );
 
                 if matches {
-                    let reason = if is_mention {
+                    let reason = if is_mention_for_agent(&msg, agent.as_deref()) {
                         "mention".to_string()
                     } else {
                         "message".to_string()
@@ -271,6 +259,42 @@ fn collect_channel_offsets(
     }
 
     Ok(offsets)
+}
+
+fn is_mention_for_agent(msg: &Message, agent: Option<&str>) -> bool {
+    agent.is_some_and(|agent| {
+        let mention = format!("@{}", agent);
+        msg.body.contains(&mention)
+    })
+}
+
+fn message_matches_wait_filters(
+    msg: &Message,
+    channel_name: &str,
+    agent: Option<&str>,
+    mentions: bool,
+    channels: &[String],
+    labels: &[String],
+    from: Option<&str>,
+) -> bool {
+    if from.is_some_and(|from| msg.agent != from) {
+        return false;
+    }
+
+    // When --mentions + --channels: OR logic (mention from any channel OR any
+    // message from specified channels). --from narrows that result.
+    let is_mention = mentions && is_mention_for_agent(msg, agent);
+    let is_in_channel = !channels.is_empty() && channels.iter().any(|c| c == channel_name);
+
+    if mentions && !channels.is_empty() {
+        is_mention || is_in_channel
+    } else if mentions {
+        is_mention
+    } else if !labels.is_empty() {
+        msg.has_any_label(labels)
+    } else {
+        true
+    }
 }
 
 fn print_message(msg: &Message) {
@@ -345,5 +369,86 @@ mod tests {
         assert_eq!(offsets.len(), 2);
         assert!(offsets.contains_key("general"));
         assert!(offsets.contains_key("backend"));
+    }
+
+    fn test_message(agent: &str, channel: &str, body: &str) -> Message {
+        Message::new(agent, channel, body)
+    }
+
+    #[test]
+    fn test_message_matches_from_filter() {
+        let msg = test_message("rite-codex", "rite", "reply");
+        let channels = vec!["rite".to_string()];
+
+        assert!(message_matches_wait_filters(
+            &msg,
+            "rite",
+            Some("me"),
+            false,
+            &channels,
+            &[],
+            Some("rite-codex")
+        ));
+        assert!(!message_matches_wait_filters(
+            &msg,
+            "rite",
+            Some("me"),
+            false,
+            &channels,
+            &[],
+            Some("other-agent")
+        ));
+    }
+
+    #[test]
+    fn test_from_filter_narrows_mention_channel_or_logic() {
+        let channels = vec!["rite".to_string()];
+        let from_agent = test_message("rite-codex", "general", "@me done");
+        let other_agent = test_message("other-agent", "rite", "side note");
+
+        assert!(message_matches_wait_filters(
+            &from_agent,
+            "general",
+            Some("me"),
+            true,
+            &channels,
+            &[],
+            Some("rite-codex")
+        ));
+        assert!(!message_matches_wait_filters(
+            &other_agent,
+            "rite",
+            Some("me"),
+            true,
+            &channels,
+            &[],
+            Some("rite-codex")
+        ));
+    }
+
+    #[test]
+    fn test_from_filter_narrows_label_matches() {
+        let mut msg = test_message("reviewer", "rite", "ready");
+        msg = msg.with_labels(vec!["review".to_string()]);
+        let labels = vec!["review".to_string()];
+
+        assert!(message_matches_wait_filters(
+            &msg,
+            "rite",
+            Some("me"),
+            false,
+            &[],
+            &labels,
+            Some("reviewer")
+        ));
+        assert!(!message_matches_wait_filters(
+            &msg,
+            "rite",
+            Some("me"),
+            false,
+            &[],
+            &labels,
+            Some("other-agent")
+        ));
     }
 }

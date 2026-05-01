@@ -265,12 +265,14 @@ fn main() -> Result<()> {
             mentions,
             channels,
             labels,
+            from,
             timeout,
         } => cli::wait::run(
             cli::wait::WaitOptions {
                 mentions,
                 channels,
                 labels,
+                from,
                 timeout,
                 format,
             },

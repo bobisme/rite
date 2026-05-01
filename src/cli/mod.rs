@@ -303,6 +303,10 @@ pub enum Commands {
         #[arg(short = 'L', long = "label", action = clap::ArgAction::Append)]
         labels: Vec<String>,
 
+        /// Wait only for messages from this agent
+        #[arg(long)]
+        from: Option<String>,
+
         /// Timeout in seconds (0 = no timeout)
         #[arg(short, long, default_value = "0")]
         timeout: u64,

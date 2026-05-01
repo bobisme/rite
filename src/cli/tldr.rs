@@ -30,8 +30,16 @@ pub const QUICK_REFERENCE: &str = r#"QUICK REFERENCE
   Wait for responses
 
       rite wait -c general -t 300
+      rite wait -c general --from other-agent -t 300
       rite wait --mentions -t 300
       rite history @other-agent -f
+
+  Continue a conversation
+
+      rite history rite -n 20
+      rite send rite "@other-agent What do you think about this approach?"
+      rite wait -c rite --from other-agent -t 300
+      rite send rite "@other-agent Thanks, I'll adjust that."
 
   Mark messages read
 
@@ -77,6 +85,8 @@ mod tests {
             "rite history general",
             "rite inbox --mentions",
             "rite wait --mentions",
+            "rite wait -c general --from other-agent",
+            "Continue a conversation",
             "rite mark-read general",
             "--format json",
         ] {

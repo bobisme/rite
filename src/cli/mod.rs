@@ -22,6 +22,7 @@ pub mod statuses;
 pub mod subscribe;
 pub mod sync;
 pub mod telegram;
+pub mod tldr;
 pub mod ui;
 pub mod wait;
 pub mod watch;
@@ -40,8 +41,14 @@ pub enum OutputFormat {
 }
 
 #[derive(Parser)]
-#[command(name = "rite")]
-#[command(author, version, about = "Chat-oriented coordination for AI coding agents", long_about = None)]
+#[command(
+    name = "rite",
+    author,
+    version,
+    about = "Chat-oriented coordination for AI coding agents",
+    long_about = None,
+    after_help = tldr::QUICK_REFERENCE
+)]
 pub struct Cli {
     /// Agent identity (default: from RITE_AGENT env var)
     #[arg(short, long, global = true, env = "RITE_AGENT")]
@@ -84,6 +91,9 @@ pub enum Commands {
         #[arg(long)]
         suggest_project_suffix: Option<String>,
     },
+
+    /// Show quick command reference
+    Tldr,
 
     /// Send a message to a channel or agent
     #[command(alias = "post")]

@@ -57,10 +57,10 @@ fn main() -> Result<()> {
     };
 
     // Ensure data directory exists for most commands
-    // (init creates it explicitly, generate-name and doctor don't require it)
+    // (init creates it explicitly; generate-name, doctor, and tldr don't require it)
     if !matches!(
         cli.command,
-        Commands::GenerateName | Commands::Init | Commands::Doctor
+        Commands::GenerateName | Commands::Init | Commands::Doctor | Commands::Tldr
     ) {
         ensure_data_dir()?;
     }
@@ -72,6 +72,11 @@ fn main() -> Result<()> {
 
         Commands::GenerateName => {
             cli::names::run();
+            Ok(())
+        }
+
+        Commands::Tldr => {
+            cli::tldr::run();
             Ok(())
         }
 

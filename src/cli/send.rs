@@ -397,9 +397,10 @@ mod tests {
     fn test_send_without_identity() {
         let _env = TestEnv::new();
 
-        // Ensure no env var
+        // Ensure no env identity
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
+            env::remove_var("AGENT");
         }
 
         let result = run(

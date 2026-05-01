@@ -185,8 +185,25 @@ pub fn read_records_from_offset<T: DeserializeOwned>(
     path: &Path,
     offset: u64,
 ) -> Result<(Vec<T>, u64)> {
+    read_records_from_offset_limited(path, offset, None)
+}
+
+/// Read up to `limit` records from a JSONL file starting at a byte offset.
+///
+/// Returns the records and the byte offset immediately after the last line
+/// consumed. If the limit is reached before EOF, the returned offset can be
+/// used to continue without skipping unread records.
+pub fn read_records_from_offset_limited<T: DeserializeOwned>(
+    path: &Path,
+    offset: u64,
+    limit: Option<usize>,
+) -> Result<(Vec<T>, u64)> {
     if !path.exists() {
         return Ok((Vec::new(), 0));
+    }
+
+    if limit == Some(0) {
+        return Ok((Vec::new(), offset));
     }
 
     let mut file =
@@ -199,29 +216,41 @@ pub fn read_records_from_offset<T: DeserializeOwned>(
     file.seek(SeekFrom::Start(offset))
         .with_context(|| format!("Failed to seek in: {}", path.display()))?;
 
-    let reader = BufReader::new(&file);
+    let mut reader = BufReader::new(&file);
     let mut records = Vec::new();
+    let mut new_offset = offset;
 
-    {
-        for line_result in reader.lines() {
-            let line =
-                line_result.with_context(|| format!("Failed to read from: {}", path.display()))?;
+    loop {
+        let mut line = String::new();
+        let bytes_read = reader
+            .read_line(&mut line)
+            .with_context(|| format!("Failed to read from: {}", path.display()))?;
+        if bytes_read == 0 {
+            break;
+        }
 
-            if line.trim().is_empty() {
-                continue;
-            }
+        new_offset = reader.stream_position()?;
 
-            let record: T = serde_json::from_str(&line)
-                .with_context(|| format!("Failed to parse in {}: {}", path.display(), line))?;
+        if line.trim().is_empty() {
+            continue;
+        }
 
-            records.push(record);
+        let record: T = serde_json::from_str(&line)
+            .with_context(|| format!("Failed to parse in {}: {}", path.display(), line))?;
+
+        records.push(record);
+
+        if limit.is_some_and(|limit| records.len() >= limit) {
+            break;
         }
     }
 
-    // Get the new offset while still holding the shared lock. Reopening after
-    // reading would leave a race where a concurrent append could be included
-    // in the returned offset without its records being returned.
-    let new_offset = file.seek(SeekFrom::End(0))?;
+    if limit.is_none() {
+        // Get the new offset while still holding the shared lock. Reopening
+        // after reading would leave a race where a concurrent append could be
+        // included in the returned offset without its records being returned.
+        new_offset = reader.seek(SeekFrom::End(0))?;
+    }
 
     Ok((records, new_offset))
 }
@@ -356,6 +385,31 @@ mod tests {
         assert_eq!(new_records.len(), 2);
         assert_eq!(new_records[0], record2);
         assert_eq!(new_records[1], record3);
+    }
+
+    #[test]
+    fn test_read_from_offset_limited_returns_continuation_offset() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("test.jsonl");
+
+        let records: Vec<TestRecord> = (1..=3)
+            .map(|id| TestRecord {
+                id,
+                name: format!("Record{}", id),
+            })
+            .collect();
+        append_records(&path, &records).unwrap();
+
+        let (first, next_offset) =
+            read_records_from_offset_limited::<TestRecord>(&path, 0, Some(1)).unwrap();
+        assert_eq!(first, vec![records[0].clone()]);
+        assert!(next_offset > 0);
+        assert!(next_offset < std::fs::metadata(&path).unwrap().len());
+
+        let (remaining, final_offset) =
+            read_records_from_offset_limited::<TestRecord>(&path, next_offset, None).unwrap();
+        assert_eq!(remaining, records[1..].to_vec());
+        assert_eq!(final_offset, std::fs::metadata(&path).unwrap().len());
     }
 
     #[test]

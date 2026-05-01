@@ -10,7 +10,7 @@ use super::OutputFormat;
 use crate::core::channel::resolve_channel;
 use crate::core::identity::resolve_agent;
 use crate::core::message::{
-    Message, read_last_n_messages, read_messages, read_messages_from_offset,
+    Message, read_last_n_messages, read_messages, read_messages_from_offset_limited,
 };
 use crate::core::project::channel_path;
 
@@ -196,8 +196,9 @@ pub fn run_with_output(options: HistoryOptions) -> Result<HistoryOutput> {
     // Read messages based on options
     let (messages, next_offset) = if let Some(offset) = options.after_offset {
         // Read from specific offset
-        let (msgs, new_offset): (Vec<Message>, u64) = read_messages_from_offset(&path, offset)
-            .with_context(|| format!("Failed to read channel #{} from offset", channel))?;
+        let (msgs, new_offset): (Vec<Message>, u64) =
+            read_messages_from_offset_limited(&path, offset, options.count)
+                .with_context(|| format!("Failed to read channel #{} from offset", channel))?;
         (msgs, new_offset)
     } else if let Some(after_id) = &options.after_id {
         // Read all and filter to messages after the given ID
@@ -232,10 +233,9 @@ pub fn run_with_output(options: HistoryOptions) -> Result<HistoryOutput> {
     // Track total available before applying count limit
     let total_available = messages.len();
 
-    // Apply count limit if we used after_offset or after_id
-    let messages = if (options.after_offset.is_some() || options.after_id.is_some())
-        && messages.len() > options.count
-    {
+    // Apply count limit if we used after_id. after_offset reads are already
+    // bounded so next_offset remains a valid continuation cursor.
+    let messages = if options.after_id.is_some() && messages.len() > options.count {
         messages.into_iter().take(options.count).collect()
     } else {
         messages
@@ -637,6 +637,66 @@ mod tests {
         };
 
         run(options).unwrap();
+    }
+
+    #[test]
+    #[serial]
+    fn test_history_after_offset_next_offset_does_not_skip_limited_messages() {
+        let _env = TestEnv::new();
+        send::run_simple(
+            "test-history-page".to_string(),
+            "Message 1".to_string(),
+            Some("test-historian"),
+        )
+        .unwrap();
+        send::run_simple(
+            "test-history-page".to_string(),
+            "Message 2".to_string(),
+            Some("test-historian"),
+        )
+        .unwrap();
+        send::run_simple(
+            "test-history-page".to_string(),
+            "Message 3".to_string(),
+            Some("test-historian"),
+        )
+        .unwrap();
+
+        let options = HistoryOptions {
+            channel: Some("test-history-page".to_string()),
+            count: 1,
+            follow: false,
+            timeout: None,
+            follow_count: None,
+            since: None,
+            before: None,
+            from: None,
+            labels: vec![],
+            after_offset: Some(0),
+            after_id: None,
+            show_offset: false,
+            format: OutputFormat::Text,
+            agent: None,
+        };
+
+        let first_page = run_with_output(options.clone()).unwrap();
+        assert_eq!(first_page.messages.len(), 1);
+        assert_eq!(first_page.messages[0].body, "Message 1");
+        assert!(first_page.next_offset > 0);
+        assert!(
+            first_page.next_offset
+                < std::fs::metadata(channel_path("test-history-page"))
+                    .unwrap()
+                    .len()
+        );
+
+        let second_page = run_with_output(HistoryOptions {
+            after_offset: Some(first_page.next_offset),
+            ..options
+        })
+        .unwrap();
+        assert_eq!(second_page.messages.len(), 1);
+        assert_eq!(second_page.messages[0].body, "Message 2");
     }
 
     #[test]

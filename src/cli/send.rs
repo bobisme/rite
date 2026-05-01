@@ -136,7 +136,7 @@ pub fn run(
     let hook_flags = parsed.flags;
 
     // Parse attachments (format: "name:path", "path", or "url:https://...")
-    let parsed_attachments = parse_attachments_for_channel(&attachments, &channel)?;
+    let parsed_attachments = parse_attachments_for_channel(&attachments, &channel, &agent_name)?;
 
     // Store original body — flags are meaningful to downstream consumers
     let mut msg = Message::new(&agent_name, &channel, &message);
@@ -211,7 +211,11 @@ pub fn run(
     Ok(())
 }
 
-fn parse_attachments_for_channel(specs: &[String], channel: &str) -> Result<Vec<Attachment>> {
+fn parse_attachments_for_channel(
+    specs: &[String],
+    channel: &str,
+    agent: &str,
+) -> Result<Vec<Attachment>> {
     let mut attachments = Vec::new();
     let cwd = std::env::current_dir().unwrap_or_default();
 
@@ -231,14 +235,14 @@ fn parse_attachments_for_channel(specs: &[String], channel: &str) -> Result<Vec<
                     .file_name()
                     .and_then(|s| s.to_str())
                     .unwrap_or(spec);
-                store_file_in_cache(&full_path, name, channel)?
+                store_file_in_cache(&full_path, name, channel, agent)?
             } else if let Some((name, path)) = spec.split_once(':') {
                 // Fall back to name:path syntax
                 let full_path = cwd.join(path);
                 if !full_path.exists() {
                     bail!("Attachment file not found: {}", spec);
                 }
-                store_file_in_cache(&full_path, name, channel)?
+                store_file_in_cache(&full_path, name, channel, agent)?
             } else {
                 bail!("Attachment file not found: {}", spec);
             }
@@ -269,6 +273,7 @@ fn store_file_in_cache(
     file_path: &std::path::Path,
     name: &str,
     channel: &str,
+    agent: &str,
 ) -> Result<Attachment> {
     let canonical_path = file_path
         .canonicalize()
@@ -277,14 +282,12 @@ fn store_file_in_cache(
     let bytes = std::fs::read(&canonical_path)
         .with_context(|| format!("Failed to read attachment: {}", canonical_path.display()))?;
 
-    let agent = crate::core::identity::resolve_agent(None).unwrap_or_else(|| "cli".to_string());
-
     let cache = AttachmentCache::new(attachments_dir())?;
     let stored = cache.store(
         &bytes,
         name,
         AttachmentSource::Cli {
-            agent,
+            agent: agent.to_string(),
             channel: channel.to_string(),
         },
     )?;
@@ -461,6 +464,7 @@ mod tests {
             .unwrap();
         let metadata = cache.read_metadata(std::path::Path::new(path)).unwrap();
         assert_eq!(metadata.source_channel.as_deref(), Some("actual-channel"));
+        assert_eq!(metadata.stored_by, "test-sender");
     }
 
     #[test]
@@ -468,6 +472,7 @@ mod tests {
         let attachments = parse_attachments_for_channel(
             &["url:https://example.com/files/report.pdf?download=1".to_string()],
             "general",
+            "test-sender",
         )
         .unwrap();
 

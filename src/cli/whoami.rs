@@ -189,6 +189,7 @@ mod tests {
         // SAFETY: Test isolation
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
+            env::remove_var("AGENT");
         }
 
         let result = run(OutputFormat::Text, None, None);
@@ -201,6 +202,7 @@ mod tests {
         // SAFETY: Test isolation
         unsafe {
             env::remove_var(AGENT_ENV_VAR);
+            env::remove_var("AGENT");
         }
 
         // If we're in a git/jj project, the error message should contain the project name

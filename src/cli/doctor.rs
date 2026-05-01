@@ -449,6 +449,7 @@ mod tests {
         unsafe {
             env::set_var(DATA_DIR_ENV_VAR, temp_path);
             env::remove_var("RITE_AGENT");
+            env::remove_var("AGENT");
         }
 
         let mut report = DoctorReport::new();

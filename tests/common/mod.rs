@@ -109,9 +109,11 @@ impl TestProject {
 
         if let Some(agent_name) = agent {
             cmd.env("RITE_AGENT", agent_name);
+            cmd.env_remove("AGENT");
         } else {
-            // Explicitly remove RITE_AGENT to prevent env var leakage
+            // Explicitly remove identity variables to prevent env var leakage.
             cmd.env_remove("RITE_AGENT");
+            cmd.env_remove("AGENT");
         }
 
         let output = cmd.output().expect("Failed to execute rite");
@@ -339,6 +341,7 @@ impl Agent {
         cmd.current_dir(&self.work_dir);
         cmd.env("RITE_DATA_DIR", &self.data_path);
         cmd.env("RITE_AGENT", &self.name);
+        cmd.env_remove("AGENT");
         cmd.args(args);
 
         let output = cmd.output().expect("Failed to execute rite");

@@ -262,6 +262,18 @@ pub fn read_messages_from_offset(path: &Path, offset: u64) -> anyhow::Result<(Ve
     Ok((filter_deleted(all), new_offset))
 }
 
+/// Read up to `limit` messages from a JSONL file starting at a byte offset,
+/// filtering out deleted messages and their tombstones.
+pub fn read_messages_from_offset_limited(
+    path: &Path,
+    offset: u64,
+    limit: usize,
+) -> anyhow::Result<(Vec<Message>, u64)> {
+    let (all, new_offset): (Vec<Message>, u64) =
+        crate::storage::jsonl::read_records_from_offset_limited(path, offset, Some(limit))?;
+    Ok((filter_deleted(all), new_offset))
+}
+
 /// Filter out deleted messages and their tombstones from a vec of messages.
 fn filter_deleted(messages: Vec<Message>) -> Vec<Message> {
     // Pass 1: collect all tombstone target IDs

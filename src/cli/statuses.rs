@@ -126,7 +126,7 @@ pub fn list(format: OutputFormat, _agent: Option<&str>) -> Result<()> {
         .filter(|e| e.is_valid() || e.is_recently_expired())
         .collect();
 
-    statuses.sort_by(|a, b| b.ts.cmp(&a.ts));
+    statuses.sort_by_key(|status| std::cmp::Reverse(status.ts));
 
     #[derive(serde::Serialize)]
     struct StatusInfo {

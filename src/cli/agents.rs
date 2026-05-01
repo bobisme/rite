@@ -44,7 +44,7 @@ pub fn run(format: OutputFormat, _active_only: bool) -> Result<()> {
         .collect();
 
     // Sort by last seen (most recent first)
-    agent_infos.sort_by(|a, b| b.last_seen.cmp(&a.last_seen));
+    agent_infos.sort_by_key(|agent| std::cmp::Reverse(agent.last_seen));
 
     let output = AgentsOutput {
         agents: agent_infos,

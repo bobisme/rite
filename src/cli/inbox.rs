@@ -515,7 +515,7 @@ fn run_mentions_mode(options: &InboxOptions, agent: &str) -> Result<()> {
     }
 
     // Sort by timestamp (most recent first)
-    all_mentions.sort_by(|a, b| b.message.ts.cmp(&a.message.ts));
+    all_mentions.sort_by_key(|mention| std::cmp::Reverse(mention.message.ts));
 
     // Apply count limit
     let limited_mentions: Vec<_> = all_mentions.into_iter().take(options.count).collect();

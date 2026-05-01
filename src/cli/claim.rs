@@ -446,9 +446,9 @@ pub fn claims(
     // Sort by creation time (most recent first) when using --since or --limit
     // Otherwise sort by expiration time
     if since.is_some() || limit.is_some() {
-        claims_list.sort_by(|a, b| b.ts.cmp(&a.ts));
+        claims_list.sort_by_key(|claim| std::cmp::Reverse(claim.ts));
     } else {
-        claims_list.sort_by(|a, b| a.expires_at.cmp(&b.expires_at));
+        claims_list.sort_by_key(|claim| claim.expires_at);
     }
 
     // Apply limit if provided

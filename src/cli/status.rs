@@ -178,7 +178,7 @@ fn collect_channels(current_agent: Option<&str>) -> Result<Vec<ChannelStatus>> {
     }
 
     // Sort by last activity (most recent first)
-    results.sort_by(|a, b| b.last_activity.cmp(&a.last_activity));
+    results.sort_by_key(|channel| std::cmp::Reverse(channel.last_activity));
 
     Ok(results)
 }

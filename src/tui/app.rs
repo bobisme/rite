@@ -355,11 +355,9 @@ impl App {
                 _ => {}
             },
             Focus::Channels => match key {
-                KeyCode::Up | KeyCode::Char('k') => {
-                    if self.selected_channel > 0 {
-                        self.selected_channel -= 1;
-                        self.load_messages()?;
-                    }
+                KeyCode::Up | KeyCode::Char('k') if self.selected_channel > 0 => {
+                    self.selected_channel -= 1;
+                    self.load_messages()?;
                 }
                 KeyCode::Down | KeyCode::Char('j') => {
                     let total = self.total_channel_count();
@@ -501,15 +499,11 @@ impl App {
                     self.agents_height = Some(total.saturating_sub(channels_height));
                 }
             }
-            MouseEventKind::ScrollUp => {
-                if self.focus == Focus::Messages {
-                    self.message_scroll = self.message_scroll.saturating_add(3);
-                }
+            MouseEventKind::ScrollUp if self.focus == Focus::Messages => {
+                self.message_scroll = self.message_scroll.saturating_add(3);
             }
-            MouseEventKind::ScrollDown => {
-                if self.focus == Focus::Messages {
-                    self.message_scroll = self.message_scroll.saturating_sub(3);
-                }
+            MouseEventKind::ScrollDown if self.focus == Focus::Messages => {
+                self.message_scroll = self.message_scroll.saturating_sub(3);
             }
             _ => {}
         }

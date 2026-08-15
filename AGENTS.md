@@ -59,6 +59,34 @@ All commands support `--agent <name>` (or `RITE_AGENT` env var), `--format toon|
 | `claims list` | `rite claims list [--all] [--mine] [-n limit]` |
 | `claims refresh` | `rite claims refresh` — extend TTL |
 
+#### Claim URI conventions
+
+A claim pattern is any string. That is the design, and the cost is that two
+tools which mean the same thing but spell it differently fail to interlock —
+silently, because an advisory lock nobody else checks always succeeds.
+
+Use these spellings. Do not invent a synonym for one of them.
+
+| Pattern | Meaning | Staked by |
+|---------|---------|-----------|
+| `spawn://<hook-id>/<channel>` | **Reserved for rite.** One live spawn per hook and channel. | rite only — never stake by hand |
+| `message://<project>/<message-id>` | This message is being processed; a second agent must skip it | the responder handling it |
+| `agent://<name>` | This agent is occupied — hook conditions and slot admission | hooks, agent loops |
+| `bone://<project>/<id>` | Working this bone | the worker |
+| `workspace://<project>/<ws>` | Working in this workspace | the worker |
+
+`spawn://` is reserved because a lease in that scheme is the **only** claim
+rite will step over when its holder is provably gone (presence lapsed beyond
+`PRESENCE_TTL_SECS`). Confining that rule to a scheme rite writes itself is
+what guarantees it can never apply to `src/**`, `bone://…`, or anything a
+person staked.
+
+`message://` and `spawn://` answer different questions and you usually want
+both. The spawn lease is admission control — it stops a second agent from
+*starting*. The message claim is idempotency — it stops two agents that both
+started from doing the same work twice. Supersession means those two agents
+genuinely can overlap, so the message claim is what makes the overlap safe.
+
 ### Management
 
 | Command | Usage |

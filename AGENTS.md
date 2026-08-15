@@ -93,7 +93,7 @@ genuinely can overlap, so the message claim is what makes the overlap safe.
 |---------|-------|
 | `agents` | `rite agents [--active]` |
 | `channels` | `rite channels list\|close\|reopen\|delete\|rename` |
-| `hooks` | `rite hooks add [--name --owner]\|list [--owner]\|set\|remove\|test` |
+| `hooks` | `rite hooks add [--name --owner]\|list [--owner]\|set\|remove\|test\|drain` |
 | `subscriptions` | `rite subscriptions add\|remove\|list` |
 | `statuses` | `rite statuses set\|clear\|list` |
 | `messages` | `rite messages get <id>` |
@@ -229,6 +229,40 @@ Adopt the hooks you already have rather than recreating them:
 ```bash
 rite hooks set hk-abc --name edict:rite:responder --owner edict
 ```
+
+### Stranded Triggers
+
+A hook with `--lease` batches triggers that arrive while a spawn is live and
+hands them to the next spawn. Nothing schedules that next spawn, so if the
+channel goes quiet the batch waits.
+
+rite delivers it by riding traffic that already exists: every command that
+evaluates hooks re-checks pending queues in **every** channel, so a `rite send`
+in `#maw` delivers a trigger stranded in `#console`. There is no daemon and no
+timer.
+
+```bash
+rite hooks drain --dry-run    # what is stranded, changing nothing
+rite hooks drain              # deliver it now, without waiting for traffic
+```
+
+You do not normally run either. Use `--dry-run` to explain a responder that
+seems not to have woken up, and the bare command when nothing else is talking
+to rite — a quiet machine is the one case the sweep cannot ride.
+
+What a swept spawn sees is identical to a message-driven one: `RITE_CHANNEL` is
+the channel the trigger came from (not whichever channel was busy),
+`RITE_MESSAGE_ID` is the newest queued trigger, and `RITE_BATCH_MESSAGE_IDS` is
+chronological with that anchor last.
+
+Two things bound it. The spawn lease is taken exactly as a message would take
+it, so a sweep can no more double-spawn than a message can; and a hook is swept
+at most once a minute, because a spawn that fails leaves its batch queued and
+would otherwise be retried by every rite command on the machine.
+
+`hooks remove` retires whatever is queued for that hook — nothing could ever
+deliver it, since every delivery path matches on the hook id. Prefer
+`hooks set`, which does not reach that path at all.
 
 ### System Messages
 

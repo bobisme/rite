@@ -438,6 +438,9 @@ fn main() -> Result<()> {
                 ),
                 HooksCommands::Remove { hook_id } => cli::hooks::remove(hook_id, format),
                 HooksCommands::Test { hook_id } => cli::hooks::test(hook_id, format),
+                HooksCommands::Drain { hook_id, dry_run } => {
+                    cli::hooks::drain(hook_id, dry_run, format)
+                }
             }
         }
 

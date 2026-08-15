@@ -737,6 +737,21 @@ pub enum HooksCommands {
         /// Hook ID to test
         hook_id: String,
     },
+
+    /// Deliver triggers stranded behind a lapsed spawn lease.
+    ///
+    /// Every rite command that evaluates hooks already does this. Run it by
+    /// hand when you do not want to wait for the next message, or to see what
+    /// is stranded without waiting at all (`--dry-run`).
+    Drain {
+        /// Only drain this hook
+        #[arg(long)]
+        hook_id: Option<String>,
+
+        /// Report what would be drained, spawn nothing
+        #[arg(long)]
+        dry_run: bool,
+    },
 }
 
 #[derive(Subcommand)]

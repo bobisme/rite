@@ -3,6 +3,38 @@
 All notable changes to this project are documented here. This project adheres to
 [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **A trigger queued behind a spawn lease is no longer stranded when the
+  channel goes quiet.** The lease batches triggers that arrive while a spawn is
+  live and hands them to the next spawn, but nothing scheduled that next spawn:
+  it happened only when a later message fired the same hook. On `#console` a
+  review approval sat undelivered for two days behind a lease that had lapsed
+  twenty minutes after it was queued. Every command that evaluates hooks now
+  re-checks pending queues in **every** channel, so a `rite send` in `#maw`
+  delivers a trigger stranded in `#console`. No daemon and no timer: the drain
+  rides traffic that already exists. A swept spawn is indistinguishable from a
+  message-driven one — `RITE_CHANNEL` is the channel the trigger came from
+  rather than whichever channel was busy, and the batch stays chronological
+  with the newest trigger as its anchor.
+- A leased hook no longer queues messages it was never addressed by. The lease
+  is taken before the condition is evaluated, which it has to be, so a mention
+  hook queued *every* message in its channel for as long as a spawn was live —
+  handing the next spawn a batch that was mostly not its work. Channel hooks
+  are unaffected: any message in the channel is what addresses them.
+- `rite hooks remove` retires whatever is queued for that hook. Every delivery
+  path matches on the hook id, so a queue outliving its hook could never be
+  delivered by anything.
+
+### Added
+
+- `rite hooks drain` forces the sweep, and `--dry-run` reports what is stranded
+  without taking a lease or spawning anything. The sweep needs traffic to ride;
+  this is the escape hatch for a machine where nothing is talking to rite, and
+  the way to explain a responder that appears not to have woken up.
+
 ## [0.34.0] - 2026-08-12
 
 Hooks you can change without destroying, and a doctor that notices when one

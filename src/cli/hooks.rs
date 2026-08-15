@@ -694,17 +694,99 @@ pub fn remove(hook_id: String, format: OutputFormat) -> Result<()> {
 
     append_record(&hooks_path(), &deactivated).context("Failed to deactivate hook")?;
 
+    // A queue outlives the hook it was queued for, and nothing can ever
+    // deliver it: every delivery path matches on the hook id, and that id is
+    // now gone. Retire the entries here rather than leave a queue that only
+    // grows. `hooks set` exists so that changing a hook does not reach this
+    // path at all.
+    let stranded = pending_triggers()
+        .into_iter()
+        .filter(|entry| entry.hook_id == hook_id)
+        .collect::<Vec<_>>();
+    if !stranded.is_empty() {
+        mark_delivered(&stranded);
+        for entry in &stranded {
+            record_firing(
+                &hook_id,
+                &entry.channel,
+                &entry.message_id,
+                false,
+                false,
+                Some("queue retired (hook removed)"),
+            );
+        }
+    }
+
     match format {
         OutputFormat::Json => {
             println!(
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
-                    "removed": hook_id
+                    "removed": hook_id,
+                    "retired_queue": stranded.len(),
                 }))?
             );
         }
         OutputFormat::Pretty | OutputFormat::Text => {
             println!("{} Hook {} removed", "Removed:".green(), hook_id.cyan());
+            if !stranded.is_empty() {
+                println!(
+                    "  {} queued trigger(s) retired — nothing could deliver them",
+                    stranded.len()
+                );
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Force the opportunistic drain that every hook evaluation already performs.
+///
+/// The sweep needs traffic to ride, so it delivers within
+/// [`SWEEP_MIN_INTERVAL_SECS`] of a lease lapsing *if* anything is still
+/// talking to rite. This is the escape hatch for when nothing is: a person who
+/// does not want to wait, and a test that cannot.
+pub fn drain(hook_id: Option<String>, dry_run: bool, format: OutputFormat) -> Result<()> {
+    let all_hooks: Vec<Hook> = read_records(&hooks_path()).unwrap_or_default();
+    let active = build_active_hooks(&all_hooks);
+
+    if let Some(id) = &hook_id
+        && !active.contains_key(id)
+    {
+        bail!("Hook not found: {}", id);
+    }
+
+    let swept = sweep_stranded_queues(&active, hook_id.as_deref(), true, dry_run);
+
+    match format {
+        OutputFormat::Json => {
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&serde_json::json!({
+                    "dry_run": dry_run,
+                    "drained": swept,
+                }))?
+            );
+        }
+        OutputFormat::Pretty | OutputFormat::Text => {
+            if swept.is_empty() {
+                println!("Nothing stranded.");
+            }
+            for item in &swept {
+                println!(
+                    "{} {} #{} — {} trigger(s) [{}]",
+                    if item.outcome == "spawned" {
+                        "Drained:".green()
+                    } else {
+                        "Skipped:".yellow()
+                    },
+                    item.hook_id.cyan(),
+                    item.channel,
+                    item.count,
+                    item.outcome,
+                );
+            }
         }
     }
 
@@ -1050,12 +1132,28 @@ fn enqueue_trigger(
     sender: &str,
     body: &str,
     command_agent: &str,
+    mentions: &[String],
 ) -> Option<&'static str> {
     // Never queue the spawned agent's own chatter behind its own lease:
     // that turns "reply in the channel you were spawned for" into a
     // self-sustaining spawn loop.
     if sender == command_agent {
         return Some("own message");
+    }
+
+    // Only queue what this hook was actually addressed by. The lease is taken
+    // before the condition is evaluated — it has to be, or two spawns could
+    // both pass the condition — so without this a mention hook queues every
+    // message in its channel for the whole time a spawn is live. That is
+    // wrong twice over: it hands the next spawn a batch of messages that were
+    // never its work, and it makes the queue untrustworthy for
+    // [`sweep_stranded_queues`], which cannot re-derive the mention later.
+    //
+    // A channel hook is addressed by any message; that is what it means.
+    if let HookCondition::MentionReceived { agent } = &hook.condition
+        && !mentions.iter().any(|m| m == agent)
+    {
+        return Some("not addressed");
     }
 
     let pending = pending_for(&hook.id, channel);
@@ -1113,6 +1211,390 @@ fn mark_delivered(batch: &[QueuedTrigger]) {
     for entry in batch {
         let _ = append_record(&hook_queue_path(), &entry.delivered());
     }
+}
+
+/// Start a hook's command for one trigger, with whatever batched up behind it.
+///
+/// Shared by the two paths that can spawn a hook — a message arriving, and a
+/// sweep finding a stranded queue — because they must agree on the
+/// environment a spawn sees. `channel` and `message_id` name the *trigger*,
+/// which for a sweep is the queued entry, not whatever the sweeping process
+/// happened to be doing.
+///
+/// Returns whether the process actually started. Claims and the lease are
+/// released on every path that does not start one, and the batch is marked
+/// delivered only once it has, so a spawn that never ran never counts as
+/// delivery.
+#[allow(clippy::too_many_arguments)]
+fn spawn_hook(
+    hook: &Hook,
+    channel: &str,
+    message_id: &str,
+    command_agent: &str,
+    batch: &[QueuedTrigger],
+    claim: Option<&FileClaim>,
+    lease: Option<&FileClaim>,
+    wait_for_exit: bool,
+) -> bool {
+    if hook.command.is_empty() {
+        release_own_claim(claim);
+        release_own_claim(lease);
+        return false;
+    }
+
+    let mut command = std::process::Command::new(&hook.command[0]);
+    command
+        .args(&hook.command[1..])
+        .current_dir(&hook.cwd)
+        .env("RITE_CHANNEL", channel)
+        .env("RITE_MESSAGE_ID", message_id)
+        .env("RITE_AGENT", command_agent)
+        .env("RITE_HOOK_ID", &hook.id)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null());
+
+    if hook.uses_lease() {
+        // Chronological, triggering message last. Additive: hooks
+        // without a lease see exactly the environment they always did.
+        let mut ids: Vec<&str> = batch.iter().map(|e| e.message_id.as_str()).collect();
+        ids.push(message_id);
+        command
+            .env("RITE_BATCH_COUNT", ids.len().to_string())
+            .env("RITE_BATCH_MESSAGE_IDS", ids.join(","))
+            .env("RITE_LEASE_PATTERN", hook.lease_pattern(channel));
+    }
+
+    if let Some(traceparent) = crate::telemetry::current_traceparent() {
+        command.env("TRACEPARENT", traceparent);
+    }
+
+    match command.spawn() {
+        Ok(mut child) => {
+            mark_delivered(batch);
+            if wait_for_exit {
+                // Block until command exits, then release claim and
+                // lease — the next message drains whatever queued up
+                // while this spawn was running.
+                let _ = child.wait();
+                release_own_claim(claim);
+                release_own_claim(lease);
+            } else {
+                // Reap child in background to prevent zombie processes
+                std::thread::spawn(move || {
+                    let _ = child.wait();
+                });
+            }
+            true
+        }
+        Err(_) => {
+            release_own_claim(claim);
+            release_own_claim(lease);
+            false
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Opportunistic drain (bn-38co)
+//
+// A trigger queued behind a held lease is only delivered when a *later*
+// trigger fires the same hook. If the channel goes quiet, it waits forever:
+// observed on #console, where a review approval sat undelivered for two days
+// behind a lease that had lapsed twenty minutes after it was queued.
+//
+// The fix is deliberately not a daemon or a timer — rite has no resident
+// process and this is not the feature to grow one for. Instead every rite
+// invocation that already evaluates hooks also re-checks pending queues, in
+// *any* channel. Agents run rite commands constantly across every project, so
+// a `rite send` in #maw delivers a stranded trigger in #console. It rides
+// traffic that already exists.
+//
+// Three things keep that from becoming its own storm:
+//
+//   1. The lease. A sweep takes the same lease a message-driven spawn takes,
+//      so it can no more double-spawn than the normal path can.
+//   2. `SWEEP_MIN_INTERVAL_SECS` against `last_fired`. Without it a hook whose
+//      command is missing would be retried by every send from every agent on
+//      the machine, since a failed spawn correctly leaves its batch queued.
+//   3. Cost. The queue file is read only when an active leased hook is past
+//      that interval — on a busy channel the hook has just fired, so a send
+//      does no extra I/O at all.
+// ---------------------------------------------------------------------------
+
+/// Shortest gap between two sweep-driven spawns of the same hook.
+///
+/// Bounds retries when a spawn keeps failing, and is the worst-case delivery
+/// latency for a stranded trigger once its lease lapses — provided anything at
+/// all is still talking to rite.
+const SWEEP_MIN_INTERVAL_SECS: i64 = 60;
+
+/// What a sweep did with one (hook, channel) queue.
+#[derive(Debug, Serialize)]
+pub struct SweptQueue {
+    pub hook_id: String,
+    pub channel: String,
+    /// The trigger a spawn was anchored to: the newest queued entry.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub message_id: Option<String>,
+    /// Entries involved, including `message_id`.
+    pub count: usize,
+    /// `spawned`, `would spawn`, `retired`, or the reason nothing happened.
+    pub outcome: String,
+}
+
+/// Hooks a sweep should look at, cheapest test first.
+///
+/// Returning empty is the common case and the reason the sweep is affordable
+/// on every send: it is decided from hooks already in memory, without touching
+/// `hook_queue.jsonl`.
+fn sweep_candidates<'a>(
+    hooks: &'a HashMap<String, Hook>,
+    only_hook: Option<&str>,
+    force: bool,
+    now: DateTime<Utc>,
+) -> Vec<&'a Hook> {
+    hooks
+        .values()
+        .filter(|hook| hook.uses_lease())
+        .filter(|hook| only_hook.is_none_or(|id| hook.id == id))
+        .filter(|hook| {
+            force
+                || match hook.last_fired {
+                    Some(last) => {
+                        now.signed_duration_since(last).num_seconds() >= SWEEP_MIN_INTERVAL_SECS
+                    }
+                    None => true,
+                }
+        })
+        .collect()
+}
+
+/// The mentions a queued trigger must have carried to be in this queue.
+///
+/// Queue membership is the evidence: `enqueue_trigger` only accepts a trigger
+/// addressed to the hook, so an entry waiting for a mention hook is proof the
+/// mention was there. Nothing is re-derived from the message body, which by
+/// now may not even be the newest thing in the channel.
+fn implied_mentions(hook: &Hook) -> Vec<String> {
+    match &hook.condition {
+        HookCondition::MentionReceived { agent } => vec![agent.clone()],
+        HookCondition::ClaimAvailable { .. } => Vec::new(),
+    }
+}
+
+/// Deliver triggers stranded behind a lease that is no longer held.
+///
+/// `force` ignores [`SWEEP_MIN_INTERVAL_SECS`]; `dry_run` reports without
+/// spawning or taking any lease. Both are for `rite hooks drain`, so a person
+/// can see what is stranded, and act on it, without waiting for the next
+/// message to arrive.
+pub(crate) fn sweep_stranded_queues(
+    hooks: &HashMap<String, Hook>,
+    only_hook: Option<&str>,
+    force: bool,
+    dry_run: bool,
+) -> Vec<SweptQueue> {
+    let now = Utc::now();
+    let candidates = sweep_candidates(hooks, only_hook, force, now);
+    if candidates.is_empty() {
+        return Vec::new();
+    }
+
+    let pending = pending_triggers();
+    if pending.is_empty() {
+        return Vec::new();
+    }
+
+    let mut swept = Vec::new();
+
+    // Entries for a hook that no longer exists can never be delivered: the id
+    // in `spawn://<hook-id>/<channel>` is gone, so no future trigger will ever
+    // match them. Retire them rather than leave a queue that only grows.
+    // `remove` does this at source; this catches queues orphaned before it did.
+    if only_hook.is_none() {
+        let orphans: Vec<&QueuedTrigger> = pending
+            .iter()
+            .filter(|entry| !hooks.contains_key(&entry.hook_id))
+            .collect();
+        for (hook_id, channel) in orphan_keys(&orphans) {
+            let batch: Vec<QueuedTrigger> = orphans
+                .iter()
+                .filter(|e| e.hook_id == hook_id && e.channel == channel)
+                .map(|e| (*e).clone())
+                .collect();
+            swept.push(SweptQueue {
+                hook_id: hook_id.clone(),
+                channel: channel.clone(),
+                message_id: None,
+                count: batch.len(),
+                outcome: "retired (hook removed)".to_string(),
+            });
+            if !dry_run {
+                mark_delivered(&batch);
+                record_firing(&hook_id, &channel, "", false, false, Some("queue orphaned"));
+            }
+        }
+    }
+
+    for hook in candidates {
+        for channel in queued_channels(&pending, &hook.id) {
+            let queue = pending_for(&hook.id, &channel);
+            if queue.is_empty() {
+                continue;
+            }
+
+            // Everything the queue holds, oldest first, anchored on the newest
+            // — the same order and the same anchor a message-driven spawn
+            // gets, so an agent cannot tell a swept batch from a normal one.
+            let cap = hook.lease_max_batch().max(1);
+            let mut batch: Vec<QueuedTrigger> = queue.into_iter().take(cap).collect();
+            let anchor = batch.pop().expect("queue is not empty");
+
+            let pattern = hook.lease_pattern(&channel);
+            let report = |outcome: &str| SweptQueue {
+                hook_id: hook.id.clone(),
+                channel: channel.clone(),
+                message_id: Some(anchor.message_id.clone()),
+                count: batch.len() + 1,
+                outcome: outcome.to_string(),
+            };
+
+            if dry_run {
+                let claims: Vec<FileClaim> = read_records(&claims_path()).unwrap_or_default();
+                swept.push(report(if lease_available(&pattern, &claims, now) {
+                    "would spawn"
+                } else {
+                    "lease held"
+                }));
+                continue;
+            }
+
+            let command_agent = hook_command_agent(hook, &anchor.agent).to_string();
+            let Some(lease) = acquire_lease(&pattern, &command_agent, hook.lease_ttl_secs()) else {
+                // A spawn is live. It is not stranded, and the trigger it is
+                // waiting behind will be drained when that spawn ends.
+                swept.push(report("lease held"));
+                continue;
+            };
+
+            // The condition still has to hold *now*. A channel hook gated on
+            // `agent://x` must not spawn a second agent just because an old
+            // trigger is waiting.
+            let (claim, _, _) = match evaluate_gate(hook, &anchor.agent, &implied_mentions(hook)) {
+                HookGate::Ready {
+                    claim,
+                    claim_ttl,
+                    claim_pattern,
+                } => (claim, claim_ttl, claim_pattern),
+                HookGate::ConditionFailed | HookGate::Busy { .. } => {
+                    release_own_claim(Some(&lease));
+                    swept.push(report("condition not met"));
+                    continue;
+                }
+            };
+
+            let executed = spawn_hook(
+                hook,
+                &channel,
+                &anchor.message_id,
+                &command_agent,
+                &batch,
+                claim.as_ref(),
+                Some(&lease),
+                matches!(hook.claim_release, Some(ClaimRelease::OnExit)),
+            );
+
+            if executed {
+                // The anchor is only delivered once its spawn exists, exactly
+                // like the batch behind it.
+                mark_delivered(std::slice::from_ref(&anchor));
+                info!(hook_id = %hook.id, channel, "swept stranded hook queue");
+                let sys_msg = Message::new(
+                    "system",
+                    &channel,
+                    format!("Hook {} fired: {}", hook.id, shell_display(&hook.command)),
+                )
+                .with_meta(MessageMeta::System {
+                    event: SystemEvent::HookFired {
+                        hook_id: hook.id.clone(),
+                        command: hook.command.clone(),
+                    },
+                });
+                let _ = append_record(&channel_path(&channel), &sys_msg);
+            }
+
+            // Stamped on every attempt, not only the ones that started a
+            // process — exactly as the message-driven path does. A failed
+            // spawn leaves its batch queued, so if the attempt did not move
+            // the clock the hook would stay eligible and every rite command
+            // on the machine would retry it until the lease TTL ran out.
+            let mut updated = hook.clone();
+            updated.last_fired = Some(now);
+            let _ = append_record(&hooks_path(), &updated);
+
+            record_firing(
+                &hook.id,
+                &channel,
+                &anchor.message_id,
+                true,
+                executed,
+                Some(if executed {
+                    "swept stranded queue"
+                } else {
+                    "spawn failed"
+                }),
+            );
+            swept.push(report(if executed { "spawned" } else { "spawn failed" }));
+        }
+    }
+
+    swept
+}
+
+/// Distinct (hook, channel) pairs among orphaned entries, in a stable order.
+fn orphan_keys(orphans: &[&QueuedTrigger]) -> Vec<(String, String)> {
+    let mut keys: Vec<(String, String)> = orphans
+        .iter()
+        .map(|e| (e.hook_id.clone(), e.channel.clone()))
+        .collect();
+    keys.sort();
+    keys.dedup();
+    keys
+}
+
+/// Channels with queued triggers for a hook, oldest queue first.
+fn queued_channels(pending: &[QueuedTrigger], hook_id: &str) -> Vec<String> {
+    let mut channels: Vec<String> = Vec::new();
+    for entry in pending.iter().filter(|e| e.hook_id == hook_id) {
+        if !channels.contains(&entry.channel) {
+            channels.push(entry.channel.clone());
+        }
+    }
+    channels
+}
+
+/// Append one audit record. The audit log is how a hook that never spawned is
+/// told apart from one that was never triggered, so a sweep writes to it on
+/// every outcome, not only the interesting ones.
+fn record_firing(
+    hook_id: &str,
+    channel: &str,
+    message_id: &str,
+    condition_result: bool,
+    executed: bool,
+    reason: Option<&str>,
+) {
+    let firing = HookFiring {
+        ts: Utc::now(),
+        hook_id: hook_id.to_string(),
+        channel: channel.to_string(),
+        message_id: message_id.to_string(),
+        condition_result,
+        executed,
+        reason: reason.map(str::to_string),
+    };
+    let _ = append_record(&hooks_audit_path(), &firing);
 }
 
 /// Outcome of a hook's condition and claim acquisition.
@@ -1383,8 +1865,15 @@ fn evaluate_hooks_inner(
             match acquire_lease(&pattern, &command_agent, hook.lease_ttl_secs()) {
                 Some(claim) => Some(claim),
                 None => {
-                    let not_queued =
-                        enqueue_trigger(hook, channel, message_id, agent, body, &command_agent);
+                    let not_queued = enqueue_trigger(
+                        hook,
+                        channel,
+                        message_id,
+                        agent,
+                        body,
+                        &command_agent,
+                        mentions,
+                    );
                     let reason = match not_queued {
                         None => "lease held (queued)".to_string(),
                         Some(why) => format!("lease held ({})", why),
@@ -1438,7 +1927,15 @@ fn evaluate_hooks_inner(
                 // instead of dropping it the way a cooldown would.
                 release_own_claim(lease.as_ref());
                 let reason = if hook.uses_lease() {
-                    match enqueue_trigger(hook, channel, message_id, agent, body, &command_agent) {
+                    match enqueue_trigger(
+                        hook,
+                        channel,
+                        message_id,
+                        agent,
+                        body,
+                        &command_agent,
+                        mentions,
+                    ) {
                         None => format!("{} (queued)", reason),
                         Some(why) => format!("{} ({})", reason, why),
                     }
@@ -1472,63 +1969,16 @@ fn evaluate_hooks_inner(
         };
 
         // Spawn the command
-        let executed = if hook.command.is_empty() {
-            release_own_claim(claim.as_ref());
-            release_own_claim(lease.as_ref());
-            false
-        } else {
-            let mut command = std::process::Command::new(&hook.command[0]);
-            command
-                .args(&hook.command[1..])
-                .current_dir(&hook.cwd)
-                .env("RITE_CHANNEL", channel)
-                .env("RITE_MESSAGE_ID", message_id)
-                .env("RITE_AGENT", &command_agent)
-                .env("RITE_HOOK_ID", &hook.id)
-                .stdin(std::process::Stdio::null())
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null());
-
-            if hook.uses_lease() {
-                // Chronological, triggering message last. Additive: hooks
-                // without a lease see exactly the environment they always did.
-                let mut ids: Vec<&str> = batch.iter().map(|e| e.message_id.as_str()).collect();
-                ids.push(message_id);
-                command
-                    .env("RITE_BATCH_COUNT", ids.len().to_string())
-                    .env("RITE_BATCH_MESSAGE_IDS", ids.join(","))
-                    .env("RITE_LEASE_PATTERN", hook.lease_pattern(channel));
-            }
-
-            if let Some(traceparent) = crate::telemetry::current_traceparent() {
-                command.env("TRACEPARENT", traceparent);
-            }
-
-            match command.spawn() {
-                Ok(mut child) => {
-                    mark_delivered(&batch);
-                    if is_on_exit {
-                        // Block until command exits, then release claim and
-                        // lease — the next message drains whatever queued up
-                        // while this spawn was running.
-                        let _ = child.wait();
-                        release_own_claim(claim.as_ref());
-                        release_own_claim(lease.as_ref());
-                    } else {
-                        // Reap child in background to prevent zombie processes
-                        std::thread::spawn(move || {
-                            let _ = child.wait();
-                        });
-                    }
-                    true
-                }
-                Err(_) => {
-                    release_own_claim(claim.as_ref());
-                    release_own_claim(lease.as_ref());
-                    false
-                }
-            }
-        };
+        let executed = spawn_hook(
+            hook,
+            channel,
+            message_id,
+            &command_agent,
+            &batch,
+            claim.as_ref(),
+            lease.as_ref(),
+            is_on_exit,
+        );
 
         // Post system message to channel
         if executed {
@@ -1576,6 +2026,11 @@ fn evaluate_hooks_inner(
         };
         let _ = append_record(&hooks_audit_path(), &firing);
     }
+
+    // Ride this invocation to deliver anything stranded behind a lease that
+    // has since lapsed — in any channel, not only this one. Nothing here
+    // depends on the message that got us this far.
+    sweep_stranded_queues(&active, None, false, false);
 
     Ok(results)
 }

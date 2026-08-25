@@ -242,8 +242,9 @@ in `#maw` delivers a trigger stranded in `#console`. There is no daemon and no
 timer.
 
 ```bash
-rite hooks drain --dry-run    # what is stranded, changing nothing
-rite hooks drain              # deliver it now, without waiting for traffic
+rite hooks drain --dry-run                    # what is stranded, changing nothing
+rite hooks drain                              # deliver it now, without waiting for traffic
+rite hooks drain --discard --hook-id hk-abc   # throw the backlog away instead
 ```
 
 You do not normally run either. Use `--dry-run` to explain a responder that
@@ -259,6 +260,13 @@ Two things bound it. The spawn lease is taken exactly as a message would take
 it, so a sweep can no more double-spawn than a message can; and a hook is swept
 at most once a minute, because a spawn that fails leaves its batch queued and
 would otherwise be retried by every rite command on the machine.
+
+`--discard` is for a backlog no longer worth acting on. A responder that was
+down while its channel stayed busy comes back to as many as 500 queued
+triggers and works through them 50 per spawn — ten spawns replaying a day-old
+conversation. It needs `--hook-id` or `--all`, because a discarded queue does
+not come back. The messages do: they are durable in their channel, so a
+discard loses the wake-up and never the content.
 
 `hooks remove` retires whatever is queued for that hook — nothing could ever
 deliver it, since every delivery path matches on the hook id. Prefer

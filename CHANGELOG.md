@@ -34,6 +34,15 @@ All notable changes to this project are documented here. This project adheres to
   without taking a lease or spawning anything. The sweep needs traffic to ride;
   this is the escape hatch for a machine where nothing is talking to rite, and
   the way to explain a responder that appears not to have woken up.
+- `rite hooks drain --discard` retires a stranded queue instead of delivering
+  it, for a backlog no longer worth acting on: a responder that was down while
+  its channel stayed busy returns to as many as 500 queued triggers and works
+  through them 50 per spawn. Previously the only ways out were `hooks remove`,
+  which retires the queue but takes the hook ID and so breaks the spawn lease,
+  or hand-editing `hook_queue.jsonl`. Requires `--hook-id` or `--all`, since a
+  discarded queue does not come back — though the messages do, being durable in
+  their channel all along. Named `--discard` rather than a `hooks clear` verb,
+  which reads equally as "delete every hook".
 
 ## [0.34.0] - 2026-08-12
 

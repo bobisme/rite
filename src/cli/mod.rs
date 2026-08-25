@@ -751,6 +751,20 @@ pub enum HooksCommands {
         /// Report what would be drained, spawn nothing
         #[arg(long)]
         dry_run: bool,
+
+        /// Throw the stranded triggers away instead of delivering them.
+        ///
+        /// For a backlog that is no longer worth acting on — a responder that
+        /// was down while its channel stayed busy comes back to a queue it
+        /// would replay 50 at a time. The messages themselves are untouched;
+        /// they are durable in their channel, and only the wake-up is lost.
+        /// Needs `--hook-id` or `--all`, so the blast radius is deliberate.
+        #[arg(long)]
+        discard: bool,
+
+        /// With `--discard`, act on every hook rather than one
+        #[arg(long)]
+        all: bool,
     },
 }
 

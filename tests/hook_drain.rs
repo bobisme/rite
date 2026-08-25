@@ -533,3 +533,270 @@ fn test_drain_reports_nothing_when_nothing_is_stranded() {
     );
     assert_eq!(log.settle().len(), 1, "drain must not re-spawn a hook");
 }
+
+// --- discard (bn-14vy) -----------------------------------------------------
+
+/// The disposition the drain lacked: throw a backlog away rather than replay
+/// it. A responder that was down while its channel stayed busy comes back to a
+/// queue it would work through 50 spawns at a time.
+#[test]
+fn test_discard_retires_the_queue_without_spawning() {
+    let project = TestProject::with_name("discard-retires");
+    let (hook_id, log) = leased_hook(&project);
+
+    send(&project, "rite", "@worker first", "ops");
+    log.wait_for(1);
+    send(&project, "rite", "@worker second", "ops");
+    send(&project, "rite", "@worker third", "ops");
+    wait_for_lease_to_lapse();
+    assert_eq!(pending(&project).len(), 2, "precondition: two queued");
+
+    let out = project.run_rite_with_env(
+        &[
+            "hooks",
+            "drain",
+            "--discard",
+            "--hook-id",
+            &hook_id,
+            "--format",
+            "json",
+        ],
+        Some("ops"),
+    );
+    out.assert_success();
+    let parsed: Value = serde_json::from_str(&out.stdout_str()).expect("valid json");
+    assert_eq!(parsed["discard"], true);
+    assert_eq!(parsed["drained"][0]["outcome"], "discarded");
+    assert_eq!(parsed["drained"][0]["count"], 2);
+
+    assert!(pending(&project).is_empty(), "the queue is retired");
+    assert_eq!(log.settle().len(), 1, "discard must not spawn anything");
+}
+
+/// Discarding loses the wake-up, never the content. Anyone can still read
+/// every discarded trigger in the channel it arrived on.
+#[test]
+fn test_discard_leaves_the_messages_themselves_alone() {
+    let project = TestProject::with_name("discard-keeps-messages");
+    let (hook_id, log) = leased_hook(&project);
+
+    send(&project, "rite", "@worker first", "ops");
+    log.wait_for(1);
+    let queued = send(&project, "rite", "@worker do not lose me", "ops");
+    wait_for_lease_to_lapse();
+
+    project
+        .run_rite_with_env(
+            &["hooks", "drain", "--discard", "--hook-id", &hook_id],
+            Some("ops"),
+        )
+        .assert_success();
+
+    let history = project.run_rite_with_env(
+        &["history", "rite", "-n", "20", "--format", "json"],
+        Some("ops"),
+    );
+    history.assert_success();
+    assert!(
+        history.stdout_str().contains(&queued),
+        "the message stays in the channel: {}",
+        history.stdout_str()
+    );
+}
+
+/// `--discard` with no target would mean every hook on the machine, across
+/// every project, and a discarded queue cannot be recovered.
+#[test]
+fn test_discard_requires_an_explicit_target() {
+    let project = TestProject::with_name("discard-needs-target");
+    let (_hook_id, log) = leased_hook(&project);
+
+    send(&project, "rite", "@worker first", "ops");
+    log.wait_for(1);
+    send(&project, "rite", "@worker second", "ops");
+    wait_for_lease_to_lapse();
+
+    let out = project.run_rite_with_env(&["hooks", "drain", "--discard"], Some("ops"));
+    assert!(!out.success(), "a targetless discard must be refused");
+    assert!(
+        out.stderr_str().contains("--hook-id") && out.stderr_str().contains("--all"),
+        "the error must name both ways to be explicit: {}",
+        out.stderr_str()
+    );
+    assert_eq!(
+        pending(&project).len(),
+        1,
+        "a refused discard must not retire anything"
+    );
+}
+
+/// `--all` is the deliberate way to say "every hook".
+#[test]
+fn test_discard_all_retires_every_queue() {
+    let project = TestProject::with_name("discard-all");
+    let (_hook_id, log) = leased_hook(&project);
+
+    send(&project, "rite", "@worker first", "ops");
+    log.wait_for(1);
+    send(&project, "rite", "@worker second", "ops");
+    wait_for_lease_to_lapse();
+
+    project
+        .run_rite_with_env(&["hooks", "drain", "--discard", "--all"], Some("ops"))
+        .assert_success();
+    assert!(pending(&project).is_empty());
+}
+
+/// Preview before destroying.
+#[test]
+fn test_discard_dry_run_changes_nothing() {
+    let project = TestProject::with_name("discard-dry-run");
+    let (hook_id, log) = leased_hook(&project);
+
+    send(&project, "rite", "@worker first", "ops");
+    log.wait_for(1);
+    send(&project, "rite", "@worker second", "ops");
+    wait_for_lease_to_lapse();
+
+    let out = project.run_rite_with_env(
+        &[
+            "hooks",
+            "drain",
+            "--discard",
+            "--hook-id",
+            &hook_id,
+            "--dry-run",
+            "--format",
+            "json",
+        ],
+        Some("ops"),
+    );
+    out.assert_success();
+    let parsed: Value = serde_json::from_str(&out.stdout_str()).expect("valid json");
+    assert_eq!(parsed["drained"][0]["outcome"], "would discard");
+    assert_eq!(
+        pending(&project).len(),
+        1,
+        "a dry run must not retire the queue"
+    );
+}
+
+/// A queue can outlive its hook. Discarding it by id must still work, or the
+/// one case that most needs clearing would be the one case that cannot be.
+#[test]
+fn test_discard_works_on_a_queue_whose_hook_is_gone() {
+    let project = TestProject::with_name("discard-orphan");
+    let (hook_id, log) = add_hook(&project, &["--lease", "--lease-ttl", "600"]);
+
+    send(&project, "rite", "@worker first", "ops");
+    log.wait_for(1);
+    send(&project, "rite", "@worker second", "ops");
+
+    // Strand the queue the way only a hand-edit can now that `remove` retires
+    // it: drop the hook record itself, leaving the entries behind.
+    let kept: Vec<String> = std::fs::read_to_string(hooks_file(&project))
+        .unwrap()
+        .lines()
+        .filter(|l| !l.contains(&hook_id))
+        .map(str::to_string)
+        .collect();
+    std::fs::write(hooks_file(&project), kept.join("\n")).unwrap();
+    assert_eq!(pending(&project).len(), 1, "the queue outlived its hook");
+
+    project
+        .run_rite_with_env(
+            &["hooks", "drain", "--discard", "--hook-id", &hook_id],
+            Some("ops"),
+        )
+        .assert_success();
+    assert!(pending(&project).is_empty());
+}
+
+/// `--all` without `--discard` is a misunderstanding, not a no-op: a drain
+/// already covers every hook.
+#[test]
+fn test_all_without_discard_is_refused() {
+    let project = TestProject::with_name("discard-all-alone");
+    let out = project.run_rite_with_env(&["hooks", "drain", "--all"], Some("ops"));
+    assert!(!out.success(), "--all alone must be refused");
+    assert!(out.stderr_str().contains("--discard"));
+}
+
+/// A second hook, on its own channel, with its own spawn log.
+fn add_second_hook(project: &TestProject) -> (String, SpawnLog) {
+    let cwd = project.work_dir().to_string_lossy().to_string();
+    let log = project.work_dir().join("spawns-two.log");
+    let script = format!(
+        r#"printf '%s|%s|%s\n' "$RITE_CHANNEL" "$RITE_MESSAGE_ID" "$RITE_BATCH_MESSAGE_IDS" >> {}"#,
+        log.display()
+    );
+    let args = vec![
+        "hooks",
+        "add",
+        "--channel",
+        "other",
+        "--mention",
+        "helper",
+        "--claim-owner",
+        "helper-runner",
+        "--cwd",
+        &cwd,
+        "--lease",
+        "--lease-ttl",
+        SHORT_LEASE_SECS,
+        "--",
+        "sh",
+        "-c",
+        &script,
+    ];
+    project
+        .run_rite_with_env(&args, Some("ops"))
+        .assert_success();
+
+    let id = json_lines(&hooks_file(project))
+        .pop()
+        .expect("hooks add must write a record")["id"]
+        .as_str()
+        .expect("hook id")
+        .to_string();
+    (id, SpawnLog(log))
+}
+
+/// `--hook-id` must scope the destruction. Discarding one hook's backlog must
+/// not quietly take another project's with it.
+#[test]
+fn test_discard_by_hook_id_spares_other_queues() {
+    let project = TestProject::with_name("discard-scoped");
+    let (first_id, first_log) = leased_hook(&project);
+    let (second_id, second_log) = add_second_hook(&project);
+
+    // Give both hooks a live spawn, then a trigger queued behind it.
+    send(&project, "rite", "@worker first", "ops");
+    first_log.wait_for(1);
+    send(&project, "rite", "@worker queued", "ops");
+
+    send(&project, "other", "@helper first", "ops");
+    second_log.wait_for(1);
+    send(&project, "other", "@helper queued", "ops");
+
+    assert_eq!(pending(&project).len(), 2, "one queued per hook");
+    wait_for_lease_to_lapse();
+
+    project
+        .run_rite_with_env(
+            &["hooks", "drain", "--discard", "--hook-id", &first_id],
+            Some("ops"),
+        )
+        .assert_success();
+
+    let left = pending(&project);
+    assert_eq!(
+        left.len(),
+        1,
+        "only the named hook's queue is discarded: {left:?}"
+    );
+    assert_eq!(
+        left[0]["hook_id"], second_id,
+        "the surviving queue belongs to the hook that was not named"
+    );
+}

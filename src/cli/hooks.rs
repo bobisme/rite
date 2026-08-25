@@ -747,17 +747,44 @@ pub fn remove(hook_id: String, format: OutputFormat) -> Result<()> {
 /// [`SWEEP_MIN_INTERVAL_SECS`] of a lease lapsing *if* anything is still
 /// talking to rite. This is the escape hatch for when nothing is: a person who
 /// does not want to wait, and a test that cannot.
-pub fn drain(hook_id: Option<String>, dry_run: bool, format: OutputFormat) -> Result<()> {
+pub fn drain(
+    hook_id: Option<String>,
+    dry_run: bool,
+    discard: bool,
+    all: bool,
+    format: OutputFormat,
+) -> Result<()> {
     let all_hooks: Vec<Hook> = read_records(&hooks_path()).unwrap_or_default();
     let active = build_active_hooks(&all_hooks);
 
+    // A discarded queue cannot be recovered from `hook_queue.jsonl`, so
+    // "which hooks" is never inferred. Without a target this would silently
+    // mean every hook on the machine, across every project.
+    if discard && hook_id.is_none() && !all {
+        bail!("--discard needs a target: pass --hook-id <id>, or --all for every hook");
+    }
+    if all && !discard {
+        bail!("--all only applies to --discard; a drain already covers every hook");
+    }
+
+    // A queue can outlive its hook, and discarding one by id is a reasonable
+    // thing to want. Delivering one is not: nothing could spawn it.
     if let Some(id) = &hook_id
+        && !discard
         && !active.contains_key(id)
     {
         bail!("Hook not found: {}", id);
     }
 
-    let swept = sweep_stranded_queues(&active, hook_id.as_deref(), true, dry_run);
+    let swept = sweep_stranded_queues(
+        &active,
+        &SweepOptions {
+            only_hook: hook_id,
+            force: true,
+            dry_run,
+            discard,
+        },
+    );
 
     match format {
         OutputFormat::Json => {
@@ -765,6 +792,7 @@ pub fn drain(hook_id: Option<String>, dry_run: bool, format: OutputFormat) -> Re
                 "{}",
                 serde_json::to_string_pretty(&serde_json::json!({
                     "dry_run": dry_run,
+                    "discard": discard,
                     "drained": swept,
                 }))?
             );
@@ -776,10 +804,10 @@ pub fn drain(hook_id: Option<String>, dry_run: bool, format: OutputFormat) -> Re
             for item in &swept {
                 println!(
                     "{} {} #{} — {} trigger(s) [{}]",
-                    if item.outcome == "spawned" {
-                        "Drained:".green()
-                    } else {
-                        "Skipped:".yellow()
+                    match item.outcome.as_str() {
+                        "spawned" => "Drained:".green(),
+                        "discarded" => "Discarded:".red(),
+                        _ => "Skipped:".yellow(),
                     },
                     item.hook_id.cyan(),
                     item.channel,
@@ -1383,20 +1411,36 @@ fn implied_mentions(hook: &Hook) -> Vec<String> {
     }
 }
 
-/// Deliver triggers stranded behind a lease that is no longer held.
+/// How a sweep should treat what it finds.
 ///
-/// `force` ignores [`SWEEP_MIN_INTERVAL_SECS`]; `dry_run` reports without
-/// spawning or taking any lease. Both are for `rite hooks drain`, so a person
-/// can see what is stranded, and act on it, without waiting for the next
-/// message to arrive.
+/// Everything but `only_hook` is for `rite hooks drain`: a sweep riding an
+/// ordinary command takes the defaults.
+#[derive(Debug, Default, Clone)]
+pub(crate) struct SweepOptions {
+    /// Restrict to one hook. `None` means every hook.
+    pub only_hook: Option<String>,
+    /// Ignore [`SWEEP_MIN_INTERVAL_SECS`].
+    pub force: bool,
+    /// Report without spawning, retiring, or taking any lease.
+    pub dry_run: bool,
+    /// Retire what is stranded instead of delivering it.
+    pub discard: bool,
+}
+
+/// Deliver — or, with [`SweepOptions::discard`], retire — triggers stranded
+/// behind a lease that is no longer held.
 pub(crate) fn sweep_stranded_queues(
     hooks: &HashMap<String, Hook>,
-    only_hook: Option<&str>,
-    force: bool,
-    dry_run: bool,
+    opts: &SweepOptions,
 ) -> Vec<SweptQueue> {
     let now = Utc::now();
-    let candidates = sweep_candidates(hooks, only_hook, force, now);
+    let only_hook = opts.only_hook.as_deref();
+
+    if opts.discard {
+        return discard_stranded_queues(only_hook, opts.dry_run);
+    }
+
+    let candidates = sweep_candidates(hooks, only_hook, opts.force, now);
     if candidates.is_empty() {
         return Vec::new();
     }
@@ -1406,6 +1450,7 @@ pub(crate) fn sweep_stranded_queues(
         return Vec::new();
     }
 
+    let dry_run = opts.dry_run;
     let mut swept = Vec::new();
 
     // Entries for a hook that no longer exists can never be delivered: the id
@@ -1550,6 +1595,67 @@ pub(crate) fn sweep_stranded_queues(
     }
 
     swept
+}
+
+/// Retire stranded triggers without delivering them.
+///
+/// No lease is taken and no condition is evaluated, because nothing is going
+/// to spawn. Nor does the floor apply: this is a person deciding a backlog is
+/// not worth acting on, not rite deciding to retry.
+///
+/// This is safe in a way that deleting a message would not be. The queue is a
+/// second, weaker copy of something the channel already holds durably —
+/// discarding it loses the wake-up, never the content. A reader can still find
+/// every one of these messages with `rite history`.
+fn discard_stranded_queues(only_hook: Option<&str>, dry_run: bool) -> Vec<SweptQueue> {
+    let pending: Vec<QueuedTrigger> = pending_triggers()
+        .into_iter()
+        .filter(|entry| only_hook.is_none_or(|id| entry.hook_id == id))
+        .collect();
+
+    let mut discarded = Vec::new();
+    let keys: Vec<(String, String)> = {
+        let refs: Vec<&QueuedTrigger> = pending.iter().collect();
+        orphan_keys(&refs)
+    };
+
+    for (hook_id, channel) in keys {
+        let batch: Vec<QueuedTrigger> = pending
+            .iter()
+            .filter(|e| e.hook_id == hook_id && e.channel == channel)
+            .cloned()
+            .collect();
+
+        discarded.push(SweptQueue {
+            hook_id: hook_id.clone(),
+            channel: channel.clone(),
+            // A discard has no anchor: nothing is being handed to anything.
+            message_id: None,
+            count: batch.len(),
+            outcome: if dry_run {
+                "would discard"
+            } else {
+                "discarded"
+            }
+            .to_string(),
+        });
+
+        if !dry_run {
+            mark_delivered(&batch);
+            for entry in &batch {
+                record_firing(
+                    &hook_id,
+                    &channel,
+                    &entry.message_id,
+                    false,
+                    false,
+                    Some("queue discarded"),
+                );
+            }
+        }
+    }
+
+    discarded
 }
 
 /// Distinct (hook, channel) pairs among orphaned entries, in a stable order.
@@ -2030,7 +2136,7 @@ fn evaluate_hooks_inner(
     // Ride this invocation to deliver anything stranded behind a lease that
     // has since lapsed — in any channel, not only this one. Nothing here
     // depends on the message that got us this far.
-    sweep_stranded_queues(&active, None, false, false);
+    sweep_stranded_queues(&active, &SweepOptions::default());
 
     Ok(results)
 }

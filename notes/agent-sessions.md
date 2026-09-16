@@ -43,8 +43,8 @@ v2.1.273. Results are scoped to those versions.
 | Cold spawn | Existing `claude -p` hook | Existing `codex exec` hook |
 
 Demonstrated: cross-harness delivery in both directions, busy-Codex queuing,
-and independent routing of two Codex threads sharing a directory. Unverified:
-busy-Claude batching, and the restart and failure matrix. The complete
+busy-Claude batching, and independent routing of two Codex threads sharing a
+directory. Unverified: the restart and failure matrix. The complete
 phase-one gate is still open; interoperability is established on the tested
 versions.
 
@@ -72,13 +72,17 @@ acceptance gates; the useful result is observed receipt with correct anchors.
 | Codex → Claude, idle | pong 5 | notification write 0.15 s | transcript receipt 0.18 s; acknowledgment 1.9 s after bus write |
 | Claude → Codex, busy (60 s sleep) | ping 6 | queue call 0.13 s | held. Sleep turn ended 21:31:56.617Z, queued turn began 21:31:56.621Z, anchored reply on the bus 21:32:02.423Z, 55 s after the ping |
 | Codex → Claude, busy | ping 7, ping 8 | notification write 0.05 s | **not a busy test**: Claude backgrounded or declined the sleep and was idle both times |
+| rite-dev → Claude, busy (mid-generation), 2026-09-16 | ping busy | notification write 0.17 s | **held to the turn boundary**: pushed at 19:48:28 during a 7 s generation turn, inbound line rendered when that turn ended, handled in the next turn, anchored reply on the bus 8.0 s after the ping |
 | Codex A → B → A, one directory | ping a1 | queue call into B 19 ms | anchored reply queued into A; bus round trip 5.10 s |
 | Codex B → A → B, one directory | ping b1 | queue call into A 200 ms | anchored reply queued into B; bus round trip 6.29 s |
 | plain `codex` TUI, daemon up | `codex queue` by hand | | queued turn completed with the requested reply |
 
 Every reply carried `reply_to` pointing at its request, so
-`rite wait --reply-to` was the acknowledgment with no extra machinery. Codex
-holds a queued message until the running turn ends; it did not steer mid-turn.
+`rite wait --reply-to` was the acknowledgment with no extra machinery. Both
+harnesses hold a message that arrives mid-turn until the running turn ends,
+then take it as the next turn; neither steers mid-turn. The Claude case was
+produced with a long generation rather than a sleep, since the harness
+backgrounds long shell commands.
 Two sessions sharing a working directory on the daemon were addressed
 independently and neither saw the other's queued text.
 
@@ -461,14 +465,11 @@ Numbered findings as recorded during the tests, kept for traceability.
 
 ## Loose ends
 
-- The launcher side (edict) still has to adopt `reserve` → start → `attach
+- The launcher side is edict bone bn-3oml: adopt `reserve` → start → `attach
   --attachment`, run a bridge per session, and install the SessionEnd detach
   hook per workspace.
 - `notes/agent-sessions.review.*.md` and Seal cr-3e1qze hold the review
   history; the last finding is recorded above as an accepted limitation.
-- `.crit/` was restored on main after a Seal migration deleted it during the
-  bn-3lbh merge; main now tracks both `.crit/` and `.seal/`. Pick one.
 - Sync is unused in practice; removing it would also remove the advisory
   window above.
-- Eighteen `-L probe` messages remain on `#rite`. The busy-Claude batching
-  case still needs a session that is genuinely mid-turn.
+- Nineteen `-L probe` messages remain on `#rite`.

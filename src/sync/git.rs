@@ -3,7 +3,7 @@
 use anyhow::{Context, Result, bail};
 use std::path::Path;
 use std::process::Command;
-use tracing::warn;
+use tracing::{debug, warn};
 
 /// Check if git is available on the system.
 pub fn check_git_available() -> bool {
@@ -163,6 +163,11 @@ pub fn commit_files(data_dir: &Path, files: &[&str], message: &str) -> Result<()
         return Ok(());
     }
 
+    // Git's own output must never reach the caller's stdout: auto-commit runs
+    // inside `send` and `claims stake`, whose stdout is a structured envelope
+    // under `--format json|toon`. Capture everything and report through
+    // tracing instead.
+
     // Add files
     let mut cmd = Command::new("git");
     cmd.current_dir(data_dir).arg("add");
@@ -170,23 +175,44 @@ pub fn commit_files(data_dir: &Path, files: &[&str], message: &str) -> Result<()
         cmd.arg(file);
     }
 
-    let status = cmd.status();
-    if status.is_err() || !status.unwrap().success() {
-        // Log warning but don't fail
-        warn!("git add failed (auto-commit)");
-        return Ok(());
+    match cmd.output() {
+        Ok(output) if output.status.success() => {}
+        Ok(output) => {
+            warn!(
+                stderr = %String::from_utf8_lossy(&output.stderr).trim(),
+                "git add failed (auto-commit)"
+            );
+            return Ok(());
+        }
+        Err(error) => {
+            warn!(%error, "git add failed (auto-commit)");
+            return Ok(());
+        }
     }
 
     // Commit (disable GPG signing to avoid interactive prompts)
-    let status = Command::new("git")
+    let output = Command::new("git")
         .current_dir(data_dir)
         .args(["-c", "commit.gpgsign=false", "commit", "-m", message])
-        .status();
+        .output();
 
-    if status.is_err() || !status.unwrap().success() {
-        // Log warning but don't fail (might be nothing to commit)
-        // This is expected if the file hasn't changed
-        return Ok(());
+    match output {
+        Ok(output) if output.status.success() => {
+            debug!(
+                summary = %String::from_utf8_lossy(&output.stdout).trim(),
+                "auto-commit"
+            );
+        }
+        Ok(output) => {
+            // Expected when the file has not changed: nothing to commit.
+            debug!(
+                stderr = %String::from_utf8_lossy(&output.stderr).trim(),
+                "auto-commit skipped"
+            );
+        }
+        Err(error) => {
+            warn!(%error, "git commit failed (auto-commit)");
+        }
     }
 
     Ok(())

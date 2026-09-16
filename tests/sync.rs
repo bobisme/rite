@@ -645,3 +645,43 @@ fn test_sync_status_toon_format() {
         "Should output TOON format with key-value pairs"
     );
 }
+
+/// Auto-commit must not leak git's own output onto stdout: under
+/// `--format json` the envelope has to be the only thing there.
+#[test]
+fn test_auto_commit_keeps_structured_stdout_clean() {
+    let mut project = TestProject::with_name("sync-quiet-stdout");
+    let agent = project.agent("QuietAgent");
+    let data_path = project.data_path();
+
+    agent.run(&["sync", "init"]).assert_success();
+    disable_gpg_signing(data_path);
+    let commits_before = git_log_count(data_path);
+
+    let sent = agent.run(&["send", "general", "hello json", "--format", "json"]);
+    sent.assert_success();
+    let stdout = sent.stdout_str();
+    let envelope: serde_json::Value = serde_json::from_str(&stdout)
+        .unwrap_or_else(|e| panic!("send stdout is not a JSON envelope: {e}\n{stdout}"));
+    assert_eq!(envelope["channel"], "general");
+    assert!(
+        !stdout.contains("file changed") && !stdout.contains("[main"),
+        "git commit output leaked into stdout:\n{stdout}"
+    );
+
+    // `claims stake` does not yet render a JSON envelope (tracked separately),
+    // so only the leak is asserted here.
+    let staked = agent.run(&["claims", "stake", "src/**", "--format", "json"]);
+    staked.assert_success();
+    let stdout = staked.stdout_str();
+    assert!(
+        !stdout.contains("file changed") && !stdout.contains("[main"),
+        "git commit output leaked into claims stake stdout:\n{stdout}"
+    );
+
+    // The commits still happen; only their chatter moved off stdout.
+    assert!(
+        git_log_count(data_path) >= commits_before + 2,
+        "auto-commit should still record the send and the claim"
+    );
+}

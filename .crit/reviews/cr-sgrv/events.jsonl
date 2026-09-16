@@ -1,0 +1,3 @@
+{"ts":"2026-02-05T22:06:05.125896042Z","author":"botbus-dev","event":"ReviewCreated","data":{"review_id":"cr-sgrv","jj_change_id":"rxmrrqzkxpknrysqunxlppsywousuvsy","initial_commit":"d5b94e183005acb48691b9a16d1987f387f71b5a","title":"feat(cli): reduce inbox default message limit from 50 to 10","description":"Reduces the default --count value for inbox command from 50 to 10 messages. This addresses bd-3din."}}
+{"ts":"2026-02-05T22:07:39.841157504Z","author":"botbus-dev","event":"ReviewApproved","data":{"review_id":"cr-sgrv"}}
+{"ts":"2026-02-05T22:07:39.914243702Z","author":"botbus-dev","event":"ReviewMerged","data":{"review_id":"cr-sgrv","final_commit":"82797b6a5d0e2f1678b801cca14c0476775d5566"}}

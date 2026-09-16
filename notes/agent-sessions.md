@@ -1,10 +1,12 @@
 # Agent sessions: routing messages to live harnesses
 
-Status: interoperability demonstrated on 2026-09-15 with thin adapters and no
-changes to rite. The session registry is not implemented. The first release is
-the thin local bridge, explicit thread identity, and ordinary occupancy claims.
-Delivery is best-effort. The receipt ledger, durable replay, and coordinated
-hook admission are deferred design options, kept in
+Status: interoperability demonstrated on 2026-09-15 with thin adapters. The
+session registry shipped on 2026-09-16 as `rite sessions` (bn-3c4d, merged in
+7aa978b; `rite send --format json` stdout fix bn-3lbh merged in cd83428). The
+first release is the thin local bridge, explicit thread identity, and
+occupancy claims owned by their attachment. Delivery is best-effort and
+occupancy is advisory, like every rite claim. The receipt ledger, durable
+replay, and coordinated hook admission remain deferred design options, kept in
 [Deferred design options](#deferred-design-options), not prerequisites.
 
 Companion to [claude-code-channel-plugin.md](claude-code-channel-plugin.md),
@@ -112,6 +114,15 @@ The recipe that worked, and that a launcher such as edict would encode.
    confounded by a previously saved "don't ask again" approval.
 5. Bridge, one per session: `rite mentions follow --agent <name> --format json`,
    each record rendered and passed to `codex queue --thread <session_id>`.
+6. Occupancy, in this order: `rite sessions reserve --harness codex` **before**
+   starting the harness, then start it, then
+   `rite sessions attach --attachment <id> --session <session_id>` once the id
+   is known. The reservation already holds `agent://<name>`, so no responder can
+   start in the gap. A direct `attach` after the harness is running cannot
+   protect it from a responder that won the identity first; it refuses and
+   says so. The bridge calls `rite sessions renew --attachment <id>` before the
+   claim's TTL, and a generic SessionEnd hook runs
+   `rite sessions detach --session $session_id`.
 
 The session id is created at the first prompt, not at TUI launch. It appears
 as the rollout filename under `~/.codex/sessions/` and in `session_index.jsonl`,
@@ -312,21 +323,65 @@ execution authority.
 | Two hosts use the same agent name | No exclusive-owner guarantee; cross-host ownership unsupported |
 | Daemon down or stale pid file | `codex queue` fails on every thread; the launcher checks `daemon version` before spawning |
 
-## Proposed CLI
+## CLI
 
-Design sketches, not available commands:
+Shipped in bn-3c4d:
 
 ```text
-rite sessions attach --agent <name> --harness <h> --session <id> [--kind push|stream|pull] [--replace <attachment-id>]
-rite sessions detach --session <id>
-rite sessions renew --attachment <id>        # called by the bridge
-rite sessions list [--agent <name>]
+rite sessions reserve --harness <h> [--kind push|stream|pull] [--ttl 8h] [--window 10m]
+rite sessions attach  --harness <h> --session <id> [--kind] [--ttl] [--replace <attachment-id>]
+rite sessions attach  --attachment <id> --session <id> [--ttl]      # bind a reservation
+rite sessions detach  --session <id> | --attachment <id>            # no identity needed
+rite sessions renew   --attachment <id> [--ttl]                      # from the bridge
+rite sessions list    [--name <agent>] [--all]
 ```
 
-Bridges stay external scripts in the first release. An optional
-`rite mentions follow --exec <cmd>` would run a command per record and retire
-the shell loop. Placement: `src/core/session.rs`, `src/cli/sessions.rs`.
-`rite agents` may show attachment, harness, activity, and readiness separately.
+Records live in `local/sessions.jsonl`, ignored by `sync init` and dropped
+from the index by `sync commit`. `rite agents` shows the live attachment.
+Bridges stay external scripts. `src/core/session.rs`, `src/cli/sessions.rs`.
+
+### What the implementation guarantees
+
+Nine rounds of dedicated security review (Seal cr-3e1qze) shaped this. Every
+finding but the last was fixed:
+
+- Uniqueness per agent and per session id is decided under the sessions-file
+  lock; a losing concurrent attach writes nothing.
+- The `agent://` claim carries its owning attachment id. Release and
+  extension are compare-and-appends that check that owner under the claims
+  lock, so a stale detach or renew from a replaced attachment cannot touch a
+  successor's claim. The generic `claims release` and `claims refresh` skip
+  owned claims. Ownerless occupancy is refused, never adopted.
+- Attach reserves, occupies, then commits; the commit holds the claims lock
+  across the session append and re-verifies before releasing it, so no
+  `attached` record survives lost occupancy. Bind renews under the claims
+  lock as its validation.
+- Replacement hands the claim to the successor without a gap, and a
+  replacement that fails or times out after the claim moved hands it back to
+  the live predecessor rather than releasing it.
+- Every session command reconciles crash leftovers for its agent: abandoned
+  reservations are retired, orphaned owned claims are released or handed
+  back. Session and claim reads fail closed on unreadable records, judged on
+  the same locked snapshot as the append. An unknown lifecycle event keeps
+  the identity reserved.
+- Responder hooks read the reservation inside their locked claim stake, so a
+  hook and an attach cannot both proceed. Every occupancy transition enters
+  the sync auto-commit path.
+- The synced claim carries no harness session id.
+
+### What it does not guarantee
+
+Occupancy is advisory, as every rite claim is. `rite sync pull` merges with
+git and can replace `claims.jsonl` under a held file lock, so a fenced
+commit can validate a snapshot a concurrent pull has superseded. This is a
+property of all of rite's locks, not of sessions, and the owner accepted it
+for phase one rather than serialise sync with storage writes (the review
+was closed with that decision recorded). A data-directory-wide lock shared
+by storage writes and `sync pull` would close the class for everything;
+removing sync altogether, which nobody uses, would too.
+
+A direct `attach` cannot protect a harness that was started before any claim
+existed. Launchers that must never overlap a responder use `reserve` first.
 
 ## Phasing and acceptance
 
@@ -334,11 +389,10 @@ the shell loop. Placement: `src/core/session.rs`, `src/cli/sessions.rs`.
    busy-Claude delivery, which needs a tool with an explicit ready/release
    handshake since the harness backgrounds long commands; endpoint restart;
    missing channel enablement.
-2. **Attachment contracts.** Registry, launcher binding, generic detach hook,
-   bridge-renewed occupancy. Acceptance: two named agents in one directory
-   attach independently; ending one while the daemon and the other survive
-   changes only its attachment and releases only its claim; a late placeholder
-   SessionEnd is a no-op. Tracked as bn-3c4d.
+2. **Attachment contracts.** Shipped (bn-3c4d). Two named agents in one
+   directory attach independently; ending one while the daemon and the other
+   survive changes only its attachment and releases only its claim; a late
+   placeholder SessionEnd is a no-op. All covered by `tests/sessions.rs`.
 3. **Occupancy enabled for configured edict responders** once a session's
    delivery has worked. Claim-free hooks untouched.
 4. **Deferred options** below, only if best-effort proves insufficient.
@@ -407,10 +461,14 @@ Numbered findings as recorded during the tests, kept for traceability.
 
 ## Loose ends
 
-- The Codex daemon started for the tests did not survive a host reboot.
-  `daemon bootstrap` is the durable form.
-- Two `hooks.state` trust entries for the scratch `hooks.json` remain in
-  `~/.codex/config.toml`; the file they hash no longer exists.
-- Eighteen `-L probe` messages remain on `#rite`.
-- The scratch scripts and logs were lost with the reboot. The scripts are
-  reconstructed in `notes/evidence/agent-sessions/`; the logs are not.
+- The launcher side (edict) still has to adopt `reserve` → start → `attach
+  --attachment`, run a bridge per session, and install the SessionEnd detach
+  hook per workspace.
+- `notes/agent-sessions.review.*.md` and Seal cr-3e1qze hold the review
+  history; the last finding is recorded above as an accepted limitation.
+- `.crit/` was restored on main after a Seal migration deleted it during the
+  bn-3lbh merge; main now tracks both `.crit/` and `.seal/`. Pick one.
+- Sync is unused in practice; removing it would also remove the advisory
+  window above.
+- Eighteen `-L probe` messages remain on `#rite`. The busy-Claude batching
+  case still needs a session that is genuinely mid-turn.

@@ -1,0 +1,1 @@
+{"hooks":{"SessionStart":[{"hooks":[{"type":"command","command":"<dir>/hookdump.sh","timeout":10}]}],"SessionEnd":[{"hooks":[{"type":"command","command":"<dir>/hookdump.sh","timeout":10}]}]}}

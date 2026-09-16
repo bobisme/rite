@@ -1,0 +1,1 @@
+{"mcpServers":{"rite-probe":{"command":"python3","args":["<dir>/rite_channel.py"],"env":{"RITE_AGENT":"probe-claude","RITE_CHANNEL_LOG":"<dir>/channel.log"}}}}

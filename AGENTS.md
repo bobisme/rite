@@ -94,6 +94,7 @@ genuinely can overlap, so the message claim is what makes the overlap safe.
 | `agents` | `rite agents [--active]` |
 | `channels` | `rite channels list\|close\|reopen\|delete\|rename` |
 | `hooks` | `rite hooks add [--name --owner]\|list [--owner]\|set\|remove\|test\|drain` |
+| `sessions` | `rite sessions reserve --harness <h> [--window]\|attach --harness <h> --session <id> [--kind push\|stream\|pull] [--ttl] [--replace <id>]\|attach --attachment <id> --session <id>\|detach --session <id>\|renew --attachment <id>\|list [--all]` — record a live harness session; reserve or attach stakes `agent://<name>` owned by the attachment, detach releases only what it owns. Launchers reserve **before** starting the harness and bind the id with `attach --attachment`; a direct `attach` cannot protect a harness that already exists from a responder that won the identity first |
 | `subscriptions` | `rite subscriptions add\|remove\|list` |
 | `statuses` | `rite statuses set\|clear\|list` |
 | `messages` | `rite messages get <id>` |

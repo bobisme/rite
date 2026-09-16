@@ -18,6 +18,7 @@ pub mod messages;
 pub mod names;
 pub mod search;
 pub mod send;
+pub mod sessions;
 pub mod status;
 pub mod statuses;
 pub mod subscribe;
@@ -385,6 +386,12 @@ pub enum Commands {
     Hooks {
         #[command(subcommand)]
         command: HooksCommands,
+    },
+
+    /// Record live harness sessions and their agent:// occupancy claims
+    Sessions {
+        #[command(subcommand)]
+        command: SessionsCommands,
     },
 
     /// Manage agent statuses (presence + status message)
@@ -865,6 +872,88 @@ pub enum StatusesCommands {
 
     /// List all agent statuses
     List,
+}
+
+#[derive(Subcommand)]
+pub enum SessionsCommands {
+    /// Reserve this agent's identity before its harness starts; bind the session id later with attach --attachment
+    Reserve {
+        /// Harness about to be started: claude, codex, or any other name
+        #[arg(long)]
+        harness: String,
+
+        /// How text will enter the session: push, stream, or pull
+        #[arg(long, default_value = "push")]
+        kind: String,
+
+        /// How long the occupancy claim lasts before the bridge must renew it (e.g. "8h", "30m", "3600")
+        #[arg(long, default_value = "8h")]
+        ttl: String,
+
+        /// How long the reservation may stay unbound before it lapses (e.g. "10m"); must be shorter than --ttl
+        #[arg(long, default_value = "10m")]
+        window: String,
+    },
+
+    /// Attach this agent to a live harness session and stake agent://<name>. A harness started before this runs can already overlap a responder; launchers that must not overlap use `reserve` before starting the harness, then `attach --attachment`.
+    Attach {
+        /// Harness hosting the session: claude, codex, or any other name
+        #[arg(long, required_unless_present = "attachment")]
+        harness: Option<String>,
+
+        /// Bind the session id to a reservation made with `sessions reserve`
+        #[arg(long)]
+        attachment: Option<String>,
+
+        /// The harness's own session id, verbatim (from its SessionStart hook or rollout)
+        #[arg(long)]
+        session: String,
+
+        /// How text enters the session: push, stream, or pull
+        #[arg(long, default_value = "push")]
+        kind: String,
+
+        /// How long the occupancy claim lasts before the bridge must renew it (e.g. "8h", "30m", "3600")
+        #[arg(long, default_value = "8h")]
+        ttl: String,
+
+        /// Take over from this agent's current attachment (its id), detaching it first
+        #[arg(long)]
+        replace: Option<String>,
+    },
+
+    /// Detach a session and release the claim it staked. Unknown or already-detached sessions are a no-op.
+    Detach {
+        /// The harness session id (what a SessionEnd hook knows)
+        #[arg(long)]
+        session: Option<String>,
+
+        /// The attachment id instead of the session id
+        #[arg(long)]
+        attachment: Option<String>,
+    },
+
+    /// Extend an attachment's occupancy claim; called by the bridge, not by activity hooks
+    Renew {
+        /// The attachment id
+        #[arg(long)]
+        attachment: String,
+
+        /// New TTL from now (e.g. "8h", "30m", "3600")
+        #[arg(long, default_value = "8h")]
+        ttl: String,
+    },
+
+    /// List live attachments
+    List {
+        /// Only this agent's attachments (default: the current agent, or everyone with --all)
+        #[arg(long)]
+        name: Option<String>,
+
+        /// Every attachment for every agent, including detached ones
+        #[arg(long)]
+        all: bool,
+    },
 }
 
 #[derive(Subcommand)]

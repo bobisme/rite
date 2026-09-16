@@ -8,6 +8,7 @@ pub mod message;
 pub mod names;
 pub mod presence;
 pub mod project;
+pub mod session;
 pub mod status;
 pub mod thread;
 pub mod wire;

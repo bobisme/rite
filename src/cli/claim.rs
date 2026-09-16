@@ -284,6 +284,18 @@ fn extend_claims(pattern: &str, ttl: u64, agent_name: &str) -> Result<()> {
             continue;
         }
 
+        // A claim bound to a session attachment is mutated only by
+        // `rite sessions detach|renew` with the matching attachment id.
+        if let Some(owner) = &claim.owner {
+            eprintln!(
+                "{} {} is owned by session attachment {}; use rite sessions detach or renew",
+                "Skipped:".yellow(),
+                claim.patterns.join(", "),
+                owner
+            );
+            continue;
+        }
+
         // Check if any pattern matches
         let matches = claim.patterns.iter().any(|p| {
             p == pattern
@@ -651,6 +663,18 @@ pub fn release(patterns: Vec<String>, release_all: bool, agent: Option<&str>) ->
 
         // Skip inactive or expired
         if !claim.active || claim.expires_at < now {
+            continue;
+        }
+
+        // A claim bound to a session attachment is mutated only by
+        // `rite sessions detach|renew` with the matching attachment id.
+        if let Some(owner) = &claim.owner {
+            eprintln!(
+                "{} {} is owned by session attachment {}; use rite sessions detach or renew",
+                "Skipped:".yellow(),
+                claim.patterns.join(", "),
+                owner
+            );
             continue;
         }
 

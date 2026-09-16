@@ -345,6 +345,76 @@ where
     T: Serialize + DeserializeOwned,
     F: FnOnce(&[T]) -> bool,
 {
+    append_if_reporting(path, record, |records, _| predicate(records))
+}
+
+/// Hold the file's exclusive lock while `f` runs, handing it the locked
+/// snapshot and what could not be read from it.
+///
+/// This is a fence, not a write: every writer that goes through
+/// [`append_if`] on `path` blocks until `f` returns, so a decision `f` makes
+/// about `path` stays true for anything `f` does before returning, including
+/// an append to a *different* file. Nothing inside `f` may append to `path`
+/// itself; that would wait on this same lock. Callers keep lock order
+/// consistent (this file first, then any other) to stay deadlock-free.
+pub fn with_exclusive_read<T, R, F>(path: &Path, f: F) -> Result<R>
+where
+    T: DeserializeOwned,
+    F: FnOnce(&[T], &ScanIssues) -> Result<R>,
+{
+    let file = OpenOptions::new()
+        .create(true)
+        .read(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("Failed to open file: {}", path.display()))?;
+    file.lock_exclusive()
+        .with_context(|| format!("Failed to acquire lock on: {}", path.display()))?;
+    let (records, issues) = read_locked::<T>(&file, path)?;
+    report_issues(&issues);
+    f(&records, &issues)
+    // Lock is released when `file` is dropped.
+}
+
+/// Read every line of an already-locked file.
+fn read_locked<T: DeserializeOwned>(
+    file: &std::fs::File,
+    path: &Path,
+) -> Result<(Vec<T>, ScanIssues)> {
+    let mut reader = BufReader::new(file);
+    let mut records: Vec<T> = Vec::new();
+    let mut issues = ScanIssues::default();
+    let mut raw = Vec::new();
+    let mut byte_offset = 0u64;
+    let mut line_no = 0u64;
+    loop {
+        raw.clear();
+        let bytes_read = reader
+            .read_until(b'\n', &mut raw)
+            .with_context(|| format!("Failed to read from: {}", path.display()))?;
+        if bytes_read == 0 {
+            break;
+        }
+        let line_start = byte_offset;
+        byte_offset += bytes_read as u64;
+        line_no += 1;
+        if let Some(rec) = parse_line(&raw, path, Some(line_no), line_start, &mut issues) {
+            records.push(rec);
+        }
+    }
+    Ok((records, issues))
+}
+
+/// Like [`append_if`], but the predicate also receives what could not be
+/// read from the locked snapshot. A caller whose decision must fail closed
+/// on a torn or damaged record inspects `issues` under the same lock the
+/// append uses, instead of a separate read that a concurrent writer can
+/// invalidate.
+pub fn append_if_reporting<T, F>(path: &Path, record: &T, predicate: F) -> Result<bool>
+where
+    T: Serialize + DeserializeOwned,
+    F: FnOnce(&[T], &ScanIssues) -> bool,
+{
     let file = OpenOptions::new()
         .create(true)
         .read(true)
@@ -387,7 +457,7 @@ where
     report_issues(&issues);
 
     // Check if we should append
-    if !predicate(&records) {
+    if !predicate(&records, &issues) {
         // Lock is released when file is dropped
         return Ok(false);
     }

@@ -685,3 +685,74 @@ fn test_auto_commit_keeps_structured_stdout_clean() {
         "auto-commit should still record the send and the claim"
     );
 }
+
+/// Host-local state never syncs: `local/` is ignored by `sync init` and,
+/// for stores initialised before the rule existed, dropped from the index
+/// on `sync commit`.
+#[test]
+fn test_local_state_is_never_committed() {
+    let mut project = TestProject::with_name("sync-local-state");
+    let agent = project.agent("codex-a");
+    let data_path = project.data_path().to_path_buf();
+    let data_path = data_path.as_path();
+
+    agent.run(&["sync", "init"]).assert_success();
+    disable_gpg_signing(data_path);
+    let gitignore = std::fs::read_to_string(data_path.join(".gitignore")).unwrap();
+    assert!(
+        gitignore.lines().any(|l| l == "local/"),
+        "sync init ignores local/"
+    );
+
+    // Writes local/sessions.jsonl.
+    agent
+        .run(&[
+            "sessions",
+            "attach",
+            "--harness",
+            "codex",
+            "--session",
+            "sid-a",
+        ])
+        .assert_success();
+    assert!(data_path.join("local/sessions.jsonl").exists());
+
+    agent
+        .run(&["sync", "commit", "-m", "with rule"])
+        .assert_success();
+    let tracked = String::from_utf8_lossy(&git(data_path, &["ls-files"]).stdout).to_string();
+    assert!(
+        !tracked.contains("local/"),
+        "local/ tracked despite .gitignore:\n{tracked}"
+    );
+
+    // An older store has no rule. The index cleanup still holds.
+    std::fs::write(
+        data_path.join(".gitignore"),
+        gitignore.replace("local/\n", ""),
+    )
+    .unwrap();
+    project
+        .agent("codex-b")
+        .run(&[
+            "sessions",
+            "attach",
+            "--harness",
+            "codex",
+            "--session",
+            "sid-b",
+        ])
+        .assert_success();
+    agent
+        .run(&["sync", "commit", "-m", "without rule"])
+        .assert_success();
+    let tracked = String::from_utf8_lossy(&git(data_path, &["ls-files"]).stdout).to_string();
+    assert!(
+        !tracked.contains("local/"),
+        "local/ tracked without the ignore rule:\n{tracked}"
+    );
+    assert!(
+        tracked.contains("claims.jsonl"),
+        "everything else still syncs"
+    );
+}

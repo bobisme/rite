@@ -29,6 +29,14 @@ pub struct FileClaim {
     /// Optional message
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<String>,
+
+    /// Who may release or extend this claim, when that is narrower than the
+    /// agent: `rite sessions` binds an `agent://` claim to one attachment id
+    /// so a stale operation from an earlier attachment cannot touch it. Absent
+    /// for ordinary claims, and ignored by everything except the owner's own
+    /// checks.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub owner: Option<String>,
 }
 
 impl FileClaim {
@@ -54,7 +62,14 @@ impl FileClaim {
             active: true,
             event: ClaimEvent::Created,
             message,
+            owner: None,
         }
+    }
+
+    /// Bind release and extension authority to `owner`.
+    pub fn with_owner(mut self, owner: impl Into<String>) -> Self {
+        self.owner = Some(owner.into());
+        self
     }
 
     /// Check if this claim has expired.
@@ -78,6 +93,7 @@ impl FileClaim {
             active: false,
             event: ClaimEvent::Released,
             message: self.message.clone(),
+            owner: self.owner.clone(),
         }
     }
 
@@ -92,6 +108,7 @@ impl FileClaim {
             active: false,
             event: ClaimEvent::Expired,
             message: self.message.clone(),
+            owner: self.owner.clone(),
         }
     }
 
@@ -107,6 +124,7 @@ impl FileClaim {
             active: true,
             event: ClaimEvent::Extended,
             message: self.message.clone(),
+            owner: self.owner.clone(),
         }
     }
 }

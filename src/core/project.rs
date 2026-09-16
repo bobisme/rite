@@ -167,6 +167,17 @@ pub fn channel_path(channel: &str) -> PathBuf {
 }
 
 /// Get the claims.jsonl path.
+/// Host-local state that must never sync: a harness session id means nothing
+/// on another machine. Ignored by `sync init` and excluded from `sync push`.
+pub fn local_dir() -> PathBuf {
+    data_dir().join("local")
+}
+
+/// Live harness attachments (`rite sessions`), append-only.
+pub fn sessions_path() -> PathBuf {
+    local_dir().join("sessions.jsonl")
+}
+
 pub fn claims_path() -> PathBuf {
     data_dir().join("claims.jsonl")
 }

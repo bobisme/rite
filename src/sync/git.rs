@@ -68,6 +68,7 @@ pub fn init_repo(data_dir: &Path, remote_url: Option<&str>) -> Result<()> {
          \n\
          # Local state (machine-specific)\n\
          state.json\n\
+         local/\n\
          \n\
          # Attachments (synced separately, or reference-only)\n\
          attachments/\n\
@@ -241,6 +242,31 @@ pub fn commit_all(data_dir: &Path, message: &str) -> Result<bool> {
         bail!("git add failed");
     }
 
+    // Host-local state never syncs. `sync init` ignores `local/`, but a store
+    // initialised before that rule existed has no such line, and a store that
+    // already committed the directory stays tracked regardless of .gitignore.
+    // Dropping it from the index here covers both: a no-op when untracked,
+    // and a staged removal when it was.
+    let output = Command::new("git")
+        .current_dir(data_dir)
+        .args([
+            "rm",
+            "-r",
+            "--cached",
+            "--ignore-unmatch",
+            "--quiet",
+            "--",
+            "local",
+        ])
+        .output()
+        .context("Failed to run git rm --cached")?;
+    if !output.status.success() {
+        bail!(
+            "git rm --cached local failed: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        );
+    }
+
     // Commit (disable GPG signing)
     let output = Command::new("git")
         .current_dir(data_dir)
@@ -249,11 +275,20 @@ pub fn commit_all(data_dir: &Path, message: &str) -> Result<bool> {
         .context("Failed to run git commit")?;
 
     if !output.status.success() {
+        // Git reports "nothing to commit" on stdout, not stderr.
+        let stdout = String::from_utf8_lossy(&output.stdout);
         let stderr = String::from_utf8_lossy(&output.stderr);
-        if stderr.contains("nothing to commit") {
+        if stdout.contains("nothing to commit") || stderr.contains("nothing to commit") {
             return Ok(false);
         }
-        bail!("git commit failed: {}", stderr.trim());
+        bail!(
+            "git commit failed: {}",
+            if stderr.trim().is_empty() {
+                stdout.trim()
+            } else {
+                stderr.trim()
+            }
+        );
     }
 
     Ok(true)

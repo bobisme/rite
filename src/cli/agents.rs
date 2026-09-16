@@ -16,6 +16,18 @@ pub struct AgentInfo {
     pub last_seen: DateTime<Utc>,
     pub message_count: usize,
     pub active: bool,
+    /// The live harness attachment for this agent, if one is recorded
+    /// (`rite sessions attach`). Host-local.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session: Option<AgentSession>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct AgentSession {
+    pub harness: String,
+    pub kind: String,
+    pub session: String,
+    pub occupancy: String,
 }
 
 #[derive(Debug, Serialize)]
@@ -29,16 +41,33 @@ pub struct AgentsOutput {
 pub fn run(format: OutputFormat, _active_only: bool) -> Result<()> {
     let agent_stats = get_agent_stats();
     let now = Utc::now();
+    let mut sessions: HashMap<String, AgentSession> = super::sessions::live_sessions()
+        .unwrap_or_default()
+        .into_iter()
+        .map(|s| {
+            (
+                s.agent.to_lowercase(),
+                AgentSession {
+                    harness: s.harness,
+                    kind: s.kind,
+                    session: s.session,
+                    occupancy: s.occupancy,
+                },
+            )
+        })
+        .collect();
 
     let mut agent_infos: Vec<AgentInfo> = agent_stats
         .into_iter()
         .map(|(name, (last_seen, count))| {
             let active = now.signed_duration_since(last_seen).num_minutes() < 30;
+            let session = sessions.remove(&name.to_lowercase());
             AgentInfo {
                 name,
                 last_seen,
                 message_count: count,
                 active,
+                session,
             }
         })
         .collect();
@@ -72,12 +101,18 @@ pub fn run(format: OutputFormat, _active_only: bool) -> Result<()> {
                     "○".dimmed()
                 };
 
+                let session = info
+                    .session
+                    .as_ref()
+                    .map(|s| format!(", {} {} ({})", s.harness, s.kind, s.occupancy))
+                    .unwrap_or_default();
                 println!(
-                    "  {} {:<24} last seen {}, {} messages",
+                    "  {} {:<24} last seen {}, {} messages{}",
                     indicator,
                     info.name.cyan(),
                     last_seen_str,
-                    info.message_count
+                    info.message_count,
+                    session
                 );
             }
         }

@@ -11,7 +11,7 @@ use crate::storage::jsonl::{append_record, read_records};
 const MAX_STATUS_MESSAGE_CHARS: usize = 32;
 
 /// Parse a TTL string like "1h", "30m", "8h", "3600" into seconds.
-fn parse_ttl(ttl: &str) -> Result<u64> {
+pub fn parse_ttl(ttl: &str) -> Result<u64> {
     let ttl = ttl.trim();
 
     if ttl.is_empty() {

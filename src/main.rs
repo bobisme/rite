@@ -447,6 +447,52 @@ fn main() -> Result<()> {
             }
         }
 
+        Commands::Sessions { command } => {
+            use cli::SessionsCommands;
+            match command {
+                SessionsCommands::Reserve {
+                    harness,
+                    kind,
+                    ttl,
+                    window,
+                } => cli::sessions::reserve(cli::sessions::ReserveOptions {
+                    harness,
+                    kind,
+                    ttl_secs: cli::statuses::parse_ttl(&ttl)?,
+                    window_secs: cli::statuses::parse_ttl(&window)? as i64,
+                    agent: cli.agent,
+                    format,
+                }),
+                SessionsCommands::Attach {
+                    harness,
+                    attachment,
+                    session,
+                    kind,
+                    ttl,
+                    replace,
+                } => cli::sessions::attach(cli::sessions::AttachOptions {
+                    harness,
+                    session,
+                    kind,
+                    ttl_secs: cli::statuses::parse_ttl(&ttl)?,
+                    replace,
+                    attachment,
+                    agent: cli.agent,
+                    format,
+                }),
+                SessionsCommands::Detach {
+                    session,
+                    attachment,
+                } => cli::sessions::detach(session, attachment, format),
+                SessionsCommands::Renew { attachment, ttl } => {
+                    cli::sessions::renew(&attachment, cli::statuses::parse_ttl(&ttl)?, format)
+                }
+                SessionsCommands::List { name, all } => {
+                    cli::sessions::list(name, all, cli.agent.as_deref(), format)
+                }
+            }
+        }
+
         Commands::Statuses { command } => {
             use cli::StatusesCommands;
             match command {

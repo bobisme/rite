@@ -5,6 +5,55 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Added
+
+- **`rite sessions attach|detach|renew|list`: record which live harness
+  session an agent is reachable in.** An attachment binds an agent to one
+  exact Claude Code or Codex session id and stakes the ordinary
+  `agent://<name>` claim, which is what responder hooks already gate on, so
+  an agent that is live in a terminal is no longer spawned a second time by
+  its own responder. `detach` is keyed on the session id alone, because a
+  SessionEnd hook knows nothing else, and a session that was never attached
+  is a no-op: Codex emits a late SessionEnd for its launch-time placeholder
+  thread a minute after the real thread starts, and that must not retire
+  the real one. `renew` is for the bridge that owns the session, not for
+  activity hooks, so an idle session stays occupied and a dead bridge lets
+  the claim lapse. The claim records which attachment owns it, and every
+  release or extension is a compare-and-append that checks that owner, so a
+  stale detach or renew from a replaced attachment cannot touch its
+  successor's claim; attach reserves first and commits only after the claim
+  exists, and crash leftovers are reconciled on the next session command.
+  A replace that crashes after the claim changed hands is undone by handing
+  the claim back to the still-live predecessor. Responder hooks treat a
+  reserved identity as busy even before its claim exists. Session commands
+  refuse to change state while the session log has any unreadable record,
+  and the generic `claims release` and `claims refresh` skip claims owned by
+  a session attachment. The synced claim carries no harness session id.
+  Attach refuses an ownerless `agent://` claim held by its own agent rather
+  than adopting it: that is what a running responder holds, and refusing it
+  is what makes hook admission and attachment safe across the two logs.
+  Readability of each log is judged on the same locked snapshot as the
+  append. A launcher can `sessions reserve` the identity before its harness
+  exists and bind the session id afterwards with `attach --attachment`, so
+  no responder can start in the gap. Responder hooks read the reservation
+  inside their locked claim stake. Every occupancy transition enters the
+  sync auto-commit path like any other claim. A takeover that fails or
+  times out after the claim changed hands gives it back to the live
+  predecessor instead of releasing it. A direct `attach` cannot protect a
+  harness that was started before any claim existed, and says so when a
+  responder won the identity first; launchers that must never overlap use
+  `reserve` before starting the harness. Binding a reservation verifies its
+  claim is still live and owned by it, and a reservation's claim must
+  outlive its window. A lifecycle event this build does not understand
+  keeps the identity reserved and cannot be detached by an older binary.
+  Occupancy stays advisory, as every rite claim is: a concurrent `sync pull`
+  can replace `claims.jsonl` under a held lock, and phase one accepts that
+  rather than serialising sync with storage writes.
+  Attachments live in `local/sessions.jsonl`, which
+  `sync init` ignores and `sync push` excludes by pathspec, since a session
+  id means nothing on another host. `rite agents` shows the attachment.
+  Design and test evidence: `notes/agent-sessions.md`.
+
 ### Fixed
 
 - **A trigger queued behind a spawn lease is no longer stranded when the

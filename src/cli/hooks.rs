@@ -1008,6 +1008,14 @@ fn is_pattern_held(pattern: &str, existing_claims: &[FileClaim], now: DateTime<U
 /// Check if a claim pattern has NO active holder.
 /// Returns true if the pattern is available (no one holds it).
 fn is_claim_available(pattern: &str) -> Result<bool> {
+    // An `agent://` identity is also busy while `rite sessions attach` is
+    // between reserving it and staking this claim, and while its session log
+    // cannot be read. See `crate::core::session::agent_is_reserved`.
+    if let Some(agent) = pattern.strip_prefix("agent://")
+        && crate::core::session::agent_is_reserved(agent)
+    {
+        return Ok(false);
+    }
     let all_claims: Vec<FileClaim> = read_records(&claims_path()).unwrap_or_default();
     let now = Utc::now();
     Ok(!is_pattern_held(pattern, &all_claims, now))
@@ -1111,6 +1119,16 @@ fn stake_hook_claim(pattern: &str, agent: &str, ttl_secs: u64) -> Option<FileCla
     let claim = FileClaim::new(agent, vec![pattern.to_string()], ttl_secs);
     let pattern = pattern.to_string();
     let acquired = append_if(&claims_path(), &claim, |existing| {
+        // Read the session reservation *inside* the claims lock. `rite
+        // sessions` reserves the identity first and then occupies it under
+        // this same lock, so a reservation made before we took the lock is
+        // seen here, and one made after it will see our claim when it tries
+        // to occupy. Neither side can spawn beside the other.
+        if let Some(name) = pattern.strip_prefix("agent://")
+            && crate::core::session::agent_is_reserved(name)
+        {
+            return false;
+        }
         !is_pattern_held(&pattern, existing, Utc::now())
     })
     .unwrap_or(false);

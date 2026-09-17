@@ -5,6 +5,8 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [0.35.0] - 2026-09-17
+
 ### Added
 
 - **Push-at-send: `rite send` delivers into live sessions itself.** After

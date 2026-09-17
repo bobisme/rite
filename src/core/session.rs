@@ -84,6 +84,38 @@ pub struct SessionRecord {
     /// is about to start may take a while to report its session id.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pending_until: Option<DateTime<Utc>>,
+
+    /// For a push-kind session: the *name* of the adapter `rite send` runs to
+    /// deliver into it, resolved on the sending host against its own adapter
+    /// table (`local/adapters.json`) or the built-in table. A record never
+    /// carries a command: a recipient must not be able to choose what a
+    /// sender's process executes. Absent means the harness's built-in.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub adapter: Option<String>,
+}
+
+/// Host-configured push adapters by name. Each value is an argument vector
+/// with the placeholders [`SessionRecord::push_command`] documents.
+pub type AdapterTable = HashMap<String, Vec<String>>;
+
+/// The adapters every host has without configuration.
+pub fn builtin_adapters() -> AdapterTable {
+    let mut t = HashMap::new();
+    t.insert(
+        "codex".to_string(),
+        [
+            "codex",
+            "queue",
+            "--thread",
+            "{session}",
+            "--message",
+            "{rendered}",
+        ]
+        .iter()
+        .map(|s| s.to_string())
+        .collect(),
+    );
+    t
 }
 
 impl SessionRecord {
@@ -109,7 +141,39 @@ impl SessionRecord {
             note: None,
             replaces: None,
             pending_until: None,
+            adapter: None,
         }
+    }
+
+    /// Name the adapter that pushes into this session.
+    pub fn with_adapter(mut self, name: Option<String>) -> Self {
+        self.adapter = name.filter(|n| !n.is_empty());
+        self
+    }
+
+    /// The adapter name this session resolves to: the record's, else the
+    /// harness name.
+    pub fn adapter_name(&self) -> String {
+        self.adapter
+            .clone()
+            .unwrap_or_else(|| self.harness.to_ascii_lowercase())
+    }
+
+    /// The command that pushes one message into this session, as an argument
+    /// vector with placeholders: `{id}`, `{channel}`, `{from}`, `{reply_target}`,
+    /// `{route}`, `{session}`, `{body}`, and `{rendered}` (the full envelope).
+    /// Resolved against the sending host's `adapters` table, then the
+    /// built-ins. `None` means this session cannot be pushed into: a stream
+    /// session, or an adapter this host does not have.
+    pub fn push_command(&self, adapters: &AdapterTable) -> Option<Vec<String>> {
+        if self.kind != SessionKind::Push {
+            return None;
+        }
+        let name = self.adapter_name();
+        adapters
+            .get(&name)
+            .cloned()
+            .or_else(|| builtin_adapters().remove(&name))
     }
 
     /// Give this reservation an explicit window instead of the default.
@@ -154,6 +218,7 @@ impl SessionRecord {
             note: None,
             replaces: None,
             pending_until: None,
+            adapter: None,
         }
     }
 
@@ -490,6 +555,27 @@ mod tests {
             active_for_agent(&state, "a").is_none(),
             "not live, but not free either"
         );
+    }
+
+    #[test]
+    fn push_command_resolves_names_on_the_sending_host() {
+        let none = AdapterTable::new();
+        let codex = SessionRecord::attached("a", "codex", "s", SessionKind::Push, None);
+        assert_eq!(codex.push_command(&none).unwrap()[0], "codex");
+        let named = SessionRecord::attached("a", "codex", "s", SessionKind::Push, None)
+            .with_adapter(Some("mine".into()));
+        assert!(named.push_command(&none).is_none(), "unknown on this host");
+        let mut table = AdapterTable::new();
+        table.insert("mine".into(), vec!["my-push".into(), "{rendered}".into()]);
+        assert_eq!(named.push_command(&table).unwrap()[0], "my-push");
+        let unknown = SessionRecord::attached("a", "tmux", "s", SessionKind::Push, None);
+        assert!(unknown.push_command(&none).is_none());
+        let stream = SessionRecord::attached("a", "codex", "s", SessionKind::Stream, None);
+        assert!(stream.push_command(&table).is_none());
+        let json = serde_json::to_string(&named).unwrap();
+        assert!(!json.contains("my-push"), "records never carry a command");
+        let back: SessionRecord = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.adapter.as_deref(), Some("mine"));
     }
 
     #[test]

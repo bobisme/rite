@@ -246,25 +246,28 @@ pub fn commit_all(data_dir: &Path, message: &str) -> Result<bool> {
     // initialised before that rule existed has no such line, and a store that
     // already committed the directory stays tracked regardless of .gitignore.
     // Dropping it from the index here covers both: a no-op when untracked,
-    // and a staged removal when it was.
-    let output = Command::new("git")
+    // and a staged removal when it was, including case variants of the
+    // directory name that alias it on case-insensitive filesystems.
+    let staged = Command::new("git")
         .current_dir(data_dir)
-        .args([
-            "rm",
-            "-r",
-            "--cached",
-            "--ignore-unmatch",
-            "--quiet",
-            "--",
-            "local",
-        ])
+        .args(["ls-files"])
         .output()
-        .context("Failed to run git rm --cached")?;
-    if !output.status.success() {
-        bail!(
-            "git rm --cached local failed: {}",
-            String::from_utf8_lossy(&output.stderr).trim()
-        );
+        .context("Failed to list the index")?;
+    let tracked = local_paths_in(&staged.stdout);
+    if !tracked.is_empty() {
+        let mut rm_args: Vec<&str> = vec!["rm", "--cached", "--ignore-unmatch", "--quiet", "--"];
+        rm_args.extend(tracked.iter().map(String::as_str));
+        let output = Command::new("git")
+            .current_dir(data_dir)
+            .args(&rm_args)
+            .output()
+            .context("Failed to run git rm --cached")?;
+        if !output.status.success() {
+            bail!(
+                "git rm --cached local failed: {}",
+                String::from_utf8_lossy(&output.stderr).trim()
+            );
+        }
     }
 
     // Commit (disable GPG signing)
@@ -302,6 +305,25 @@ pub fn push(data_dir: &Path) -> Result<()> {
 
     if !is_git_repo(data_dir) {
         bail!("Not a git repository. Run 'rite sync init' first.");
+    }
+
+    let tracked = tracked_local_paths(data_dir, "HEAD");
+    if !tracked.is_empty() {
+        bail!(
+            "refusing to push: host-local state is tracked ({}). Run 'rite sync commit' to untrack it, then push again.",
+            tracked.join(", ")
+        );
+    }
+    // A clean tip is not enough: every commit in the outgoing range travels,
+    // and a commit that added local/** and a later one that deleted it would
+    // still ship the blobs.
+    let history = local_paths_in_outgoing(data_dir)
+        .context("could not inspect the outgoing history for host-local state; refusing to push")?;
+    if !history.is_empty() {
+        bail!(
+            "refusing to push: commits not yet on the remote touch host-local state ({}). Rewrite them out of history (for example with git filter-repo --path local --invert-paths) before pushing.",
+            history.join(", ")
+        );
     }
 
     // Check if remote is configured
@@ -389,10 +411,38 @@ pub fn pull(data_dir: &Path) -> Result<bool> {
         }
     }
 
+    // Pin what was fetched to one immutable commit, check that commit, and
+    // merge that commit by id. Checking and merging a ref by name would let
+    // a concurrent fetch swap the ref between the two.
+    let resolved = Command::new("git")
+        .current_dir(data_dir)
+        .args(["rev-parse", "--verify", "origin/main^{commit}"])
+        .output()
+        .context("Failed to resolve origin/main")?;
+    if !resolved.status.success() {
+        bail!(
+            "could not resolve origin/main: {}",
+            String::from_utf8_lossy(&resolved.stderr).trim()
+        );
+    }
+    let remote_oid = String::from_utf8_lossy(&resolved.stdout).trim().to_string();
+
+    // Never merge a remote that tracks host-local state: its session records
+    // and adapter table would land in this working tree, and a concurrent
+    // send could act on them. The remote history has to be cleaned first.
+    let remote_local = tracked_local_paths(data_dir, &remote_oid);
+    if !remote_local.is_empty() {
+        bail!(
+            "refusing to merge {}: the remote tracks host-local state ({}). Nothing was changed. Clean it out of the remote history before pulling again.",
+            &remote_oid[..12.min(remote_oid.len())],
+            remote_local.join(", ")
+        );
+    }
+
     // Merge with union strategy (configured in .gitattributes)
     let output = Command::new("git")
         .current_dir(data_dir)
-        .args(["merge", "origin/main"])
+        .args(["merge", &remote_oid])
         .output()
         .context("Failed to run git merge")?;
 
@@ -422,7 +472,185 @@ pub fn pull(data_dir: &Path) -> Result<bool> {
     let changed =
         !output_str.contains("Already up to date") && !output_str.contains("Already up-to-date");
 
+    // Whatever the remote had under local/ is not this host's state.
+    let quarantined = quarantine_imported_local(data_dir)?;
+    if !quarantined.is_empty() {
+        eprintln!(
+            "warning: sync pull brought in host-local state ({}); moved it to local/quarantine/ and untracked it. It was not applied.",
+            quarantined.join(", ")
+        );
+    }
+
     Ok(changed)
+}
+
+/// Whether a repository path is host-local state: its first component is
+/// `local`, compared case-insensitively. On a case-insensitive filesystem
+/// (macOS by default) `LOCAL/sessions.jsonl` is the same file as
+/// `local/sessions.jsonl`, so an exact-path check would let a case-variant
+/// alias the runtime paths. Every guard below lists whole trees and filters
+/// with this instead of asking git for the exact pathspec.
+pub fn is_local_state_path(path: &str) -> bool {
+    let first = path.trim_start_matches('/').split('/').next().unwrap_or("");
+    first.eq_ignore_ascii_case("local")
+}
+
+fn local_paths_in(listing: &[u8]) -> Vec<String> {
+    String::from_utf8_lossy(listing)
+        .lines()
+        .map(|l| l.trim().to_string())
+        .filter(|l| !l.is_empty() && is_local_state_path(l))
+        .collect()
+}
+
+/// Host-local paths (`local/**`) that are tracked in `tree` (`HEAD`,
+/// `origin/main`, ...). Session records and adapter tables under `local/`
+/// name things that only mean something on the host that wrote them; a
+/// tracked copy is either a leftover from a store initialised before the
+/// ignore rule or something imported from a remote, and neither may be
+/// acted on.
+pub fn tracked_local_paths(data_dir: &Path, tree: &str) -> Vec<String> {
+    let output = Command::new("git")
+        .current_dir(data_dir)
+        .args(["ls-tree", "-r", "--name-only", tree])
+        .output();
+    match output {
+        Ok(o) if o.status.success() => local_paths_in(&o.stdout),
+        _ => Vec::new(),
+    }
+}
+
+/// `local/**` paths present in the tree of any commit a push would send:
+/// every commit reachable from `main` and not from `origin/main` (all of
+/// `main` if there is no remote branch yet). Trees are inspected commit by
+/// commit, without path-based history simplification, so a side branch that
+/// added and deleted local state and merged TREESAME is still caught. `Err`
+/// means git could not answer, and the caller must fail closed.
+pub fn local_paths_in_outgoing(data_dir: &Path) -> Result<Vec<String>> {
+    let has_upstream = Command::new("git")
+        .current_dir(data_dir)
+        .args(["rev-parse", "--verify", "--quiet", "origin/main"])
+        .output()
+        .map(|o| o.status.success())
+        .unwrap_or(false);
+    let range = if has_upstream {
+        "origin/main..main"
+    } else {
+        "main"
+    };
+    let list = Command::new("git")
+        .current_dir(data_dir)
+        .args(["rev-list", range])
+        .output()
+        .context("Failed to run git rev-list")?;
+    if !list.status.success() {
+        bail!(
+            "git rev-list {} failed: {}",
+            range,
+            String::from_utf8_lossy(&list.stderr).trim()
+        );
+    }
+    let mut paths: Vec<String> = Vec::new();
+    for sha in String::from_utf8_lossy(&list.stdout).lines() {
+        let sha = sha.trim();
+        if sha.is_empty() {
+            continue;
+        }
+        let tree = Command::new("git")
+            .current_dir(data_dir)
+            .args(["ls-tree", "-r", "--name-only", sha])
+            .output()
+            .context("Failed to run git ls-tree")?;
+        if !tree.status.success() {
+            bail!(
+                "git ls-tree {} failed: {}",
+                sha,
+                String::from_utf8_lossy(&tree.stderr).trim()
+            );
+        }
+        paths.extend(local_paths_in(&tree.stdout));
+    }
+    paths.sort();
+    paths.dedup();
+    Ok(paths)
+}
+
+/// Whether the working tree's index tracks anything under `local/`.
+pub fn local_state_is_tracked(data_dir: &Path) -> bool {
+    if !is_git_repo(data_dir) {
+        return false;
+    }
+    // Fail closed: if the index cannot be listed, treat it as tracked.
+    match Command::new("git")
+        .current_dir(data_dir)
+        .args(["ls-files"])
+        .output()
+    {
+        Ok(o) if o.status.success() => !local_paths_in(&o.stdout).is_empty(),
+        _ => true,
+    }
+}
+
+/// After a merge, take any `local/**` the remote brought in out of the
+/// index and move the files aside under `local/quarantine/<ts>/`, so this
+/// host's own session log and adapter table are never replaced by a remote's
+/// and nothing imported is ever executed. Returns the quarantined paths.
+fn quarantine_imported_local(data_dir: &Path) -> Result<Vec<String>> {
+    let tracked = tracked_local_paths(data_dir, "HEAD");
+    if tracked.is_empty() {
+        return Ok(Vec::new());
+    }
+    let stamp = chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string();
+    let quarantine = data_dir.join("local").join("quarantine").join(&stamp);
+    std::fs::create_dir_all(&quarantine)
+        .with_context(|| format!("Failed to create {}", quarantine.display()))?;
+    for rel in &tracked {
+        let from = data_dir.join(rel);
+        if from.exists() {
+            let name = rel
+                .split_once('/')
+                .map(|x| x.1)
+                .unwrap_or(rel)
+                .replace('/', "__");
+            std::fs::rename(&from, quarantine.join(name))
+                .with_context(|| format!("Failed to quarantine {}", from.display()))?;
+        }
+    }
+    let rm = {
+        let mut rm_args: Vec<&str> = vec!["rm", "--cached", "--ignore-unmatch", "--quiet", "--"];
+        rm_args.extend(tracked.iter().map(String::as_str));
+        Command::new("git")
+            .current_dir(data_dir)
+            .args(&rm_args)
+            .output()
+            .context("Failed to run git rm --cached")?
+    };
+    if !rm.status.success() {
+        bail!(
+            "could not untrack imported local/**: {}",
+            String::from_utf8_lossy(&rm.stderr).trim()
+        );
+    }
+    let commit = Command::new("git")
+        .current_dir(data_dir)
+        .args([
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-q",
+            "-m",
+            "chore: quarantine host-local state imported by sync pull",
+        ])
+        .output()
+        .context("Failed to commit quarantine")?;
+    if !commit.status.success() {
+        let err = String::from_utf8_lossy(&commit.stderr);
+        let out = String::from_utf8_lossy(&commit.stdout);
+        if !err.contains("nothing to commit") && !out.contains("nothing to commit") {
+            bail!("could not commit quarantine: {}", err.trim());
+        }
+    }
+    Ok(tracked)
 }
 
 /// Get git status (staged, unstaged, ahead/behind).
@@ -615,5 +843,31 @@ mod tests {
         // Try to init again - should fail
         let result = init_repo(temp.path(), None);
         assert!(result.is_err());
+    }
+}
+
+#[cfg(test)]
+mod local_state_tests {
+    use super::is_local_state_path;
+
+    #[test]
+    fn local_state_paths_are_matched_case_insensitively_on_the_first_component() {
+        for p in [
+            "local/sessions.jsonl",
+            "LOCAL/adapters.json",
+            "Local/x/y",
+            "/local/z",
+        ] {
+            assert!(is_local_state_path(p), "{p}");
+        }
+        for p in [
+            "channels/local.jsonl",
+            "localhost/x",
+            "claims.jsonl",
+            "nonlocal/a",
+            "",
+        ] {
+            assert!(!is_local_state_path(p), "{p}");
+        }
     }
 }

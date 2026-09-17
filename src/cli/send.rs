@@ -72,6 +72,9 @@ pub struct SendOutput {
     /// Hooks that fired for this message.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub hooks: Vec<String>,
+    /// Live sessions this message was pushed into (see `rite sessions`).
+    #[serde(skip_serializing_if = "Vec::is_empty")]
+    pub deliveries: Vec<super::sessions::Delivery>,
     /// Non-fatal problems, e.g. a reply anchor that is not in the channel yet.
     #[serde(skip_serializing_if = "Vec::is_empty")]
     pub warnings: Vec<String>,
@@ -281,6 +284,14 @@ pub fn run(options: SendOptions, agent: Option<&str>) -> Result<()> {
         )
     };
 
+    // Push into live sessions the message addresses. Suppressed by the same
+    // switches as hooks: both run commands on the sender's behalf.
+    let deliveries = if no_hooks || hook_flags.suppress_all() {
+        vec![]
+    } else {
+        super::sessions::push_deliveries(&msg, &channel, &agent_name)
+    };
+
     let output = SendOutput {
         id: msg.id.to_string(),
         channel: channel.clone(),
@@ -289,6 +300,7 @@ pub fn run(options: SendOptions, agent: Option<&str>) -> Result<()> {
         reply_to: msg.reply_to.map(|p| p.to_string()),
         labels,
         hooks: hook_results.iter().map(|r| r.hook_id.clone()).collect(),
+        deliveries,
         warnings,
         // Only commands that exist today. `rite wait --reply-to` is the
         // natural next step and is tracked separately (bn-3lpb); it is not

@@ -57,11 +57,15 @@ use ulid::Ulid;
 
 use super::OutputFormat;
 use super::format::format_output;
+use super::mentions::MentionFilter;
 use crate::core::claim::{ClaimEvent, FileClaim};
 use crate::core::identity::{require_agent, resolve_agent};
-use crate::core::project::{claims_path, data_dir, local_dir, sessions_path};
+use crate::core::message::Message;
+use crate::core::project::{adapters_path, claims_path, data_dir, local_dir, sessions_path};
+use crate::core::session::{AdapterTable, builtin_adapters};
 use crate::core::session::{
-    SessionKind, SessionRecord, fold, occupancy_pattern, reserved_for_agent, reserved_for_session,
+    SessionKind, SessionRecord, active_for_agent, fold, occupancy_pattern, reserved_for_agent,
+    reserved_for_session,
 };
 use crate::storage::jsonl::{
     ScanIssues, append_if_reporting, read_records, read_records_reporting, with_exclusive_read,
@@ -170,19 +174,34 @@ fn latest_claims() -> Result<HashMap<Ulid, FileClaim>> {
         return Ok(HashMap::new());
     }
     let all: Vec<FileClaim> = read_records(&path)?;
-    let mut latest = HashMap::new();
-    for claim in all {
-        latest.insert(claim.id, claim);
-    }
-    Ok(latest)
+    Ok(fold_claims(&all))
 }
 
+/// Latest state per claim id. `owner` is sticky: a later record for the same
+/// id that lacks it (written by a rite that predates the field) does not
+/// erase it, so an old binary's extension cannot turn an owned claim into an
+/// ownerless one.
 fn fold_claims(existing: &[FileClaim]) -> HashMap<Ulid, FileClaim> {
     let mut latest: HashMap<Ulid, FileClaim> = HashMap::new();
     for c in existing {
-        latest.insert(c.id, c.clone());
+        let mut next = c.clone();
+        if next.owner.is_none()
+            && let Some(prev) = latest.get(&c.id)
+        {
+            next.owner = prev.owner.clone();
+        }
+        latest.insert(c.id, next);
     }
     latest
+}
+
+/// The principal an owned occupancy claim is written under. Not the agent's
+/// own name: the generic claim commands of any rite version select claims by
+/// `agent`, so an older binary's `claims release --all` or `refresh` run as
+/// the agent never matches these. Hook admission checks the pattern only, so
+/// the claim still blocks a responder.
+fn occupancy_principal(attachment: Ulid) -> String {
+    format!("session:{attachment}")
 }
 
 /// Who holds `pattern` right now, if anyone. `claims` is the latest state
@@ -237,9 +256,10 @@ fn hand_back(claim_id: Ulid, from: Ulid, to: Ulid, pattern: &str) -> Result<bool
     if !claim.active || claim.expires_at <= Utc::now() || !owned_by(claim, from) {
         return Ok(false);
     }
-    let handback = claim
+    let mut handback = claim
         .extend(ttl_remaining(claim))
         .with_owner(to.to_string());
+    handback.agent = occupancy_principal(to);
     let written = append_claim_if(&handback, |latest| {
         holder_of(pattern, latest, Utc::now())
             .is_some_and(|h| h.id == claim_id && owned_by(&h, from))
@@ -299,7 +319,7 @@ fn occupy(
     };
 
     let mut extended = FileClaim::with_message(
-        agent,
+        occupancy_principal(attachment),
         vec![pattern.to_string()],
         ttl_secs,
         Some(message.to_string()),
@@ -315,7 +335,7 @@ fn occupy(
     }
 
     let mut created = FileClaim::with_message(
-        agent,
+        occupancy_principal(attachment),
         vec![pattern.to_string()],
         ttl_secs,
         Some(message.to_string()),
@@ -332,21 +352,23 @@ fn occupy(
     // Neither predicate held: someone holds it. Report who. A holder that
     // vanishes between the failed appends and this read is a benign retry.
     match holder_of(pattern, &latest_claims()?, Utc::now()) {
-        Some(held) if held.agent.eq_ignore_ascii_case(agent) => match &held.owner {
-            None => bail!(
-                "{} is held by {} without a session owner until {}: a responder or a manual claim occupies this identity. If your harness is already running, it now overlaps that holder; stop one of them. To avoid this, reserve the identity before starting the harness: rite sessions reserve, then attach --attachment. Otherwise wait for the holder to finish, or release it with rite claims release {}",
-                pattern,
-                held.agent,
-                held.expires_at.format("%Y-%m-%d %H:%M:%S UTC"),
-                pattern
-            ),
-            Some(owner) => bail!(
-                "{} is owned by attachment {}; this attachment ({}) was replaced or never held it",
-                pattern,
-                owner,
-                attachment
-            ),
-        },
+        Some(held) if held.owner.is_some() || held.agent.eq_ignore_ascii_case(agent) => {
+            match &held.owner {
+                None => bail!(
+                    "{} is held by {} without a session owner until {}: a responder or a manual claim occupies this identity. If your harness is already running, it now overlaps that holder; stop one of them. To avoid this, reserve the identity before starting the harness: rite sessions reserve, then attach --attachment. Otherwise wait for the holder to finish, or release it with rite claims release {}",
+                    pattern,
+                    held.agent,
+                    held.expires_at.format("%Y-%m-%d %H:%M:%S UTC"),
+                    pattern
+                ),
+                Some(owner) => bail!(
+                    "{} is owned by attachment {}; this attachment ({}) was replaced or never held it",
+                    pattern,
+                    owner,
+                    attachment
+                ),
+            }
+        }
         Some(held) => bail!(
             "{} is held by {} until {}; another agent occupies this identity",
             pattern,
@@ -385,6 +407,29 @@ fn reconcile(agent: &str) -> Result<()> {
         append_session_if(&r.detached(Some("abandoned attach".to_string())), |s| {
             s.iter().any(|x| x.attachment_id == id && x.is_abandoned())
         })?;
+    }
+
+    // A committed successor logically retires the attachment it replaced.
+    // Attach detaches it in a separate append, so a crash between the two
+    // can leave both attached; finish that here before anything routes.
+    let state = load_state()?;
+    for succ in state
+        .iter()
+        .filter(|r| r.is_attached() && r.agent.eq_ignore_ascii_case(agent))
+    {
+        if let Some(old_id) = succ.replaces
+            && let Some(old) = state
+                .iter()
+                .find(|x| x.attachment_id == old_id && x.is_attached())
+        {
+            append_session_if(
+                &old.detached(Some("replaced by a new attachment".to_string())),
+                |s| {
+                    s.iter()
+                        .any(|x| x.attachment_id == old_id && x.is_attached())
+                },
+            )?;
+        }
     }
 
     let state = load_state()?;
@@ -527,6 +572,8 @@ struct AttachOutput {
 
 pub struct AttachOptions {
     pub harness: Option<String>,
+    /// Name of the push adapter, resolved on the sending host; default is the harness's built-in.
+    pub adapter: Option<String>,
     pub session: String,
     pub kind: String,
     pub ttl_secs: u64,
@@ -539,6 +586,7 @@ pub struct AttachOptions {
 
 pub struct ReserveOptions {
     pub harness: String,
+    pub adapter: Option<String>,
     pub kind: String,
     pub ttl_secs: u64,
     /// How long the reservation may stay unbound before it is abandoned.
@@ -583,7 +631,8 @@ pub fn reserve(options: ReserveOptions) -> Result<()> {
 
     let claim_id = Ulid::new();
     let pending = SessionRecord::attaching(&agent, &options.harness, "", kind.clone(), claim_id)
-        .with_pending_window(options.window_secs);
+        .with_pending_window(options.window_secs)
+        .with_adapter(options.adapter.clone());
     let agent_name = agent.clone();
     let reserved = append_session_if(&pending, |state| {
         reserved_for_agent(state, &agent_name).is_empty()
@@ -856,6 +905,7 @@ pub fn attach(options: AttachOptions) -> Result<()> {
     if let Some(old) = replace {
         pending = pending.replacing(old);
     }
+    pending = pending.with_adapter(options.adapter.clone());
     let (session_id, agent_name) = (options.session.clone(), agent.clone());
     let replaced_record: std::cell::RefCell<Option<SessionRecord>> = std::cell::RefCell::new(None);
     let reserved = append_session_if(&pending, |state| {
@@ -1391,4 +1441,408 @@ pub fn list(
         format => print!("{}", format_output(&output, format)),
     }
     Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Push-at-send delivery
+//
+// `rite send` calls this after writing a message. Nothing runs between rite
+// commands: the sender's own process pushes the message into the live
+// push-kind session of every agent the message addresses.
+//
+// What runs is decided by the *sending host*, never by the recipient. A
+// session record names an adapter; the command behind that name comes from
+// this host's `local/adapters.json` or the built-in table (`codex`). That
+// file has the same trust as `hooks.jsonl`: whoever can write the data
+// directory chooses what this host executes on a send. Records that arrive
+// from anywhere else are never acted on: delivery refuses to run while
+// `local/**` is tracked by sync, and `sync pull` quarantines any `local/**`
+// a remote brings in.
+//
+// A push result never evicts a session. No adapter result can prove that
+// every process it started has finished (a descendant can leave the
+// process group and close its descriptors), and an eviction taken on an
+// unproven result would release occupancy while something can still act.
+// Occupancy ends only through the harness's SessionEnd hook, an explicit
+// `rite sessions detach`, or a lapsed reservation. A push reports what
+// happened, including the adapter's own claim that the session is gone
+// (`session_gone`), and a launcher may act on that report with `detach`.
+//
+// Every adapter runs in its own process group with a minimal environment
+// (PATH, HOME, USER, LANG, TERM, and the RITE_* fields), in the data
+// directory's `local/`, with a bounded run time and a bounded stderr drain.
+// The group is killed on every outcome and the leader reaped, as hygiene,
+// not as proof. `--no-hooks` and `!nohooks` suppress delivery as they
+// suppress hooks.
+
+/// Outcome of one push attempt, reported in `rite send`'s envelope.
+#[derive(Debug, Clone, Serialize)]
+pub struct Delivery {
+    pub agent: String,
+    pub session: String,
+    pub attachment_id: Ulid,
+    pub ok: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    /// The adapter reported that the session no longer exists (Codex: no
+    /// such thread; any adapter: exit `SESSION_GONE_EXIT`). A report, not an
+    /// action: the attachment is kept. Detach it if you trust the report.
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub session_gone: bool,
+}
+
+/// How long one push command may run.
+const PUSH_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
+/// How long to wait for the adapter's stderr to close after its group was
+/// killed.
+const DRAIN_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
+
+/// The largest body pushed into a harness. Larger messages stay on the bus
+/// for the agent to read with `rite inbox`; they are not squeezed into an
+/// argument vector.
+const PUSH_MAX_BYTES: usize = 64 * 1024;
+
+/// An adapter exits with this to report that the session no longer exists.
+/// The report is passed on in `Delivery::session_gone`; nothing is evicted.
+pub const SESSION_GONE_EXIT: i32 = 66;
+
+/// The host's adapter table: configured entries over the built-ins.
+fn load_adapters() -> AdapterTable {
+    let mut table = builtin_adapters();
+    let path = adapters_path();
+    if !path.exists() {
+        return table;
+    }
+    match std::fs::read_to_string(&path)
+        .map_err(|e| e.to_string())
+        .and_then(|s| serde_json::from_str::<AdapterTable>(&s).map_err(|e| e.to_string()))
+    {
+        Ok(configured) => table.extend(configured),
+        Err(e) => eprintln!(
+            "warning: {} is unreadable ({}); only built-in adapters are available",
+            path.display(),
+            e
+        ),
+    }
+    table
+}
+
+/// The text a pushed message arrives as: provenance and the reply anchor on
+/// the first line, then the body, exactly what the bridge prototype sent.
+fn render_envelope(msg: &Message, channel: &str, reply_target: &str, route: &str) -> String {
+    format!(
+        "[rite] channel={} from={} id={} reply_target={} route={}\n{}",
+        channel, msg.agent, msg.id, reply_target, route, msg.body
+    )
+}
+
+/// Push `msg` into the live push session of every agent it addresses. Never
+/// fails the send: problems come back as `Delivery { ok: false }`.
+pub fn push_deliveries(msg: &Message, channel: &str, sender: &str) -> Vec<Delivery> {
+    let (state, issues) = match load_state_reporting() {
+        Ok(x) => x,
+        Err(_) => return Vec::new(),
+    };
+    if !issues.is_empty() {
+        eprintln!(
+            "warning: {} has unreadable records; not pushing this message into live sessions",
+            sessions_path().display()
+        );
+        return Vec::new();
+    }
+    // One target per agent: the newest live attachment, so a replacement
+    // in flight never receives the same message twice.
+    let mut agents: Vec<String> = state
+        .iter()
+        .filter(|r| r.is_attached() && !r.agent.eq_ignore_ascii_case(sender))
+        .map(|r| r.agent.to_lowercase())
+        .collect();
+    agents.sort();
+    agents.dedup();
+    if agents.is_empty() {
+        return Vec::new();
+    }
+    // Fail closed: a tracked local/ may have come from a remote.
+    if crate::sync::git::local_state_is_tracked(&data_dir()) {
+        eprintln!(
+            "warning: local/ is tracked by sync, so its session records may not be this host's; not pushing. Run rite doctor."
+        );
+        return Vec::new();
+    }
+    let adapters = load_adapters();
+
+    let mut out = Vec::new();
+    for agent in agents {
+        let Some(r) = active_for_agent(&state, &agent) else {
+            continue;
+        };
+        let Some(argv) = r.push_command(&adapters) else {
+            if r.kind == SessionKind::Push {
+                eprintln!(
+                    "warning: no adapter named {:?} on this host for {}; not pushing",
+                    r.adapter_name(),
+                    r.agent
+                );
+            }
+            continue;
+        };
+        let filter = MentionFilter::new(&r.agent, true, vec![]);
+        let Some((route, reply_target)) = filter.route(msg, channel) else {
+            continue;
+        };
+        let route = route.as_str();
+        let rendered = render_envelope(msg, channel, &reply_target, route);
+        if rendered.len() > PUSH_MAX_BYTES {
+            out.push(Delivery {
+                agent: r.agent.clone(),
+                session: r.session.clone(),
+                attachment_id: r.attachment_id,
+                ok: false,
+                error: Some(format!(
+                    "message is {} bytes, over the {} byte push limit; left on the bus",
+                    rendered.len(),
+                    PUSH_MAX_BYTES
+                )),
+                session_gone: false,
+            });
+            continue;
+        }
+        let subst = |arg: &str| {
+            arg.replace("{id}", &msg.id.to_string())
+                .replace("{channel}", channel)
+                .replace("{from}", &msg.agent)
+                .replace("{reply_target}", &reply_target)
+                .replace("{route}", route)
+                .replace("{session}", &r.session)
+                .replace("{body}", &msg.body)
+                .replace("{rendered}", &rendered)
+        };
+        let args: Vec<String> = argv.iter().map(|a| subst(a)).collect();
+        let is_codex = r.adapter_name() == "codex";
+        let (error, gone) = match run_push(
+            &args,
+            msg,
+            channel,
+            &reply_target,
+            route,
+            &r.session,
+            is_codex,
+        ) {
+            Ok(()) => (None, false),
+            Err(PushError {
+                reason,
+                session_gone,
+            }) => (Some(reason), session_gone),
+        };
+        if let Some(reason) = &error {
+            eprintln!(
+                "warning: push into {} session {} failed ({}){}; attachment kept",
+                r.agent,
+                r.session,
+                reason,
+                if gone {
+                    "; the adapter reports the session gone"
+                } else {
+                    ""
+                }
+            );
+        }
+        out.push(Delivery {
+            agent: r.agent.clone(),
+            session: r.session.clone(),
+            attachment_id: r.attachment_id,
+            ok: error.is_none(),
+            error,
+            session_gone: gone,
+        });
+    }
+    out
+}
+
+struct PushError {
+    reason: String,
+    /// What the adapter said, passed on as a report.
+    session_gone: bool,
+}
+
+impl PushError {
+    fn failed(reason: impl Into<String>) -> Self {
+        Self {
+            reason: reason.into(),
+            session_gone: false,
+        }
+    }
+}
+
+/// Does this stderr from the Codex adapter mean the thread is gone?
+/// `codex queue` reports an unknown thread as `no rollout found for thread id`.
+fn codex_says_gone(stderr: &str) -> bool {
+    let s = stderr.to_ascii_lowercase();
+    s.contains("no rollout found") || s.contains("thread not found") || s.contains("unknown thread")
+}
+
+/// Kill a whole process group and report whether the kernel accepted it.
+/// The child was started with `process_group(0)`, so its pgid is its pid.
+fn kill_group(pid: u32) -> std::io::Result<()> {
+    // SAFETY: killpg has no memory-safety preconditions; it only sends a
+    // signal to a process group id we created.
+    let rc = unsafe { libc::killpg(pid as libc::pid_t, libc::SIGKILL) };
+    if rc == 0 {
+        return Ok(());
+    }
+    let err = std::io::Error::last_os_error();
+    // ESRCH: nothing left in the group, which is the outcome we wanted.
+    if err.raw_os_error() == Some(libc::ESRCH) {
+        Ok(())
+    } else {
+        Err(err)
+    }
+}
+
+/// Run one push command: own process group, minimal environment, fixed
+/// working directory, bounded stderr drained concurrently, bounded run
+/// time. The group is killed on every outcome. The result is a report;
+/// see the module comment for why it never evicts.
+#[allow(clippy::too_many_arguments)]
+fn run_push(
+    args: &[String],
+    msg: &Message,
+    channel: &str,
+    reply_target: &str,
+    route: &str,
+    session: &str,
+    is_codex: bool,
+) -> std::result::Result<(), PushError> {
+    use std::io::Read;
+    use std::os::unix::process::CommandExt;
+    use std::process::{Command, Stdio};
+
+    let Some((program, rest)) = args.split_first() else {
+        return Err(PushError::failed("empty push command"));
+    };
+    let mut cmd = Command::new(program);
+    cmd.args(rest)
+        .env_clear()
+        .env("RITE_MESSAGE_ID", msg.id.to_string())
+        .env("RITE_CHANNEL", channel)
+        .env("RITE_FROM", &msg.agent)
+        .env("RITE_REPLY_TARGET", reply_target)
+        .env("RITE_ROUTE", route)
+        .env("RITE_SESSION", session)
+        .env("RITE_BODY", &msg.body)
+        .stdin(Stdio::null())
+        .stdout(Stdio::null())
+        .stderr(Stdio::piped())
+        .process_group(0);
+    for key in ["PATH", "HOME", "USER", "LANG", "TERM"] {
+        if let Ok(v) = std::env::var(key) {
+            cmd.env(key, v);
+        }
+    }
+    if let Ok(dir) = std::env::var("RITE_DATA_DIR") {
+        cmd.env("RITE_DATA_DIR", dir);
+    }
+    let _ = std::fs::create_dir_all(local_dir());
+    cmd.current_dir(local_dir());
+
+    let mut child = cmd
+        .spawn()
+        .map_err(|e| PushError::failed(format!("could not run {}: {}", program, e)))?;
+    let pid = child.id();
+
+    // Drain stderr concurrently into a bounded buffer; the result comes
+    // back over a channel so the wait for it can be bounded too.
+    let stderr_pipe = child.stderr.take();
+    let (drain_tx, drain_rx) = std::sync::mpsc::channel::<String>();
+    std::thread::spawn(move || {
+        let mut buf = Vec::new();
+        if let Some(mut pipe) = stderr_pipe {
+            let mut chunk = [0u8; 1024];
+            while let Ok(n) = pipe.read(&mut chunk) {
+                if n == 0 {
+                    break;
+                }
+                buf.extend_from_slice(&chunk[..n]);
+                if buf.len() > 4096 {
+                    let cut = buf.len() - 4096;
+                    buf.drain(..cut);
+                }
+            }
+        }
+        let _ = drain_tx.send(String::from_utf8_lossy(&buf).to_string());
+    });
+
+    // Wait for the leader, bounded.
+    let started = std::time::Instant::now();
+    let status = loop {
+        match child.try_wait() {
+            Ok(Some(status)) => break Some(status),
+            Ok(None) => {}
+            Err(e) => {
+                let _ = kill_group(pid);
+                let _ = child.wait();
+                return Err(PushError::failed(format!("waiting on {}: {}", program, e)));
+            }
+        }
+        if started.elapsed() > PUSH_TIMEOUT {
+            break None;
+        }
+        std::thread::sleep(std::time::Duration::from_millis(20));
+    };
+
+    // Whatever happened to the leader, the group ends here: hygiene, not
+    // proof. A descendant that left the group is beyond it, which is why no
+    // result below ever evicts the session.
+    if let Err(e) = kill_group(pid) {
+        eprintln!("warning: could not kill adapter process group {pid}: {e}");
+    }
+    let status = match status {
+        Some(s) => Some(s),
+        None => {
+            // Reap the leader with a bounded wait; it may still be alive if
+            // the group kill failed.
+            let deadline = std::time::Instant::now() + DRAIN_TIMEOUT;
+            loop {
+                match child.try_wait() {
+                    Ok(Some(_)) | Err(_) => break,
+                    Ok(None) if std::time::Instant::now() > deadline => break,
+                    Ok(None) => std::thread::sleep(std::time::Duration::from_millis(20)),
+                }
+            }
+            None
+        }
+    };
+    let stderr = drain_rx.recv_timeout(DRAIN_TIMEOUT).unwrap_or_default();
+    let detail = stderr.lines().last().unwrap_or("").trim().to_string();
+
+    let Some(status) = status else {
+        return Err(PushError::failed(format!(
+            "{} timed out after {}s; process group killed",
+            program,
+            PUSH_TIMEOUT.as_secs()
+        )));
+    };
+    if status.success() {
+        return Ok(());
+    }
+    let reason = format!(
+        "{} exited with {}{}",
+        program,
+        status
+            .code()
+            .map(|c| c.to_string())
+            .unwrap_or_else(|| "signal".into()),
+        if detail.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", detail)
+        }
+    );
+    let session_gone =
+        status.code() == Some(SESSION_GONE_EXIT) || (is_codex && codex_says_gone(&stderr));
+    Err(PushError {
+        reason,
+        session_gone,
+    })
 }

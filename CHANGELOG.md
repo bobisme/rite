@@ -7,6 +7,40 @@ All notable changes to this project are documented here. This project adheres to
 
 ### Added
 
+- **Push-at-send: `rite send` delivers into live sessions itself.** After
+  writing a message, `send` folds `local/sessions.jsonl` and, for every live
+  push-kind session whose agent the message addresses (an `@mention` or a
+  DM, never the sender's own session), runs the harness's push adapter from
+  the sender's process: `codex queue --thread <session> --message <envelope>`
+  for Codex, or a named adapter from the sending host's
+  `local/adapters.json`, chosen with `--adapter` on `sessions attach` or
+  `reserve`. A session record names an adapter; it never carries a command,
+  so a recipient cannot choose what a sender's process executes. Nothing
+  runs between rite commands, the same way hooks work. A push result never
+  evicts a session: no adapter result can prove that every process it
+  started has finished, so a push only reports, including the adapter's own
+  claim that the session is gone (`session_gone`: the Codex adapter
+  reporting the thread does not exist, or any adapter exiting 66).
+  Occupancy ends through the harness's SessionEnd hook, an explicit
+  `sessions detach`, or a lapsed reservation. Adapters run in their own
+  process group with a minimal environment (PATH, HOME, USER, LANG, TERM,
+  and the RITE_* fields), in the data directory's `local/`, with a bounded
+  run time and stderr drain, and the group is killed on every outcome as
+  hygiene; bodies over 64 KiB stay on the bus. Only the newest attachment
+  of an agent is pushed, and a superseded predecessor is retired on the
+  next session command. Owned occupancy claims are written under a
+  `session:<attachment>` principal so an older rite's generic release or
+  refresh cannot touch them, and `owner` is sticky across a claim's
+  records. Delivery is refused while `local/` is tracked by sync; `sync
+  push` inspects the tree of every commit it would send on `main` and
+  refuses if any contains `local/**`; `sync pull` resolves what it fetched
+  to one commit, refuses it if it tracks `local/**`, and merges that exact
+  commit; `rite doctor` reports tracked host-local state. Every guard
+  matches the `local` path component case-insensitively, since a
+  case-insensitive filesystem aliases `LOCAL/` to it. `--no-hooks` and
+  `!nohooks` suppress delivery as they suppress hooks. The JSON envelope
+  from `send` reports `deliveries`.
+
 - **`rite sessions attach|detach|renew|list`: record which live harness
   session an agent is reachable in.** An attachment binds an agent to one
   exact Claude Code or Codex session id and stakes the ordinary

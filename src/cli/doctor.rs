@@ -181,6 +181,7 @@ pub fn run(format: OutputFormat) -> Result<()> {
 
     // Check 11: the data directory's git store still works
     check_data_repo_git(&mut report);
+    check_local_state_untracked(&mut report);
 
     // Build advice based on failed/warned checks
     for check in &report.checks {
@@ -737,6 +738,38 @@ fn check_data_repo_git(report: &mut DoctorReport) {
                 suggestion: None,
             });
         }
+    }
+}
+
+/// `local/**` must never be tracked: it holds session records and the
+/// adapter table, which are executed on this host and mean nothing on
+/// another. Tracked copies are either leftovers or imports, and delivery
+/// refuses to run while they exist.
+fn check_local_state_untracked(report: &mut DoctorReport) {
+    let dir = data_dir();
+    if !dir.join(".git").exists() {
+        return;
+    }
+    let tracked = crate::sync::git::tracked_local_paths(&dir, "HEAD");
+    if tracked.is_empty() {
+        report.add(Check {
+            name: "local_state_untracked".to_string(),
+            status: CheckStatus::Pass,
+            message: "Host-local state (local/) is not tracked by sync".to_string(),
+            suggestion: None,
+        });
+    } else {
+        report.add(Check {
+            name: "local_state_untracked".to_string(),
+            status: CheckStatus::Fail,
+            message: format!(
+                "Host-local state is tracked by sync: {}. Push-at-send delivery is refused while this holds.",
+                tracked.join(", ")
+            ),
+            suggestion: Some(
+                "Run `rite sync commit` to untrack it (a later `rite sync pull` quarantines anything a remote brings in).".to_string(),
+            ),
+        });
     }
 }
 

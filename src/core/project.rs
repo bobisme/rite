@@ -178,6 +178,13 @@ pub fn sessions_path() -> PathBuf {
     local_dir().join("sessions.jsonl")
 }
 
+/// Host-owner-configured push adapters (`rite send` delivery commands),
+/// keyed by name. Same trust as `hooks.jsonl`: whoever can write the data
+/// directory decides what runs on this host.
+pub fn adapters_path() -> PathBuf {
+    local_dir().join("adapters.json")
+}
+
 pub fn claims_path() -> PathBuf {
     data_dir().join("claims.jsonl")
 }

@@ -455,8 +455,10 @@ fn main() -> Result<()> {
                     kind,
                     ttl,
                     window,
+                    adapter,
                 } => cli::sessions::reserve(cli::sessions::ReserveOptions {
                     harness,
+                    adapter,
                     kind,
                     ttl_secs: cli::statuses::parse_ttl(&ttl)?,
                     window_secs: cli::statuses::parse_ttl(&window)? as i64,
@@ -470,8 +472,10 @@ fn main() -> Result<()> {
                     kind,
                     ttl,
                     replace,
+                    adapter,
                 } => cli::sessions::attach(cli::sessions::AttachOptions {
                     harness,
+                    adapter,
                     session,
                     kind,
                     ttl_secs: cli::statuses::parse_ttl(&ttl)?,

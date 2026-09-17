@@ -50,6 +50,7 @@ opentelemetry-otlp = { version = "0.31", features = ["http-proto", "reqwest-bloc
 opentelemetry-appender-tracing = { version = "0.31", optional = true }
 tracing-opentelemetry = { version = "0.32", optional = true }
 ulid = { version = "1.2.1", features = ["serde"] }
+libc = "0.2"
 
 [dev-dependencies]
 assert_cmd = "2.1.2"

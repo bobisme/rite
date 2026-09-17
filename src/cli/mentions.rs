@@ -151,6 +151,13 @@ impl MentionFilter {
     }
 
     /// Where a reply to this record should be sent.
+    /// Route a message and compute where a reply goes, for callers that
+    /// deliver outside the stream (push-at-send in `rite send`).
+    pub fn route(&self, msg: &Message, channel: &str) -> Option<(Route, String)> {
+        let route = self.classify(msg, channel)?;
+        Some((route, self.reply_target(channel, msg)))
+    }
+
     fn reply_target(&self, channel: &str, msg: &Message) -> String {
         if !is_dm_channel(channel) {
             return channel.to_string();

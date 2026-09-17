@@ -2199,6 +2199,7 @@ dependencies = [
  "fs2",
  "globset",
  "infer",
+ "libc",
  "mime2ext",
  "notify",
  "notify-rust",

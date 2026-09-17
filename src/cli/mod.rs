@@ -893,6 +893,10 @@ pub enum SessionsCommands {
         /// How long the reservation may stay unbound before it lapses (e.g. "10m"); must be shorter than --ttl
         #[arg(long, default_value = "10m")]
         window: String,
+
+        /// Name of the push adapter on the sending host (`local/adapters.json` or built-in `codex`); default: the harness name
+        #[arg(long)]
+        adapter: Option<String>,
     },
 
     /// Attach this agent to a live harness session and stake agent://<name>. A harness started before this runs can already overlap a responder; launchers that must not overlap use `reserve` before starting the harness, then `attach --attachment`.
@@ -920,6 +924,10 @@ pub enum SessionsCommands {
         /// Take over from this agent's current attachment (its id), detaching it first
         #[arg(long)]
         replace: Option<String>,
+
+        /// Name of the push adapter on the sending host (`local/adapters.json` or built-in `codex`); default: the harness name
+        #[arg(long)]
+        adapter: Option<String>,
     },
 
     /// Detach a session and release the claim it staked. Unknown or already-detached sessions are a no-op.

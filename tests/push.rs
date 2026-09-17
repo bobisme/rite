@@ -438,9 +438,41 @@ fn only_the_newest_attachment_of_an_agent_is_pushed_and_the_old_one_is_retired()
     let out = project.work_dir().join("pushed.txt");
     let old_id = attach_recorder(&mut project, "codex-a", &out);
     // Simulate a crash between the successor's commit and the predecessor's
-    // detach: a second attached record naming the first, both live.
+    // detach: a second attached record naming the first, both live, with
+    // the claim already re-tagged to the successor as occupy() does.
+    let listed = json(
+        &project
+            .agent("codex-a")
+            .run(&["sessions", "list", "--format", "json"]),
+    );
+    let _ = listed;
+    let claims_path = project.data_path().join("claims.jsonl");
+    let mut claim: serde_json::Value = std::fs::read_to_string(&claims_path)
+        .unwrap()
+        .lines()
+        .filter_map(|l| serde_json::from_str::<serde_json::Value>(l).ok())
+        .filter(|c| {
+            c["patterns"]
+                .as_array()
+                .unwrap()
+                .iter()
+                .any(|p| p == "agent://codex-a")
+        })
+        .last()
+        .unwrap();
+    let claim_id = claim["id"].as_str().unwrap().to_string();
     let succ = ulid::Ulid::new();
-    let script = format!("printf 'SUCC %s\\n---\\n' \"$1\" >> {}", out.display());
+    claim["event"] = serde_json::json!("extended");
+    claim["owner"] = serde_json::json!(succ.to_string());
+    {
+        use std::io::Write;
+        let mut f = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&claims_path)
+            .unwrap();
+        writeln!(f, "{claim}").unwrap();
+    }
+    let script = format!("printf 'SUCC %s\n---\n' \"$1\" >> {}", out.display());
     write_adapter(
         &project,
         "succ",
@@ -449,7 +481,7 @@ fn only_the_newest_attachment_of_an_agent_is_pushed_and_the_old_one_is_retired()
     let line = serde_json::json!({
         "ts": chrono::Utc::now().to_rfc3339(), "attachment_id": succ.to_string(), "agent": "codex-a",
         "harness": "custom", "session": "sid-new", "kind": "push", "event": "attached",
-        "replaces": old_id, "adapter": "succ"
+        "replaces": old_id, "adapter": "succ", "claim_id": claim_id
     });
     let path = project.data_path().join("local/sessions.jsonl");
     {
@@ -469,6 +501,7 @@ fn only_the_newest_attachment_of_an_agent_is_pushed_and_the_old_one_is_retired()
     ]));
     assert_eq!(sent["deliveries"].as_array().unwrap().len(), 1, "{sent}");
     assert_eq!(sent["deliveries"][0]["session"], "sid-new");
+    assert_eq!(sent["deliveries"][0]["ok"], true, "{sent}");
     let got = recorded(&out);
     assert_eq!(got.len(), 1, "{got:?}");
     assert!(got[0].starts_with("SUCC"));
@@ -476,7 +509,7 @@ fn only_the_newest_attachment_of_an_agent_is_pushed_and_the_old_one_is_retired()
     project
         .agent("codex-a")
         .run(&["sessions", "renew", "--attachment", &succ.to_string()])
-        .assert_failure();
+        .assert_success();
     let listed = json(
         &project
             .agent("codex-a")
@@ -953,4 +986,47 @@ fn case_variants_of_local_are_refused_by_pull_and_push() {
         "tracked case variant must refuse delivery: {sent}"
     );
     assert!(!marker.exists());
+}
+
+#[test]
+fn a_session_whose_occupancy_lapsed_is_not_pushed_into() {
+    let mut project = TestProject::with_name("push-lapsed");
+    let out = project.work_dir().join("pushed.txt");
+    let script = format!("printf 'x\n---\n' >> {}", out.display());
+    write_adapter(&project, "rec", &["sh", "-c", &script]);
+    // A one-second claim that nobody renews.
+    json(&project.agent("codex-a").run(&[
+        "sessions",
+        "attach",
+        "--harness",
+        "custom",
+        "--adapter",
+        "rec",
+        "--session",
+        "s",
+        "--ttl",
+        "1",
+        "--format",
+        "json",
+    ]));
+    project
+        .agent("someone")
+        .send("general", "@codex-a while held")
+        .assert_success();
+    assert_eq!(recorded(&out).len(), 1, "pushed while occupancy is held");
+    std::thread::sleep(std::time::Duration::from_millis(1500));
+    let sent = json(&project.agent("someone").run(&[
+        "send",
+        "general",
+        "@codex-a after lapse",
+        "--format",
+        "json",
+    ]));
+    let d = &sent["deliveries"][0];
+    assert_eq!(d["ok"], false, "{sent}");
+    assert!(
+        d["error"].as_str().unwrap().contains("no longer holds"),
+        "{d}"
+    );
+    assert_eq!(recorded(&out).len(), 1, "the stale adapter was not invoked");
 }

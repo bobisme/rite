@@ -527,6 +527,21 @@ pub fn read_messages_from_offset(path: &Path, offset: u64) -> anyhow::Result<(Ve
     Ok((filter_deleted(all), new_offset))
 }
 
+/// [`read_messages_from_offset`] for a follower: one locked pass that
+/// verifies `from`, parses what follows, and returns where to continue from.
+/// See [`crate::storage::jsonl::read_records_continuing`].
+///
+/// Records come back raw, tombstones and their targets included: a follower
+/// that remembers what it has read must remember every record on disk, or
+/// a later copy of the file without the tombstone would present the deleted
+/// message as new. Apply [`filter_deleted`] to what is handed on.
+pub fn read_messages_continuing(
+    path: &Path,
+    from: Option<&crate::storage::jsonl::Continuation>,
+) -> anyhow::Result<crate::storage::jsonl::ContinuedRead<Message>> {
+    crate::storage::jsonl::read_records_continuing::<Message>(path, from)
+}
+
 /// Read up to `limit` messages from a JSONL file starting at a byte offset,
 /// filtering out deleted messages and their tombstones.
 pub fn read_messages_from_offset_limited(
@@ -592,7 +607,7 @@ pub fn offset_after_message_id(path: &Path, id: &str) -> anyhow::Result<Option<u
 }
 
 /// Filter out deleted messages and their tombstones from a vec of messages.
-fn filter_deleted(messages: Vec<Message>) -> Vec<Message> {
+pub fn filter_deleted(messages: Vec<Message>) -> Vec<Message> {
     // Pass 1: collect all tombstone target IDs
     let deleted_ids: HashSet<Ulid> = messages
         .iter()

@@ -379,6 +379,14 @@ fn occupy(
     }
 }
 
+/// Best-effort reconciliation for callers on a hot path (hook admission):
+/// errors are logged, never propagated.
+pub fn reconcile_best_effort(agent: &str) {
+    if let Err(e) = reconcile(agent) {
+        eprintln!("warning: could not reconcile sessions for {agent}: {e:#}");
+    }
+}
+
 /// Repair what a crash between two appends can leave behind for `agent`:
 /// an `attaching` record that never committed, and an `agent://` claim whose
 /// owner is no longer reserved. Both repairs are conditional, so a concurrent
@@ -467,6 +475,16 @@ fn reconcile(agent: &str) -> Result<()> {
         match predecessor {
             Some(old) if hand_back(claim.id, owner, old, &pattern)? => {}
             _ => {
+                // The snapshot above may be stale: an attach or reserve can
+                // have made this owner live since. Re-read right before
+                // acting, and leave a now-reserved owner alone.
+                let now_state = load_state()?;
+                if reserved_for_agent(&now_state, agent)
+                    .iter()
+                    .any(|r| r.attachment_id == owner)
+                {
+                    continue;
+                }
                 release_owned(claim.id, owner)?;
             }
         }
@@ -542,7 +560,71 @@ fn commit_fenced(
     })
 }
 
-/// Seconds left on a claim, never below one, for a hand-back that keeps
+/// Whether `attachment` is still a pending, unabandoned reservation that is
+/// the owned, unexpired holder of `pattern`. Both facts are read under the
+/// claims lock (the session log is read inside it, in the established
+/// claims-then-sessions order), so the answer describes one instant.
+fn reservation_is_live(claim_id: Ulid, attachment: Ulid, pattern: &str) -> Result<bool> {
+    with_exclusive_read::<FileClaim, bool, _>(&claims_path(), |existing, issues| {
+        if !issues.is_empty() {
+            return Ok(false);
+        }
+        let latest = fold_claims(existing);
+        if !holder_of(pattern, &latest, Utc::now())
+            .is_some_and(|h| h.id == claim_id && owned_by(&h, attachment))
+        {
+            return Ok(false);
+        }
+        let state = load_state()?;
+        Ok(state
+            .iter()
+            .any(|x| x.attachment_id == attachment && x.is_pending() && !x.is_abandoned()))
+    })
+}
+
+/// Whether `attachment` is, right now, the owned and unexpired holder of
+/// `agent`'s occupancy claim, read under the claims lock. Fails closed:
+/// an unreadable claims file or any error is "no". A live consumer
+/// (`rite channel`) asks this before every delivery and reply, so a
+/// replacement revokes it at once rather than at its next renewal.
+pub fn attachment_holds_occupancy(agent: &str, attachment: Ulid) -> bool {
+    let pattern = occupancy_pattern(agent);
+    with_exclusive_read::<FileClaim, bool, _>(&claims_path(), |existing, issues| {
+        if !issues.is_empty() {
+            return Ok(false);
+        }
+        let latest = fold_claims(existing);
+        Ok(holder_of(&pattern, &latest, Utc::now()).is_some_and(|h| owned_by(&h, attachment)))
+    })
+    .unwrap_or(false)
+}
+
+/// Run `action` while `attachment` is, under the claims lock, the owned and
+/// unexpired holder of `agent`'s occupancy claim; `None` without running it
+/// otherwise. The lock is held across the action, so what the action
+/// starts (a write to the harness, a spawn) is linearized with any
+/// replacement: a takeover that lands after it finds the action already
+/// begun, and one that lands before it finds the action refused. Actions
+/// must be short and must never take the claims lock themselves.
+pub fn with_owned_occupancy<R>(
+    agent: &str,
+    attachment: Ulid,
+    action: impl FnOnce() -> R,
+) -> Option<R> {
+    let pattern = occupancy_pattern(agent);
+    with_exclusive_read::<FileClaim, Option<R>, _>(&claims_path(), |existing, issues| {
+        if !issues.is_empty() {
+            return Ok(None);
+        }
+        let latest = fold_claims(existing);
+        if !holder_of(&pattern, &latest, Utc::now()).is_some_and(|h| owned_by(&h, attachment)) {
+            return Ok(None);
+        }
+        Ok(Some(action()))
+    })
+    .unwrap_or(None)
+}
+
 /// the existing expiry rather than granting a fresh TTL.
 fn ttl_remaining(claim: &FileClaim) -> u64 {
     (claim.expires_at - Utc::now()).num_seconds().max(1) as u64
@@ -620,6 +702,11 @@ pub fn reserve(options: ReserveOptions) -> Result<()> {
             options.kind
         )
     })?;
+    if options.window_secs < 1 {
+        bail!(
+            "--window must be at least 1s: a reservation with no window is abandoned the moment it is written"
+        );
+    }
     if (options.ttl_secs as i64) <= options.window_secs {
         bail!(
             "--ttl ({}s) must be longer than --window ({}s): the occupancy claim has to outlive the reservation it protects",
@@ -672,6 +759,30 @@ pub fn reserve(options: ReserveOptions) -> Result<()> {
             return Err(error);
         }
     };
+    // Success is reported only for a reservation that is still pending and
+    // still holds its claim, checked together under the claims lock: the
+    // pending record was appended before the claim was staked, so a window
+    // that lapsed meanwhile (lock contention, a slow auto-commit, a
+    // concurrent detach or reconcile) can already have retired it, and a
+    // launcher that then starts its harness would run without exclusion.
+    if !reservation_is_live(claim.id, attachment, &pattern)? {
+        release_owned(claim.id, attachment)?;
+        append_session_if(
+            &pending.detached(Some(
+                "reservation lapsed before it was reported".to_string(),
+            )),
+            |s| {
+                s.iter()
+                    .any(|x| x.attachment_id == attachment && x.is_reserved())
+            },
+        )?;
+        bail!(
+            "{} reservation {} lapsed before it could be reported (window {}s); nothing is held. Reserve again with a longer --window.",
+            agent,
+            attachment,
+            options.window_secs
+        );
+    }
     let output = ReserveOutput {
         attachment_id: attachment,
         agent: agent.clone(),
@@ -885,11 +996,16 @@ pub fn attach(options: AttachOptions) -> Result<()> {
     // If replacing, the successor inherits the old claim id and re-tags its
     // owner under the claims lock, so occupancy is never dropped. Otherwise
     // a fresh id. Not `unwrap_or_default`: the default ULID is the nil id.
+    // Only this agent's own live attachment can be replaced: another
+    // agent's claim id inherited here would let occupy() re-tag that
+    // agent's claim and strip its live session of occupancy.
     let inherited = replace.and_then(|id| {
         load_state()
             .ok()?
             .iter()
-            .find(|r| r.attachment_id == id && r.is_attached())
+            .find(|r| {
+                r.attachment_id == id && r.is_attached() && r.agent.eq_ignore_ascii_case(&agent)
+            })
             .and_then(|old| old.claim_id)
     });
     let claim_id = match inherited {
@@ -914,7 +1030,10 @@ pub fn attach(options: AttachOptions) -> Result<()> {
         }
         let others = reserved_for_agent(state, &agent_name);
         match (others.as_slice(), replace) {
-            ([], _) => true,
+            ([], None) => true,
+            // A replacement must name this agent's live attachment. With no
+            // attachment to replace, the id can only be someone else's.
+            ([], Some(_)) => false,
             ([current], Some(id)) if current.attachment_id == id && current.is_attached() => {
                 *replaced_record.borrow_mut() = Some((*current).clone());
                 true
@@ -1619,16 +1738,54 @@ pub fn push_deliveries(msg: &Message, channel: &str, sender: &str) -> Vec<Delive
                 .replace("{rendered}", &rendered)
         };
         let args: Vec<String> = argv.iter().map(|a| subst(a)).collect();
+        // Exclusivity is a delivery precondition: the attachment must still
+        // hold its owned, unexpired agent:// claim, checked under the claims
+        // lock immediately before the adapter is spawned. A lapsed or
+        // transferred claim means someone else may act as this agent now,
+        // and pushing into the stale session would double it.
+        // The check and the spawn happen under one hold of the claims lock,
+        // so no detach, replacement, or release can slip between them: an
+        // adapter that starts was started while the attachment held the
+        // claim. Only the spawn is inside the lock; the wait is not, so the
+        // hold lasts a fork and exec, never the adapter's run.
+        let pattern = occupancy_pattern(&r.agent);
+        let spawned =
+            with_exclusive_read::<FileClaim, Option<_>, _>(&claims_path(), |existing, issues| {
+                if !issues.is_empty() {
+                    return Ok(None);
+                }
+                let latest = fold_claims(existing);
+                let occupied = holder_of(&pattern, &latest, Utc::now())
+                    .is_some_and(|h| Some(h.id) == r.claim_id && owned_by(&h, r.attachment_id));
+                if !occupied {
+                    return Ok(None);
+                }
+                Ok(Some(spawn_push(
+                    &args,
+                    msg,
+                    channel,
+                    &reply_target,
+                    route,
+                    &r.session,
+                )))
+            })
+            .unwrap_or(None);
+        let Some(spawned) = spawned else {
+            out.push(Delivery {
+                agent: r.agent.clone(),
+                session: r.session.clone(),
+                attachment_id: r.attachment_id,
+                ok: false,
+                error: Some(format!(
+                    "attachment no longer holds {}; not pushing into a session whose exclusivity lapsed",
+                    pattern
+                )),
+                session_gone: false,
+            });
+            continue;
+        };
         let is_codex = r.adapter_name() == "codex";
-        let (error, gone) = match run_push(
-            &args,
-            msg,
-            channel,
-            &reply_target,
-            route,
-            &r.session,
-            is_codex,
-        ) {
+        let (error, gone) = match spawned.and_then(|child| wait_push(child, is_codex)) {
             Ok(()) => (None, false),
             Err(PushError {
                 reason,
@@ -1700,21 +1857,18 @@ fn kill_group(pid: u32) -> std::io::Result<()> {
     }
 }
 
-/// Run one push command: own process group, minimal environment, fixed
-/// working directory, bounded stderr drained concurrently, bounded run
-/// time. The group is killed on every outcome. The result is a report;
-/// see the module comment for why it never evicts.
-#[allow(clippy::too_many_arguments)]
-fn run_push(
+/// Spawn one push command: own process group, minimal environment, fixed
+/// working directory, stderr piped for [`wait_push`] to drain. Spawning is
+/// the linearization point of a delivery, so the caller does it under the
+/// claims lock right after the occupancy check.
+fn spawn_push(
     args: &[String],
     msg: &Message,
     channel: &str,
     reply_target: &str,
     route: &str,
     session: &str,
-    is_codex: bool,
-) -> std::result::Result<(), PushError> {
-    use std::io::Read;
+) -> std::result::Result<PushChild, PushError> {
     use std::os::unix::process::CommandExt;
     use std::process::{Command, Stdio};
 
@@ -1746,9 +1900,29 @@ fn run_push(
     let _ = std::fs::create_dir_all(local_dir());
     cmd.current_dir(local_dir());
 
-    let mut child = cmd
+    let child = cmd
         .spawn()
         .map_err(|e| PushError::failed(format!("could not run {}: {}", program, e)))?;
+    Ok(PushChild {
+        child,
+        program: program.to_string(),
+    })
+}
+
+/// A spawned adapter, handed from [`spawn_push`] (under the claims lock) to
+/// [`wait_push`] (outside it).
+struct PushChild {
+    child: std::process::Child,
+    program: String,
+}
+
+/// Wait for a spawned adapter, bounded, and end its process group whatever
+/// happened to the leader.
+fn wait_push(spawned: PushChild, is_codex: bool) -> std::result::Result<(), PushError> {
+    use std::io::Read;
+
+    let PushChild { mut child, program } = spawned;
+    let program = program.as_str();
     let pid = child.id();
 
     // Drain stderr concurrently into a bounded buffer; the result comes

@@ -102,6 +102,7 @@ fn main() -> Result<()> {
             attachments,
             reply_to,
             no_hooks,
+            id,
             format: local_format,
         } => cli::send::run(
             cli::send::SendOptions {
@@ -112,6 +113,7 @@ fn main() -> Result<()> {
                 attachments,
                 reply_to,
                 no_hooks,
+                id,
                 format: if cli.json {
                     OutputFormat::Json
                 } else {
@@ -446,6 +448,17 @@ fn main() -> Result<()> {
                 } => cli::hooks::drain(hook_id, dry_run, discard, all, format),
             }
         }
+
+        Commands::Channel {
+            labels,
+            renew,
+            no_attach,
+        } => cli::channel::run(cli::channel::ChannelOptions {
+            labels,
+            renew_secs: cli::statuses::parse_ttl(&renew)?,
+            no_attach,
+            agent: cli.agent,
+        }),
 
         Commands::Sessions { command } => {
             use cli::SessionsCommands;

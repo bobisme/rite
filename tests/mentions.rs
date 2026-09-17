@@ -273,3 +273,276 @@ fn follow_requires_an_agent_identity() {
         output.stderr_str()
     );
 }
+
+/// A channel file replaced under the follower (git sync merging in a remote's
+/// messages, a backup copied back) at equal or greater length is rescanned,
+/// and the rescan delivers each new mention once: nothing already delivered
+/// and nothing that predates the follower is replayed.
+#[test]
+fn follow_rescans_a_replaced_channel_file_and_delivers_each_new_mention_once() {
+    let mut project = TestProject::new();
+    let alice = project.agent("alice");
+    let channel_file = project.data_path().join("channels/general.jsonl");
+
+    alice
+        .send("general", "ancient history for @rite-dev")
+        .assert_success();
+
+    // Bounded by count 3 so a duplicate shows up as an early exit with a
+    // third record; correct behaviour yields exactly two at timeout.
+    let child = spawn_follow(
+        &project.data_path,
+        &project.work_dir,
+        "rite-dev",
+        &["--count", "3", "--timeout", "4"],
+    );
+    settle();
+
+    alice
+        .send("general", "first live mention @rite-dev")
+        .assert_success();
+    spaced();
+
+    // Replace the file with a new inode: the same two records, plus one
+    // that "arrived from another machine" spliced in before them, so the
+    // file is longer and the old offset points into the middle of a record.
+    let original = std::fs::read_to_string(&channel_file).unwrap();
+    let mut lines: Vec<&str> = original.lines().collect();
+    assert_eq!(lines.len(), 2, "unexpected channel contents: {original}");
+    let mut merged: serde_json::Value = serde_json::from_str(lines[1]).unwrap();
+    merged["id"] = serde_json::Value::String(ulid::Ulid::new().to_string());
+    merged["body"] = serde_json::Value::String("merged in for @rite-dev".to_string());
+    let merged = serde_json::to_string(&merged).unwrap();
+    lines.insert(0, &merged);
+    let replacement = channel_file.with_extension("jsonl.tmp");
+    std::fs::write(&replacement, format!("{}\n", lines.join("\n"))).unwrap();
+    std::fs::rename(&replacement, &channel_file).unwrap();
+
+    let records = collect(child);
+    let bodies: Vec<&str> = records.iter().map(body).collect();
+    assert_eq!(
+        bodies,
+        vec!["first live mention @rite-dev", "merged in for @rite-dev"],
+        "unexpected stream contents"
+    );
+}
+
+/// The channel file is gone for a whole watcher batch and then comes back
+/// with its history plus one new mention. Only the new one is delivered:
+/// the seen ids outlive the file, so nothing already handed on replays.
+#[test]
+fn follow_replays_nothing_when_a_channel_file_vanishes_and_returns() {
+    let mut project = TestProject::new();
+    let alice = project.agent("alice");
+    let channel_file = project.data_path().join("channels/general.jsonl");
+
+    alice
+        .send("general", "ancient history for @rite-dev")
+        .assert_success();
+
+    let child = spawn_follow(
+        &project.data_path,
+        &project.work_dir,
+        "rite-dev",
+        &["--count", "3", "--timeout", "4"],
+    );
+    settle();
+
+    alice
+        .send("general", "first live mention @rite-dev")
+        .assert_success();
+    spaced();
+
+    let saved = std::fs::read_to_string(&channel_file).unwrap();
+    std::fs::remove_file(&channel_file).unwrap();
+    // A full watcher batch sees the file absent before it returns.
+    spaced();
+    spaced();
+
+    let last: serde_json::Value = serde_json::from_str(saved.lines().last().unwrap()).unwrap();
+    let mut fresh = last.clone();
+    fresh["id"] = serde_json::Value::String(ulid::Ulid::new().to_string());
+    fresh["body"] = serde_json::Value::String("after the outage @rite-dev".to_string());
+    let replacement = channel_file.with_extension("jsonl.tmp");
+    std::fs::write(
+        &replacement,
+        format!("{saved}{}\n", serde_json::to_string(&fresh).unwrap()),
+    )
+    .unwrap();
+    std::fs::rename(&replacement, &channel_file).unwrap();
+
+    let records = collect(child);
+    let bodies: Vec<&str> = records.iter().map(body).collect();
+    assert_eq!(
+        bodies,
+        vec!["first live mention @rite-dev", "after the outage @rite-dev"],
+        "unexpected stream contents"
+    );
+}
+
+/// A writer observed mid-line, without another write to nudge the channel
+/// afterwards: the record arrives exactly once when its line completes.
+#[test]
+fn follow_delivers_a_record_written_in_two_halves_exactly_once() {
+    use std::io::Write as _;
+
+    let mut project = TestProject::new();
+    let alice = project.agent("alice");
+    let channel_file = project.data_path().join("channels/general.jsonl");
+
+    alice.send("general", "history @rite-dev").assert_success();
+
+    let child = spawn_follow(
+        &project.data_path,
+        &project.work_dir,
+        "rite-dev",
+        &["--count", "2", "--timeout", "4"],
+    );
+    settle();
+
+    // Build a valid record from the existing one, then append it in two
+    // writes far enough apart for the watcher to drain in between.
+    let existing = std::fs::read_to_string(&channel_file).unwrap();
+    let mut record: serde_json::Value =
+        serde_json::from_str(existing.lines().last().unwrap()).unwrap();
+    record["id"] = serde_json::Value::String(ulid::Ulid::new().to_string());
+    record["body"] = serde_json::Value::String("arrives in two halves @rite-dev".to_string());
+    let line = serde_json::to_string(&record).unwrap();
+    let (head, tail) = line.split_at(line.len() / 2);
+    let mut file = std::fs::OpenOptions::new()
+        .append(true)
+        .open(&channel_file)
+        .unwrap();
+    file.write_all(head.as_bytes()).unwrap();
+    file.flush().unwrap();
+    spaced();
+    spaced();
+    file.write_all(tail.as_bytes()).unwrap();
+    file.write_all(b"\n").unwrap();
+    file.flush().unwrap();
+
+    let records = collect(child);
+    let bodies: Vec<&str> = records.iter().map(body).collect();
+    assert_eq!(bodies, vec!["arrives in two halves @rite-dev"]);
+}
+
+/// A channel that cannot be read at startup is a channel the follower would
+/// replay in full on its first change. The follower refuses to start.
+#[test]
+fn follow_fails_closed_when_a_channel_cannot_be_seeded() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut project = TestProject::new();
+    let alice = project.agent("alice");
+    let channel_file = project.data_path().join("channels/general.jsonl");
+    alice.send("general", "history @rite-dev").assert_success();
+    std::fs::set_permissions(&channel_file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read(&channel_file).is_ok() {
+        // Privileges that ignore modes; nothing to prove here.
+        return;
+    }
+
+    let child = spawn_follow(
+        &project.data_path,
+        &project.work_dir,
+        "rite-dev",
+        &["--count", "1", "--timeout", "4"],
+    );
+    let output = child.wait_with_output().expect("follower did not exit");
+    std::fs::set_permissions(&channel_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(
+        !output.status.success(),
+        "follower started over an unreadable channel"
+    );
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        stderr.contains("cannot seed the mention stream from #general"),
+        "stderr: {stderr}"
+    );
+    assert!(output.stdout.is_empty());
+}
+
+/// The channels directory is renamed away and recreated under the running
+/// follower. The watcher is bound to the old inode, so events would stop
+/// while reads through the path continued; the follower ends instead of
+/// going quiet, and emits nothing it cannot vouch for.
+#[test]
+fn follow_ends_when_the_channels_directory_is_replaced() {
+    let mut project = TestProject::new();
+    let alice = project.agent("alice");
+    let channels = project.data_path().join("channels");
+    alice.send("general", "history @rite-dev").assert_success();
+
+    let child = spawn_follow(
+        &project.data_path,
+        &project.work_dir,
+        "rite-dev",
+        &["--count", "1", "--timeout", "6"],
+    );
+    settle();
+
+    std::fs::rename(&channels, project.data_path().join("channels.old")).unwrap();
+    std::fs::create_dir(&channels).unwrap();
+    // A mention into the new directory: the old watcher never sees it.
+    alice
+        .send("general", "into the new directory @rite-dev")
+        .assert_success();
+
+    let output = child.wait_with_output().expect("follower did not exit");
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "follower kept running over a replaced directory; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("was replaced under the watcher"),
+        "stderr: {stderr}"
+    );
+    assert!(
+        output.stdout.is_empty(),
+        "stdout: {}",
+        String::from_utf8_lossy(&output.stdout)
+    );
+}
+
+/// A channel that changes but cannot be read afterwards ends the stream:
+/// nothing promises another event to retry on, and a consumer holding
+/// occupancy must not keep it over a change it could not read.
+#[test]
+fn follow_ends_when_a_changed_channel_cannot_be_read() {
+    use std::os::unix::fs::PermissionsExt;
+
+    let mut project = TestProject::new();
+    let alice = project.agent("alice");
+    let channel_file = project.data_path().join("channels/general.jsonl");
+    alice.send("general", "history @rite-dev").assert_success();
+
+    let child = spawn_follow(
+        &project.data_path,
+        &project.work_dir,
+        "rite-dev",
+        &["--count", "1", "--timeout", "6"],
+    );
+    settle();
+
+    // The permission change is itself the filesystem event; the read that
+    // follows it fails.
+    std::fs::set_permissions(&channel_file, std::fs::Permissions::from_mode(0o000)).unwrap();
+    if std::fs::read(&channel_file).is_ok() {
+        std::fs::set_permissions(&channel_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+        let _ = child.wait_with_output();
+        return;
+    }
+    let output = child.wait_with_output().expect("follower did not exit");
+    std::fs::set_permissions(&channel_file, std::fs::Permissions::from_mode(0o644)).unwrap();
+    let stderr = String::from_utf8_lossy(&output.stderr);
+    assert!(
+        !output.status.success(),
+        "follower kept running over an unreadable channel; stderr: {stderr}"
+    );
+    assert!(
+        stderr.contains("cannot read #general after a change"),
+        "stderr: {stderr}"
+    );
+    assert!(output.stdout.is_empty());
+}

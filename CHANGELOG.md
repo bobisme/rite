@@ -38,8 +38,34 @@ All notable changes to this project are documented here. This project adheres to
   commit; `rite doctor` reports tracked host-local state. Every guard
   matches the `local` path component case-insensitively, since a
   case-insensitive filesystem aliases `LOCAL/` to it. `--no-hooks` and
-  `!nohooks` suppress delivery as they suppress hooks. The JSON envelope
+  `!nohooks` suppress delivery as they suppress hooks. Exclusivity is a
+  delivery precondition: immediately before an adapter is spawned, `send`
+  verifies under the claims lock that the attachment still holds its owned,
+  unexpired `agent://` claim, and skips a session whose occupancy lapsed or
+  moved. The check and the adapter spawn happen under one hold of that
+  lock, so an adapter that starts was started while the attachment held
+  the claim; the wait for it happens outside the lock. The JSON envelope
   from `send` reports `deliveries`.
+
+- **`rite channel`: a Claude Code channel server.** Claude Code spawns it
+  as an MCP server over stdio (`.mcp.json` command `rite channel --agent
+  <name>`, launched with `--dangerously-load-development-channels
+  server:<name>`). It streams the agent's mentions and DMs as
+  `notifications/claude/channel` events with `from_agent`, `channel_name`,
+  `reply_target`, `route`, and `msg_id` meta, and offers a `reply` tool that
+  answers on the bus anchored to the event. The process is the live session:
+  it attaches a stream-kind session on start (staking `agent://<name>`),
+  renews the claim while it runs, and detaches when Claude closes stdin.
+  Occupancy follows delivery: the claim is taken only once the client has
+  sent `notifications/initialized` and the mention stream is armed, and
+  the server exits, detaching only its own attachment, when the stream
+  ends, stdout closes, a renewal fails, or stdin closes. If the identity
+  is held elsewhere the server exits rather than serve beside the holder;
+  only `--no-attach` serves without occupancy. Hook admission reconciles a
+  reservation that lapsed unbound before deciding, so a crashed launcher's
+  claim does not block a responder for the claim's TTL. Session
+  bookkeeping and the reply run through the same binary as subprocesses so
+  stdout stays a clean JSON-RPC stream.
 
 - **`rite sessions attach|detach|renew|list`: record which live harness
   session an agent is reachable in.** An attachment binds an agent to one
@@ -86,9 +112,92 @@ All notable changes to this project are documented here. This project adheres to
   Attachments live in `local/sessions.jsonl`, which
   `sync init` ignores and `sync push` excludes by pathspec, since a session
   id means nothing on another host. `rite agents` shows the attachment.
-  Design and test evidence: `notes/agent-sessions.md`.
+  Design and test evidence: `notes/agent-sessions.md`. `reserve` reports success only for a
+  reservation that is still pending and still holds its claim, both read
+  under the claims lock after the claim is staked; a `--window` under one
+  second is refused, since such a reservation is abandoned as soon as it
+  is written.
 
 ### Fixed
+
+- **`rite mentions follow` notices a rewritten channel file.** A cursor was
+  trusted whenever the file was no longer shorter than it, so a channel
+  rewritten to an equal or greater length (git sync merging in another
+  machine's messages, a backup copied back, an in-place edit) was read
+  from a stale offset and the messages before it were never delivered. A
+  cursor now carries the file's identity and a SHA-256 of every byte it
+  has consumed, and each read is one pass under the file's shared lock
+  that verifies that prefix, parses what follows, and hashes exactly the
+  bytes it parsed; a prefix that no longer matches means a rescan from the
+  start. A per-channel set of ids already read, seeded from disk at
+  startup and kept while a file is absent, makes a rescan deliver each new
+  message exactly once and replay nothing, even when the file vanishes
+  and comes back. The cursor never rests inside a record: an unterminated
+  final line holds it at that line's start until the writer finishes. The
+  set of ids read is built from every record on disk, tombstones and their
+  targets included, so a copy of the file that lacks a tombstone does not
+  present the deleted message as new. A channel, or the channels
+  directory, that cannot be read at startup fails the follower instead of
+  being left to replay in full on its first change. Startup seeds a
+  baseline, registers the watcher, and then catches up before it reports
+  ready, so a message that lands between any two of those steps is
+  delivered once instead of being consumed as history. The stream is bound
+  to the channels directory the watcher was registered on: its identity
+  is checked before readiness and on every poll, and a replaced directory
+  ends the stream rather than leaving it silent. A watcher rescan notice
+  (an inotify queue overflow, FSEvents dropped events), which notify
+  delivers as a successful event with no paths, ends the stream too, and
+  so does a channel that changed but could not then be opened, locked, or
+  read. `rite channel` inherits all of this, so occupancy is not held
+  over a stream with a hole.
+- **A replaced `rite channel` stops at once.** `sessions attach --replace`
+  re-tags the claim to its successor without telling the old server,
+  which went on delivering and replying under the identity until its
+  next renewal, up to the renewal interval. Every delivery write and
+  every reply spawn now happens under the claims lock, only while the
+  attachment still owns the claim, so a takeover lands either before the
+  action, which is then refused and the server stops with its own
+  detach, or after it. Stdout is non-blocking and each write is bounded
+  to five seconds, so a client that stops reading cannot hold the
+  host-wide claims lock; the server stops instead. The flush of events
+  buffered before activation shares one such bound, whatever its length,
+  so a client that drains one event just before each deadline cannot hold
+  that lock for the whole backlog either.
+- **`rite sessions attach --replace` can only replace the caller's own
+  attachment.** Naming another agent's live attachment inherited that
+  agent's claim id, and the successor's occupancy write re-tagged the
+  victim's claim, leaving the victim attached without occupancy. It is now
+  refused and the victim is untouched.
+- **A `rite channel` reply is bounded.** A hook that waits for its spawn to
+  exit can hold `rite send` for as long as that spawn lives; a reply held
+  the server's lifecycle for that long, and with it shutdown and occupancy.
+  At 30 seconds the reply now reads the destination channel itself for
+  the message id it minted for this attempt (a hidden `rite send --id`
+  carries it): a reply that is on the bus is reported with its id while
+  `send` finishes its hooks on its own, and a `send` still stalled before
+  the append is ended so it can never write as this agent after the
+  identity has moved on (no hook has run yet at that point, so nothing
+  legitimate is lost). Renewal stops as soon as shutdown begins. An id
+  given to `send --id` is used once: it is refused if any channel already
+  has it, checked under a store-wide fence held across the sweep and the
+  destination's append, since a follower
+  emits each id exactly once and a reused id would make a new message
+  invisible to every reader that saw the first.
+- **Sync guards read git listings NUL-delimited.** Git C-quotes a pathname
+  with unusual bytes in text output, so a tracked `local/naïve.jsonl`
+  appeared as `"local/na\303\257ve.jsonl"` and slipped past the host-local
+  gate. `ls-files` and `ls-tree` are read with `-z` now, and the exact
+  path is what gets untracked or quarantined.
+- **`rite channel` treats an overflow during activation as terminal.** The
+  overflow flag was read before the buffer lock that flips delivery on,
+  so an event dropped between the two was lost while the server stayed up
+  and kept occupancy. The flag is now read under that lock.
+- **`rite sync init --remote` goes through the host-local gate.** The
+  initial push published whatever `git add '*.jsonl'` staged, including a
+  pre-existing `LOCAL/` or `Local/` tree that the case-sensitive ignore
+  rule for `local/` does not cover. Init now untracks every case variant
+  before its first commit, ignores them, and publishes through the same
+  tree and outgoing-history checks as `rite sync push`.
 
 - **A trigger queued behind a spawn lease is no longer stranded when the
   channel goes quiet.** The lease batches triggers that arrive while a spawn is

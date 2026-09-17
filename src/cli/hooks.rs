@@ -1010,11 +1010,16 @@ fn is_pattern_held(pattern: &str, existing_claims: &[FileClaim], now: DateTime<U
 fn is_claim_available(pattern: &str) -> Result<bool> {
     // An `agent://` identity is also busy while `rite sessions attach` is
     // between reserving it and staking this claim, and while its session log
-    // cannot be read. See `crate::core::session::agent_is_reserved`.
-    if let Some(agent) = pattern.strip_prefix("agent://")
-        && crate::core::session::agent_is_reserved(agent)
-    {
-        return Ok(false);
+    // cannot be read. See `crate::core::session::agent_is_reserved`. A
+    // reservation that lapsed unbound is reconciled first, so its claim
+    // does not block admission for the claim's whole TTL.
+    if let Some(agent) = pattern.strip_prefix("agent://") {
+        if crate::core::session::has_abandoned(agent) {
+            crate::cli::sessions::reconcile_best_effort(agent);
+        }
+        if crate::core::session::agent_is_reserved(agent) {
+            return Ok(false);
+        }
     }
     let all_claims: Vec<FileClaim> = read_records(&claims_path()).unwrap_or_default();
     let now = Utc::now();
@@ -1116,6 +1121,11 @@ fn release_own_claim(claim: Option<&FileClaim>) {
 
 /// Stake a hook's own claim, atomically, exactly as before leases existed.
 fn stake_hook_claim(pattern: &str, agent: &str, ttl_secs: u64) -> Option<FileClaim> {
+    if let Some(name) = pattern.strip_prefix("agent://")
+        && crate::core::session::has_abandoned(name)
+    {
+        crate::cli::sessions::reconcile_best_effort(name);
+    }
     let claim = FileClaim::new(agent, vec![pattern.to_string()], ttl_secs);
     let pattern = pattern.to_string();
     let acquired = append_if(&claims_path(), &claim, |existing| {

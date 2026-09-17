@@ -392,6 +392,25 @@ impl<'de> Deserialize<'de> for SessionEvent {
     }
 }
 
+/// Whether `agent` has a reservation that lapsed without being bound. Such a
+/// record still owns an `agent://` claim with a much longer TTL; hook
+/// admission reconciles it before deciding, so a crashed launcher does not
+/// block a responder for hours.
+pub fn has_abandoned(agent: &str) -> bool {
+    use crate::core::project::sessions_path;
+    use crate::storage::jsonl::read_records_reporting;
+    let path = sessions_path();
+    if !path.exists() {
+        return false;
+    }
+    match read_records_reporting::<SessionRecord>(&path) {
+        Ok((records, issues)) if issues.is_empty() => fold(&records)
+            .iter()
+            .any(|r| r.agent.eq_ignore_ascii_case(agent) && r.is_abandoned()),
+        _ => false,
+    }
+}
+
 /// Whether `agent` is reserved by a live or pending attachment on this host.
 ///
 /// Used by hook admission so a responder does not cold-spawn beside a

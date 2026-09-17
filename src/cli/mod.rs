@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 pub mod agents;
 pub mod agentsmd;
+pub mod channel;
 pub mod channels;
 pub mod claim;
 pub mod doctor;
@@ -132,6 +133,12 @@ pub enum Commands {
         /// Don't fire hooks for this message
         #[arg(long)]
         no_hooks: bool,
+
+        /// Use this ULID as the message id instead of minting one. For a
+        /// caller that must recognise its own append on the bus without
+        /// waiting for the envelope (rite channel); hidden from help.
+        #[arg(long = "id", value_name = "ULID", hide = true)]
+        id: Option<String>,
 
         /// Output format (json prints the new message id for scripting)
         #[arg(long, value_enum)]
@@ -386,6 +393,21 @@ pub enum Commands {
     Hooks {
         #[command(subcommand)]
         command: HooksCommands,
+    },
+
+    /// Serve this agent's mentions to a Claude Code session as an MCP channel server (stdio)
+    Channel {
+        /// Only stream messages with this label (repeatable)
+        #[arg(short = 'L', long = "label")]
+        labels: Vec<String>,
+
+        /// How often to renew the occupancy claim while serving (e.g. "30m")
+        #[arg(long, default_value = "30m")]
+        renew: String,
+
+        /// Serve without attaching a session or staking agent://<name>
+        #[arg(long)]
+        no_attach: bool,
     },
 
     /// Record live harness sessions and their agent:// occupancy claims

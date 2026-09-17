@@ -10,17 +10,19 @@
 use anyhow::{Context, Result};
 use colored::Colorize;
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::Write;
 use std::path::Path;
 use std::time::{Duration, Instant};
+use ulid::Ulid;
 
 use crate::cli::OutputFormat;
 use crate::core::channel::{dm_agents, is_dm_channel};
 use crate::core::identity::resolve_agent;
-use crate::core::message::{Message, MessageMeta, read_messages_from_offset};
+use crate::core::message::{Message, MessageMeta, filter_deleted, read_messages_continuing};
 use crate::core::project::channels_dir;
-use crate::storage::watch::{debounce_events, filter_channel_events, watch_directory};
+use crate::storage::jsonl::Continuation;
+use crate::storage::watch::{debounce_events_checked, filter_channel_events, watch_directory};
 
 /// How long to batch filesystem events before draining the changed channels.
 const POLL_INTERVAL: Duration = Duration::from_millis(200);
@@ -187,62 +189,210 @@ impl MentionFilter {
     }
 }
 
-/// Per-channel byte offsets into the channel JSONL files.
+/// Whether an error chain bottoms out in a missing file.
+fn is_not_found(e: &anyhow::Error) -> bool {
+    e.chain()
+        .filter_map(|c| c.downcast_ref::<std::io::Error>())
+        .any(|io| io.kind() == std::io::ErrorKind::NotFound)
+}
+
+/// `(dev, ino)` of the directory at `path`.
+fn directory_identity(path: &Path) -> Result<(u64, u64)> {
+    use std::os::unix::fs::MetadataExt;
+    let meta = std::fs::metadata(path)
+        .with_context(|| format!("cannot stat channels directory {}", path.display()))?;
+    if !meta.is_dir() {
+        anyhow::bail!("{} is not a directory", path.display());
+    }
+    Ok((meta.dev(), meta.ino()))
+}
+
+/// Fail unless the directory at `path` is still the one the watcher was
+/// registered on.
+fn ensure_same_directory(path: &Path, watched: (u64, u64)) -> Result<()> {
+    let now = directory_identity(path)?;
+    if now != watched {
+        anyhow::bail!(
+            "channels directory {} was replaced under the watcher; the mention stream cannot continue",
+            path.display()
+        );
+    }
+    Ok(())
+}
+
+/// Per-channel positions in the channel JSONL files, and every message id
+/// read through them.
 ///
 /// Existing channels are seeded at their current end of file ("now"), so
 /// startup does not replay history. A channel first seen after startup has no
 /// entry and therefore starts at offset 0 — deliberate asymmetry, so a channel
 /// whose very first message is the mention is not missed.
+///
+/// A position is a [`Continuation`]: the file's identity and a digest of
+/// every byte consumed. It is resumed only when the file, read under the
+/// same lock as the parse, is still that file with that exact prefix;
+/// otherwise the channel is rescanned from the start. The seen set is what
+/// makes a rescan deliver each new message exactly once and nothing already
+/// delivered or predating startup, and it outlives the file: a channel that
+/// vanishes and comes back replays nothing.
 #[derive(Debug, Default)]
 struct Cursors {
-    offsets: HashMap<String, u64>,
+    positions: HashMap<String, Continuation>,
+    seen: HashMap<String, HashSet<Ulid>>,
+}
+
+/// One read of a channel: what to hand on, and where the cursor now rests.
+struct Consumed {
+    messages: Vec<Message>,
+    /// Whether the read resumed from the previous position. `false` is a
+    /// rescan from the start of the file.
+    resumed: bool,
+    /// Byte offset the cursor advanced to (the end of the last terminated
+    /// line, or the start of an unterminated one).
+    end: u64,
+    /// Terminated lines this build could not parse, by byte offset.
+    skipped: Vec<u64>,
 }
 
 impl Cursors {
-    /// Seed every channel file currently on disk at its end of file.
-    fn seeded_at_now(channels_path: &Path) -> Self {
-        let mut offsets = HashMap::new();
-        if let Ok(entries) = std::fs::read_dir(channels_path) {
-            for entry in entries.filter_map(|e| e.ok()) {
-                let path = entry.path();
-                if path.extension().is_some_and(|ext| ext == "jsonl")
-                    && let Some(name) = path.file_stem().and_then(|s| s.to_str())
-                {
-                    let size = std::fs::metadata(&path).map(|m| m.len()).unwrap_or(0);
-                    offsets.insert(name.to_string(), size);
-                }
+    /// Seed every channel file currently on disk at its end of file, and
+    /// record every id already in it so a later rescan does not replay it.
+    /// Fails if any channel cannot be read: a channel with no position and
+    /// no history would replay everything on its first change, and a
+    /// consumer that holds occupancy on this stream must not start blind.
+    fn seeded_at_now(channels_path: &Path) -> Result<Self> {
+        let mut cursors = Self::default();
+        // Enumeration fails closed too: a channel the listing missed would
+        // be read from its start on its first change.
+        let entries = std::fs::read_dir(channels_path).with_context(|| {
+            format!(
+                "cannot list channels in {} to seed the mention stream",
+                channels_path.display()
+            )
+        })?;
+        for entry in entries {
+            let entry = entry.with_context(|| {
+                format!(
+                    "cannot list channels in {} to seed the mention stream",
+                    channels_path.display()
+                )
+            })?;
+            let path = entry.path();
+            if path.extension().is_some_and(|ext| ext == "jsonl")
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+            {
+                cursors
+                    .consume(name, &path)
+                    .with_context(|| format!("cannot seed the mention stream from #{name}"))?;
             }
         }
-        Self { offsets }
+        Ok(cursors)
     }
 
-    /// Offset to read a changed channel from.
-    ///
-    /// Unknown channel → 0 (created after startup, read from the beginning).
-    /// A file shorter than the recorded offset was truncated or replaced (git
-    /// sync, `channels delete` + recreate), so restart it from 0 rather than
-    /// going permanently blind.
-    fn read_from(&self, channel: &str, file_len: u64) -> u64 {
-        match self.offsets.get(channel) {
-            Some(&offset) if offset <= file_len => offset,
-            Some(_) => 0,
-            None => 0,
+    /// Read `channel` from its position, or from the start if that position
+    /// no longer describes the file, advance it, and return the messages
+    /// not read before. The position stops at the start of an unterminated
+    /// final line, so the next read begins there rather than inside the
+    /// record.
+    fn consume(&mut self, channel: &str, path: &Path) -> Result<Consumed> {
+        let read = read_messages_continuing(path, self.positions.get(channel))?;
+        let end = read.position.offset;
+        let skipped = read
+            .issues
+            .skipped
+            .iter()
+            .map(|s| s.byte_offset)
+            .filter(|o| *o < end)
+            .collect();
+        self.positions.insert(channel.to_string(), read.position);
+
+        // Every record on disk is remembered, tombstones and their targets
+        // included, before deletion is applied: what is handed on is the
+        // filtered view, but what counts as "already read" is the file.
+        let seen = self.seen.entry(channel.to_string()).or_default();
+        let unseen: Vec<Message> = read
+            .records
+            .into_iter()
+            .filter(|m| seen.insert(m.id))
+            .collect();
+        let messages = filter_deleted(unseen);
+        Ok(Consumed {
+            messages,
+            resumed: read.resumed,
+            end,
+            skipped,
+        })
+    }
+
+    /// Read every channel on disk from its position and return what is new,
+    /// as `(channel, message)`: the catch-up between the startup baseline
+    /// and the first watcher event. A channel that appeared since the
+    /// baseline is read from its start.
+    fn catch_up(&mut self, channels_path: &Path) -> Result<Vec<(String, Message)>> {
+        let mut found = Vec::new();
+        let entries = std::fs::read_dir(channels_path)
+            .with_context(|| format!("cannot list channels in {}", channels_path.display()))?;
+        for entry in entries {
+            let path = entry
+                .with_context(|| format!("cannot list channels in {}", channels_path.display()))?
+                .path();
+            if path.extension().is_some_and(|ext| ext == "jsonl")
+                && let Some(name) = path.file_stem().and_then(|s| s.to_str())
+            {
+                let consumed = self
+                    .consume(name, &path)
+                    .with_context(|| format!("cannot catch up on #{name}"))?;
+                found.extend(consumed.messages.into_iter().map(|m| (name.to_string(), m)));
+            }
         }
+        Ok(found)
     }
 
-    fn advance(&mut self, channel: &str, offset: u64) {
-        self.offsets.insert(channel.to_string(), offset);
-    }
-
-    /// Forget a channel whose file is gone, so the map stays proportional to
-    /// live channels rather than to every channel ever seen.
+    /// The channel file is gone. Drop the position, but keep every id read
+    /// through it: a file that comes back (renamed away and back, a slow
+    /// delete then copy, sync tooling that briefly removes the path) is
+    /// rescanned from the start, and must not replay work already handed
+    /// on. The map therefore stays proportional to every channel seen,
+    /// not only to live ones.
     fn forget(&mut self, channel: &str) {
-        self.offsets.remove(channel);
+        self.positions.remove(channel);
     }
 }
 
 /// Stream every message mentioning `agent` across all channels (plus its DMs).
 pub fn follow(options: FollowOptions, explicit_agent: Option<&str>) -> Result<()> {
+    let format = options.format;
+    follow_with(options, explicit_agent, |record| emit(record, format))
+}
+
+/// The stream behind `follow`, handing each record to `on_record` instead of
+/// printing it. `rite channel` runs this in-process and turns records into
+/// MCP notifications.
+pub fn follow_with<F>(
+    options: FollowOptions,
+    explicit_agent: Option<&str>,
+    on_record: F,
+) -> Result<()>
+where
+    F: FnMut(&MentionRecord) -> Result<()>,
+{
+    follow_with_ready(options, explicit_agent, || {}, on_record)
+}
+
+/// [`follow_with`] plus a readiness callback, invoked once the directory
+/// watcher is registered and the cursors are seeded: from that point on,
+/// every new message is guaranteed to be seen. A consumer that must not
+/// claim to be reachable before it can deliver waits for this.
+pub fn follow_with_ready<R, F>(
+    options: FollowOptions,
+    explicit_agent: Option<&str>,
+    on_ready: R,
+    mut on_record: F,
+) -> Result<()>
+where
+    R: FnOnce(),
+    F: FnMut(&MentionRecord) -> Result<()>,
+{
     let agent = resolve_agent(explicit_agent).ok_or_else(|| {
         anyhow::anyhow!(
             "mentions follow requires agent identity. Set RITE_AGENT or use --agent <name>."
@@ -261,13 +411,43 @@ pub fn follow(options: FollowOptions, explicit_agent: Option<&str>) -> Result<()
         })?;
     }
 
-    // Register the watcher BEFORE seeding offsets. The reverse order has a hole:
-    // a message appended between seeding and watcher registration produces no
-    // event and would sit unread until the next unrelated write to that channel.
+    // Startup, in an order with no hole:
+    //
+    // 1. Seed a baseline: every existing channel is read to its end and
+    //    every id in it is history. Nothing before this point is emitted.
+    // 2. Register the watcher. From here on every append queues an event.
+    // 3. Catch up: read every channel again and emit what arrived since the
+    //    baseline. An append between 1 and 2 produced no event and is
+    //    delivered here; an append after 2 is delivered here or by its
+    //    queued event, once, because the seen set does not care which.
+    // 4. Ready.
+    //
+    // Seeding after registration instead would consume an append that
+    // landed between the two as history, and its queued event would then
+    // find nothing new. Seeding before registration alone would miss an
+    // append between the two entirely.
+    //
+    // The watcher is bound to the directory inode that exists at
+    // registration; every later read goes through the pathname. If the
+    // directory is replaced (renamed away and recreated, a backup copied
+    // back), events stop while reads continue, and the stream would be
+    // silent rather than wrong. So the directory's identity is taken before
+    // the baseline, checked after registration and before readiness, and
+    // checked on every poll; a change ends the stream, and a consumer that
+    // holds occupancy on it must let go.
+    let watched = directory_identity(&channels_path)?;
+    let mut cursors = Cursors::seeded_at_now(&channels_path)?;
     let (_watcher, rx) =
         watch_directory(&channels_path).with_context(|| "Failed to watch channels directory")?;
-
-    let mut cursors = Cursors::seeded_at_now(&channels_path);
+    ensure_same_directory(&channels_path, watched)?;
+    let mut caught_up: Vec<MentionRecord> = cursors
+        .catch_up(&channels_path)?
+        .into_iter()
+        .filter_map(|(channel, msg)| filter.record(msg, &channel))
+        .collect();
+    caught_up.sort_by_key(|r| (r.message.ts, r.message.id));
+    ensure_same_directory(&channels_path, watched)?;
+    on_ready();
 
     if options.format == OutputFormat::Pretty {
         eprintln!(
@@ -289,6 +469,16 @@ pub fn follow(options: FollowOptions, explicit_agent: Option<&str>) -> Result<()
     let start = Instant::now();
     let mut emitted: usize = 0;
 
+    for record in &caught_up {
+        on_record(record)?;
+        emitted += 1;
+        if let Some(max) = options.count
+            && emitted >= max
+        {
+            return Ok(());
+        }
+    }
+
     loop {
         if let Some(timeout) = options.timeout
             && start.elapsed() >= Duration::from_secs(timeout)
@@ -297,33 +487,65 @@ pub fn follow(options: FollowOptions, explicit_agent: Option<&str>) -> Result<()
         }
 
         // Blocks up to POLL_INTERVAL, so timeout/count are checked regularly
-        // even when nothing is happening.
-        let changed = filter_channel_events(debounce_events(&rx, POLL_INTERVAL));
+        // even when nothing is happening. A watcher failure ends the stream:
+        // after an overflow or an invalidated watch this loop could only
+        // report silence, and a consumer that holds occupancy on the
+        // strength of this stream must not mistake that for quiet.
+        let changed = filter_channel_events(
+            debounce_events_checked(&rx, POLL_INTERVAL)
+                .with_context(|| "mention stream can no longer deliver")?,
+        );
+        ensure_same_directory(&channels_path, watched)?;
 
         let mut batch: Vec<MentionRecord> = Vec::new();
 
         for channel in changed {
             let path = channels_path.join(format!("{}.jsonl", channel));
-            let Ok(meta) = std::fs::metadata(&path) else {
+            if !path.exists() {
                 // Deleted or renamed out from under us.
                 cursors.forget(&channel);
                 continue;
-            };
+            }
 
-            let offset = cursors.read_from(&channel, meta.len());
-            let (messages, new_offset) = match read_messages_from_offset(&path, offset) {
-                Ok(result) => result,
-                Err(e) => {
-                    // A torn append (writer mid-line) or a corrupt record. Do
-                    // not advance the cursor; the next event re-reads it.
-                    eprintln!("warn: failed to read #{}: {}", channel, e);
+            let consumed = match cursors.consume(&channel, &path) {
+                Ok(consumed) => consumed,
+                Err(e) if is_not_found(&e) => {
+                    // Deleted between the existence check and the open:
+                    // the same case as above, one instant later.
+                    cursors.forget(&channel);
                     continue;
                 }
+                Err(e) => {
+                    // Any other failure to open, lock, or read a channel
+                    // that just changed ends the stream. Nothing promises
+                    // another event to retry on, and a consumer that holds
+                    // occupancy on this stream must not keep it over a
+                    // change it could not read.
+                    return Err(e.context(format!(
+                        "cannot read #{channel} after a change; the mention stream cannot continue"
+                    )));
+                }
             };
-            cursors.advance(&channel, new_offset);
+            for offset in &consumed.skipped {
+                // A complete line this build cannot parse. The cursor is
+                // past it, since nothing appended later can change it; an
+                // in-place repair changes the consumed prefix and forces a
+                // rescan that picks it up.
+                eprintln!(
+                    "warn: skipped an unreadable record in #{} at byte {}",
+                    channel, offset
+                );
+            }
+            if !consumed.resumed && consumed.end > 0 {
+                eprintln!(
+                    "warn: #{} was rewritten or replaced; rescanned from the start",
+                    channel
+                );
+            }
 
             batch.extend(
-                messages
+                consumed
+                    .messages
                     .into_iter()
                     .filter_map(|msg| filter.record(msg, &channel)),
             );
@@ -335,7 +557,7 @@ pub fn follow(options: FollowOptions, explicit_agent: Option<&str>) -> Result<()
         batch.sort_by_key(|r| (r.message.ts, r.message.id));
 
         for record in &batch {
-            emit(record, options.format)?;
+            on_record(record)?;
             emitted += 1;
             if let Some(max) = options.count
                 && emitted >= max
@@ -389,6 +611,7 @@ fn single_line(body: &str) -> String {
 mod tests {
     use super::*;
     use crate::core::message::SystemEvent;
+    use std::os::unix::fs::MetadataExt;
     use tempfile::TempDir;
 
     fn msg(agent: &str, channel: &str, body: &str) -> Message {
@@ -563,6 +786,20 @@ mod tests {
         assert!(line.contains("\"route\":\"mention\""));
     }
 
+    fn consume_bodies(cursors: &mut Cursors, channel: &str, path: &Path) -> Vec<String> {
+        cursors
+            .consume(channel, path)
+            .unwrap()
+            .messages
+            .into_iter()
+            .map(|m| m.body)
+            .collect()
+    }
+
+    fn position(cursors: &Cursors, channel: &str) -> u64 {
+        cursors.positions[channel].offset
+    }
+
     #[test]
     fn existing_channels_are_seeded_at_end_of_file() {
         let temp = TempDir::new().unwrap();
@@ -570,12 +807,13 @@ mod tests {
         crate::storage::jsonl::append_record(&path, &msg("alice", "general", "old news")).unwrap();
         let size = std::fs::metadata(&path).unwrap().len();
 
-        let cursors = Cursors::seeded_at_now(temp.path());
-        assert_eq!(cursors.read_from("general", size), size);
+        let mut cursors = Cursors::seeded_at_now(temp.path()).unwrap();
+        assert_eq!(position(&cursors, "general"), size);
 
         // Nothing is replayed from a channel seeded at "now".
-        let (replayed, _) = read_messages_from_offset(&path, size).unwrap();
-        assert!(replayed.is_empty());
+        let consumed = cursors.consume("general", &path).unwrap();
+        assert!(consumed.resumed);
+        assert!(consumed.messages.is_empty());
     }
 
     #[test]
@@ -583,38 +821,401 @@ mod tests {
         let temp = TempDir::new().unwrap();
         std::fs::write(temp.path().join("general.jsonl"), "").unwrap();
 
-        let cursors = Cursors::seeded_at_now(temp.path());
+        let mut cursors = Cursors::seeded_at_now(temp.path()).unwrap();
 
         // A channel that did not exist at seed time starts at 0, so its very
         // first message is delivered.
         let path = temp.path().join("brand-new.jsonl");
         crate::storage::jsonl::append_record(&path, &msg("alice", "brand-new", "@rite-dev first"))
             .unwrap();
-        let len = std::fs::metadata(&path).unwrap().len();
-        assert_eq!(cursors.read_from("brand-new", len), 0);
-
-        let (messages, _) = read_messages_from_offset(&path, 0).unwrap();
+        let consumed = cursors.consume("brand-new", &path).unwrap();
+        assert!(!consumed.resumed);
         let filter = MentionFilter::new("rite-dev", false, vec![]);
         assert_eq!(
-            filter.classify(&messages[0], "brand-new"),
+            filter.classify(&consumed.messages[0], "brand-new"),
             Some(Route::Mention)
         );
     }
 
     #[test]
     fn truncated_file_restarts_from_zero() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("general.jsonl");
+        crate::storage::jsonl::append_record(&path, &msg("alice", "general", "one")).unwrap();
+        crate::storage::jsonl::append_record(&path, &msg("alice", "general", "two")).unwrap();
+        let size = std::fs::metadata(&path).unwrap().len();
         let mut cursors = Cursors::default();
-        cursors.advance("general", 500);
-        assert_eq!(cursors.read_from("general", 900), 500);
+        cursors.consume("general", &path).unwrap();
+        assert_eq!(position(&cursors, "general"), size);
+
         // File shrank: it was rewritten or replaced.
-        assert_eq!(cursors.read_from("general", 100), 0);
+        let content = std::fs::read(&path).unwrap();
+        let first_line_end = content.iter().position(|b| *b == b'\n').unwrap() + 1;
+        std::fs::write(&path, &content[..first_line_end]).unwrap();
+        let consumed = cursors.consume("general", &path).unwrap();
+        assert!(!consumed.resumed);
+        assert!(
+            consumed.messages.is_empty(),
+            "the surviving record was already seen"
+        );
+        assert_eq!(position(&cursors, "general"), first_line_end as u64);
+    }
+
+    /// The same inode rewritten to the same length: only the bytes tell.
+    #[test]
+    fn an_equal_length_in_place_rewrite_is_rescanned_and_each_message_delivered_once() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("general.jsonl");
+        crate::storage::jsonl::append_record(&path, &msg("alice", "general", "history")).unwrap();
+        let mut cursors = Cursors::seeded_at_now(temp.path()).unwrap();
+
+        let second = msg("alice", "general", "@rite-dev first");
+        crate::storage::jsonl::append_record(&path, &second).unwrap();
+        let delivered = cursors.consume("general", &path).unwrap();
+        assert!(delivered.resumed);
+        assert_eq!(delivered.messages.len(), 1);
+        assert_eq!(delivered.messages[0].id, second.id);
+        let end = delivered.end;
+        let ino = std::fs::metadata(&path).unwrap().ino();
+
+        // Rewrite in place: the first line stays, the second is a different
+        // message of exactly the same length (a fresh ULID is as long as the
+        // old one, and the body length is kept).
+        let content = std::fs::read_to_string(&path).unwrap();
+        let mut lines = content.lines();
+        let first_line = lines.next().unwrap().to_string();
+        let mut third = second.clone();
+        third.id = Ulid::new();
+        third.body = "@rite-dev again".to_string();
+        assert_eq!(third.body.len(), second.body.len());
+        let third_line = serde_json::to_string(&third).unwrap();
+        assert_eq!(third_line.len(), lines.next().unwrap().len());
+        std::fs::write(&path, format!("{first_line}\n{third_line}\n")).unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), end);
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), ino);
+
+        let delivered = cursors.consume("general", &path).unwrap();
+        assert!(!delivered.resumed, "consumed bytes changed");
+        assert_eq!(
+            delivered.messages.len(),
+            1,
+            "history and the already delivered id are not replayed"
+        );
+        assert_eq!(delivered.messages[0].id, third.id);
+
+        // Now the position is trusted again.
+        let again = cursors.consume("general", &path).unwrap();
+        assert!(again.resumed);
+        assert!(again.messages.is_empty());
+    }
+
+    /// A rewrite that changes only an early record, far before the cursor,
+    /// and preserves everything after it, including the inode and length.
+    #[test]
+    fn an_early_in_place_rewrite_far_before_the_cursor_is_rescanned() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("general.jsonl");
+        let first = msg("alice", "general", "the very first record here");
+        crate::storage::jsonl::append_record(&path, &first).unwrap();
+        // Well over 8 KiB of history after it, so the changed bytes are far
+        // outside any trailing window.
+        for i in 0..200 {
+            crate::storage::jsonl::append_record(
+                &path,
+                &msg(
+                    "alice",
+                    "general",
+                    &format!("filler {i:04} {}", "x".repeat(40)),
+                ),
+            )
+            .unwrap();
+        }
+        let mut cursors = Cursors::seeded_at_now(temp.path()).unwrap();
+        let live = msg("alice", "general", "@rite-dev live one");
+        crate::storage::jsonl::append_record(&path, &live).unwrap();
+        let delivered = cursors.consume("general", &path).unwrap();
+        assert_eq!(delivered.messages.len(), 1);
+        let end = delivered.end;
+        assert!(end > 16 * 1024);
+        let ino = std::fs::metadata(&path).unwrap().ino();
+
+        // Replace only the first line with a mention of the same length.
+        let content = std::fs::read_to_string(&path).unwrap();
+        let mut lines: Vec<String> = content.lines().map(str::to_string).collect();
+        let mut inserted = first.clone();
+        inserted.id = Ulid::new();
+        inserted.body = "@rite-dev the early insert".to_string();
+        assert_eq!(inserted.body.len(), first.body.len());
+        let inserted_line = serde_json::to_string(&inserted).unwrap();
+        assert_eq!(inserted_line.len(), lines[0].len());
+        lines[0] = inserted_line;
+        std::fs::write(&path, format!("{}\n", lines.join("\n"))).unwrap();
+        assert_eq!(std::fs::metadata(&path).unwrap().len(), end);
+        assert_eq!(std::fs::metadata(&path).unwrap().ino(), ino);
+
+        let delivered = cursors.consume("general", &path).unwrap();
+        assert!(!delivered.resumed, "an early byte changed");
+        assert_eq!(delivered.messages.len(), 1, "exactly the inserted record");
+        assert_eq!(delivered.messages[0].id, inserted.id);
+        assert_eq!(position(&cursors, "general"), end);
+    }
+
+    /// A replacement with a new inode and greater length, as git sync or a
+    /// backup copied back produces.
+    #[test]
+    fn a_longer_replacement_file_is_rescanned_and_only_new_messages_delivered() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("general.jsonl");
+        let old = msg("alice", "general", "@rite-dev history");
+        crate::storage::jsonl::append_record(&path, &old).unwrap();
+        let mut cursors = Cursors::seeded_at_now(temp.path()).unwrap();
+        let size = std::fs::metadata(&path).unwrap().len();
+        assert_eq!(position(&cursors, "general"), size);
+
+        let replacement = temp.path().join("general.jsonl.tmp");
+        let merged = msg("bob", "general", "@rite-dev merged in from another machine");
+        std::fs::write(
+            &replacement,
+            format!(
+                "{}\n{}\n",
+                serde_json::to_string(&merged).unwrap(),
+                serde_json::to_string(&old).unwrap()
+            ),
+        )
+        .unwrap();
+        std::fs::rename(&replacement, &path).unwrap();
+        assert!(std::fs::metadata(&path).unwrap().len() > size);
+
+        let delivered = cursors.consume("general", &path).unwrap();
+        assert!(!delivered.resumed, "new identity");
+        assert_eq!(delivered.messages.len(), 1);
+        assert_eq!(delivered.messages[0].id, merged.id);
+    }
+
+    /// The file vanishes for a while and comes back with its history plus
+    /// one new record: only the new record is delivered.
+    #[test]
+    fn a_channel_that_vanishes_and_returns_replays_nothing() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("general.jsonl");
+        crate::storage::jsonl::append_record(&path, &msg("alice", "general", "@rite-dev history"))
+            .unwrap();
+        let mut cursors = Cursors::seeded_at_now(temp.path()).unwrap();
+        let live = msg("alice", "general", "@rite-dev live");
+        crate::storage::jsonl::append_record(&path, &live).unwrap();
+        assert_eq!(
+            consume_bodies(&mut cursors, "general", &path),
+            vec!["@rite-dev live"]
+        );
+
+        let saved = std::fs::read(&path).unwrap();
+        std::fs::remove_file(&path).unwrap();
+        cursors.forget("general");
+        assert!(cursors.positions.is_empty());
+
+        let fresh = msg("bob", "general", "@rite-dev after the outage");
+        let mut content = saved.clone();
+        content.extend_from_slice(serde_json::to_string(&fresh).unwrap().as_bytes());
+        content.push(b'\n');
+        std::fs::write(&path, content).unwrap();
+
+        assert_eq!(
+            consume_bodies(&mut cursors, "general", &path),
+            vec!["@rite-dev after the outage"]
+        );
+    }
+
+    /// A writer observed mid-line: the cursor waits at the start of the
+    /// unterminated line, and the completed record is delivered once.
+    #[test]
+    fn an_unterminated_tail_line_holds_the_cursor_until_it_completes() {
+        use std::io::Write as _;
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("general.jsonl");
+        crate::storage::jsonl::append_record(&path, &msg("alice", "general", "history")).unwrap();
+        let mut cursors = Cursors::seeded_at_now(temp.path()).unwrap();
+        let held_at = position(&cursors, "general");
+
+        let pending = msg("alice", "general", "@rite-dev arrives in two writes");
+        let line = serde_json::to_string(&pending).unwrap();
+        let (head, tail) = line.split_at(line.len() / 2);
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(head.as_bytes()).unwrap();
+
+        let consumed = cursors.consume("general", &path).unwrap();
+        assert!(consumed.resumed);
+        assert!(consumed.messages.is_empty());
+        assert_eq!(
+            consumed.end, held_at,
+            "the cursor does not enter the torn line"
+        );
+        assert!(
+            consumed.skipped.is_empty(),
+            "a torn tail is not a skipped record"
+        );
+
+        file.write_all(tail.as_bytes()).unwrap();
+        file.write_all(b"\n").unwrap();
+        let consumed = cursors.consume("general", &path).unwrap();
+        assert!(consumed.resumed);
+        let bodies: Vec<&str> = consumed.messages.iter().map(|m| m.body.as_str()).collect();
+        assert_eq!(bodies, vec!["@rite-dev arrives in two writes"]);
+        assert_eq!(consumed.end, std::fs::metadata(&path).unwrap().len());
+        assert!(consume_bodies(&mut cursors, "general", &path).is_empty());
+    }
+
+    /// A terminated line that cannot be parsed is stepped over and reported;
+    /// the records after it are delivered.
+    #[test]
+    fn a_malformed_complete_line_is_skipped_and_reported_by_offset() {
+        use std::io::Write as _;
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("general.jsonl");
+        crate::storage::jsonl::append_record(&path, &msg("alice", "general", "history")).unwrap();
+        let mut cursors = Cursors::seeded_at_now(temp.path()).unwrap();
+        let bad_at = std::fs::metadata(&path).unwrap().len();
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(&path)
+            .unwrap();
+        file.write_all(b"this is not a record\n").unwrap();
+        crate::storage::jsonl::append_record(&path, &msg("alice", "general", "@rite-dev after"))
+            .unwrap();
+
+        let consumed = cursors.consume("general", &path).unwrap();
+        assert_eq!(consumed.skipped, vec![bad_at]);
+        let bodies: Vec<&str> = consumed.messages.iter().map(|m| m.body.as_str()).collect();
+        assert_eq!(bodies, vec!["@rite-dev after"]);
+        assert_eq!(consumed.end, std::fs::metadata(&path).unwrap().len());
+    }
+
+    /// A channel that cannot be read at startup fails the seed, so a
+    /// consumer never starts with a channel it would replay in full.
+    #[test]
+    fn seeding_fails_closed_on_an_unreadable_channel() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("general.jsonl");
+        crate::storage::jsonl::append_record(&path, &msg("alice", "general", "@rite-dev history"))
+            .unwrap();
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read(&path).is_ok() {
+            // Running with privileges that ignore modes; nothing to prove.
+            return;
+        }
+        let err = Cursors::seeded_at_now(temp.path()).unwrap_err();
+        assert!(
+            format!("{err:#}").contains("cannot seed the mention stream from #general"),
+            "{err:#}"
+        );
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    }
+
+    /// The channels directory itself cannot be listed: the seed fails, so a
+    /// channel the listing would have missed is never read from its start
+    /// later under held occupancy.
+    #[test]
+    fn seeding_fails_closed_when_the_channels_directory_cannot_be_listed() {
+        use std::os::unix::fs::PermissionsExt;
+        let temp = TempDir::new().unwrap();
+        let dir = temp.path().join("channels");
+        std::fs::create_dir(&dir).unwrap();
+        crate::storage::jsonl::append_record(
+            &dir.join("general.jsonl"),
+            &msg("alice", "general", "@rite-dev history"),
+        )
+        .unwrap();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o000)).unwrap();
+        if std::fs::read_dir(&dir).is_ok() {
+            std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+            return;
+        }
+        let err = Cursors::seeded_at_now(&dir).unwrap_err();
+        std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o755)).unwrap();
+        assert!(
+            format!("{err:#}").contains("cannot list channels"),
+            "{err:#}"
+        );
+    }
+
+    /// A message deleted before startup is remembered as read even though
+    /// it is filtered out, so a copy of the file that lacks the tombstone
+    /// does not present it as new.
+    #[test]
+    fn a_message_deleted_before_startup_is_not_replayed_when_its_tombstone_disappears() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("general.jsonl");
+        let original = msg("alice", "general", "@rite-dev do the old thing");
+        crate::storage::jsonl::append_record(&path, &original).unwrap();
+        let mut tombstone = msg("alice", "general", "");
+        tombstone.meta = Some(MessageMeta::Deleted {
+            target_id: original.id,
+            deleted_by: "alice".to_string(),
+            deleted_at: chrono::Utc::now(),
+        });
+        crate::storage::jsonl::append_record(&path, &tombstone).unwrap();
+        let mut cursors = Cursors::seeded_at_now(temp.path()).unwrap();
+        assert!(cursors.seen["general"].contains(&original.id));
+        assert!(cursors.seen["general"].contains(&tombstone.id));
+
+        // A copy from before the deletion, plus one new mention.
+        let fresh = msg("bob", "general", "@rite-dev the new thing");
+        std::fs::write(
+            &path,
+            format!(
+                "{}\n{}\n",
+                serde_json::to_string(&original).unwrap(),
+                serde_json::to_string(&fresh).unwrap()
+            ),
+        )
+        .unwrap();
+        let consumed = cursors.consume("general", &path).unwrap();
+        assert!(!consumed.resumed);
+        let bodies: Vec<&str> = consumed.messages.iter().map(|m| m.body.as_str()).collect();
+        assert_eq!(bodies, vec!["@rite-dev the new thing"]);
+    }
+
+    /// What lands between the baseline seed and the first watcher event is
+    /// delivered by the catch-up, once; a channel born in that window is
+    /// read from its start.
+    #[test]
+    fn catch_up_delivers_what_arrived_since_the_baseline_exactly_once() {
+        let temp = TempDir::new().unwrap();
+        let general = temp.path().join("general.jsonl");
+        crate::storage::jsonl::append_record(
+            &general,
+            &msg("alice", "general", "@rite-dev history"),
+        )
+        .unwrap();
+        let mut cursors = Cursors::seeded_at_now(temp.path()).unwrap();
+
+        let gap = msg("alice", "general", "@rite-dev in the gap");
+        crate::storage::jsonl::append_record(&general, &gap).unwrap();
+        let born = msg("bob", "brand-new", "@rite-dev first ever");
+        crate::storage::jsonl::append_record(&temp.path().join("brand-new.jsonl"), &born).unwrap();
+
+        let mut found = cursors.catch_up(temp.path()).unwrap();
+        found.sort_by_key(|(c, _)| c.clone());
+        let ids: Vec<Ulid> = found.iter().map(|(_, m)| m.id).collect();
+        assert_eq!(ids, vec![born.id, gap.id], "{found:?}");
+
+        // The event the appends queued finds nothing new.
+        assert!(cursors.catch_up(temp.path()).unwrap().is_empty());
+        assert!(consume_bodies(&mut cursors, "general", &general).is_empty());
     }
 
     #[test]
-    fn deleted_channels_are_forgotten() {
-        let mut cursors = Cursors::default();
-        cursors.advance("gone", 42);
+    fn deleted_channels_drop_their_position_but_keep_their_history() {
+        let temp = TempDir::new().unwrap();
+        let path = temp.path().join("gone.jsonl");
+        crate::storage::jsonl::append_record(&path, &msg("alice", "gone", "x")).unwrap();
+        let mut cursors = Cursors::seeded_at_now(temp.path()).unwrap();
+        assert!(!cursors.seen["gone"].is_empty());
         cursors.forget("gone");
-        assert!(cursors.offsets.is_empty());
+        assert!(cursors.positions.is_empty());
+        assert!(!cursors.seen["gone"].is_empty());
     }
 }

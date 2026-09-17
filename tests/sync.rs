@@ -756,3 +756,133 @@ fn test_local_state_is_never_committed() {
         "everything else still syncs"
     );
 }
+
+/// `sync init --remote` is the push that seeds the remote's history, and it
+/// goes through the same host-local gate as `sync push`. A store that already
+/// has `LOCAL/` (a case variant of the ignored `local/`) on a case-sensitive
+/// host must not have it staged, committed, or published.
+#[test]
+fn sync_init_with_a_remote_never_publishes_case_variant_local_state() {
+    use tempfile::TempDir;
+
+    let bare = TempDir::with_prefix("rite-bare-").expect("bare dir");
+    assert!(
+        Command::new("git")
+            .current_dir(bare.path())
+            .args(["init", "--bare", "--initial-branch=main"])
+            .status()
+            .expect("git")
+            .success()
+    );
+
+    let mut project = TestProject::with_name("sync-init-local-case");
+    let agent = project.agent("alice");
+    let data = project.data_path().to_path_buf();
+    agent
+        .send("general", "history before sync")
+        .assert_success();
+    std::fs::create_dir_all(data.join("LOCAL")).unwrap();
+    std::fs::write(
+        data.join("LOCAL/sessions.jsonl"),
+        "{\"attachment_id\":\"secret\"}\n",
+    )
+    .unwrap();
+    std::fs::create_dir_all(data.join("Local")).unwrap();
+    std::fs::write(data.join("Local/adapters.json"), "{}\n").unwrap();
+
+    let remote = bare.path().display().to_string();
+    agent
+        .run(&["sync", "init", "--remote", &remote])
+        .assert_success();
+
+    let index = git(&data, &["ls-files"]);
+    let index = String::from_utf8_lossy(&index.stdout);
+    assert!(
+        !index
+            .lines()
+            .any(|l| l.to_ascii_lowercase().starts_with("local/")),
+        "local state is tracked after init: {index}"
+    );
+    assert!(
+        index.contains("channels/general.jsonl"),
+        "existing channel data was not committed: {index}"
+    );
+
+    let published = git(bare.path(), &["ls-tree", "-r", "--name-only", "main"]);
+    assert!(
+        published.status.success(),
+        "init did not push main: {}",
+        String::from_utf8_lossy(&published.stderr)
+    );
+    let published = String::from_utf8_lossy(&published.stdout);
+    assert!(
+        !published
+            .lines()
+            .any(|l| l.to_ascii_lowercase().starts_with("local/")),
+        "local state reached the remote: {published}"
+    );
+    assert!(published.contains("channels/general.jsonl"));
+
+    // The history that travelled is clean too, commit by commit.
+    let commits = git(bare.path(), &["rev-list", "main"]);
+    for sha in String::from_utf8_lossy(&commits.stdout).lines() {
+        let tree = git(bare.path(), &["ls-tree", "-r", "--name-only", sha]);
+        let tree = String::from_utf8_lossy(&tree.stdout);
+        assert!(
+            !tree
+                .lines()
+                .any(|l| l.to_ascii_lowercase().starts_with("local/")),
+            "commit {sha} carries local state: {tree}"
+        );
+    }
+}
+
+/// Git C-quotes a pathname with non-ASCII bytes in its text output, so a
+/// tracked `local/naïve.jsonl` used to appear as `"local/na\303\257ve.jsonl"`
+/// and slip past a guard that looked for a leading `local`. The listings
+/// are read NUL-delimited now, and the exact path is untracked.
+#[test]
+fn quoted_local_paths_are_still_detected_and_untracked() {
+    let mut project = TestProject::with_name("sync-quoted-local");
+    let agent = project.agent("codex-a");
+    let data = project.data_path().to_path_buf();
+    agent.run(&["sync", "init"]).assert_success();
+    disable_gpg_signing(&data);
+
+    std::fs::create_dir_all(data.join("local")).unwrap();
+    std::fs::write(data.join("local/na\u{ef}ve.jsonl"), "{}\n").unwrap();
+    assert!(git_success(&data, &["add", "-f", "local/na\u{ef}ve.jsonl"]));
+    assert!(git_success(
+        &data,
+        &[
+            "-c",
+            "commit.gpgsign=false",
+            "commit",
+            "-m",
+            "legacy local state"
+        ]
+    ));
+    let text = String::from_utf8_lossy(&git(&data, &["ls-files"]).stdout).to_string();
+    assert!(
+        text.starts_with('"') || text.contains("\"local/"),
+        "git did not quote the path in text output: {text}"
+    );
+
+    // Push-at-send refuses while local state is tracked, whatever the quoting.
+    let doctor = agent.run(&["doctor", "--format", "json"]);
+    assert!(
+        doctor.stdout_contains("local_state_untracked") && doctor.stdout_contains("na\u{ef}ve"),
+        "doctor did not see the tracked path: {}",
+        doctor.stdout_str()
+    );
+
+    agent
+        .run(&["sync", "commit", "-m", "untrack"])
+        .assert_success();
+    let listing = git(&data, &["ls-files", "-z"]).stdout;
+    assert!(
+        !listing.split(|b| *b == 0).any(|e| e.starts_with(b"local/")),
+        "the quoted path is still tracked: {}",
+        String::from_utf8_lossy(&listing)
+    );
+}

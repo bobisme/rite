@@ -13,7 +13,7 @@ use crate::core::flags::parse_flags;
 use crate::core::identity::require_agent;
 use crate::core::message::{Attachment, Message};
 use crate::core::project::{channel_path, data_dir};
-use crate::storage::jsonl::append_record;
+use crate::storage::jsonl::{append_if, append_record};
 use crate::sync::auto_commit::auto_commit_after_send;
 
 /// Everything `rite send` needs.
@@ -30,6 +30,9 @@ pub struct SendOptions {
     /// The message this one answers
     pub reply_to: Option<String>,
     pub no_hooks: bool,
+    /// A preallocated message id, so the caller can recognise this exact
+    /// append on the bus. `None` mints one.
+    pub id: Option<String>,
     pub format: OutputFormat,
 }
 
@@ -44,6 +47,7 @@ impl SendOptions {
             attachments: Vec::new(),
             reply_to: None,
             no_hooks: false,
+            id: None,
             format: OutputFormat::Pretty,
         }
     }
@@ -165,6 +169,7 @@ pub fn run(options: SendOptions, agent: Option<&str>) -> Result<()> {
         attachments,
         reply_to,
         no_hooks,
+        id,
         format,
     } = options;
 
@@ -243,6 +248,12 @@ pub fn run(options: SendOptions, agent: Option<&str>) -> Result<()> {
 
     // Store original body — flags are meaningful to downstream consumers
     let mut msg = Message::new(&agent_name, &channel, &message);
+    if let Some(raw) = &id {
+        msg.id = raw
+            .trim()
+            .parse()
+            .map_err(|_| anyhow::anyhow!("Invalid --id: '{}' is not a ULID", raw))?;
+    }
 
     if !labels.is_empty() {
         msg = msg.with_labels(labels.clone());
@@ -262,8 +273,30 @@ pub fn run(options: SendOptions, agent: Option<&str>) -> Result<()> {
         msg = msg.with_attachments(parsed_attachments);
     }
 
-    append_record(&path, &msg)
+    if id.is_some() {
+        // A caller-supplied id is a key readers trust to be unique: a
+        // mention follower emits each id once, and thread, get, and delete
+        // find a message by it. A reused id would make a new message
+        // invisible to every follower that saw the first, so it is refused
+        // at the append, under the destination's lock, and checked against
+        // every other channel first.
+        let _fence = id_fence()?;
+        refuse_known_id(&channel, msg.id)?;
+        let appended = append_if(&path, &msg, |existing: &[Message]| {
+            !existing.iter().any(|m| m.id == msg.id)
+        })
         .with_context(|| format!("Failed to send message to #{}", channel))?;
+        if !appended {
+            bail!(
+                "Message id {} is already in #{}; an id is used once",
+                msg.id,
+                channel
+            );
+        }
+    } else {
+        append_record(&path, &msg)
+            .with_context(|| format!("Failed to send message to #{}", channel))?;
+    }
 
     // Auto-commit after sending (best-effort, silent on failure)
     auto_commit_after_send(&data_dir(), &channel);
@@ -468,6 +501,59 @@ fn store_file_in_cache(
     )?;
 
     Ok(Attachment::file(name, stored.path.to_string_lossy()))
+}
+
+/// The store-wide fence for caller-supplied ids: one `--id` send at a time
+/// sweeps the channels and appends, so two of them cannot both pass the
+/// sweep with the same id and land it in two channels. Held until the
+/// append is done. Sends that mint their own id never take it.
+fn id_fence() -> Result<std::fs::File> {
+    use fs2::FileExt;
+    let dir = crate::core::project::local_dir();
+    std::fs::create_dir_all(&dir).with_context(|| format!("Failed to create {}", dir.display()))?;
+    let path = dir.join("send-id.lock");
+    let file = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .with_context(|| format!("Failed to open {}", path.display()))?;
+    file.lock_exclusive()
+        .with_context(|| format!("Failed to acquire lock on: {}", path.display()))?;
+    Ok(file)
+}
+
+/// Refuse `id` if any channel other than `channel` already has it. The
+/// destination itself is checked under its append lock by the caller, and
+/// the caller holds [`id_fence`] across both, so the sweep and the append
+/// are one step against every other `--id` send.
+fn refuse_known_id(channel: &str, id: Ulid) -> Result<()> {
+    use crate::core::message::offset_after_message_id;
+    use crate::core::project::channels_dir;
+    let dir = channels_dir();
+    if !dir.exists() {
+        return Ok(());
+    }
+    let text = id.to_string();
+    for entry in std::fs::read_dir(&dir).with_context(|| "Failed to read channels directory")? {
+        let path = entry?.path();
+        if path.extension().is_none_or(|ext| ext != "jsonl") {
+            continue;
+        }
+        let Some(name) = path.file_stem().and_then(|s| s.to_str()) else {
+            continue;
+        };
+        if name == channel {
+            continue;
+        }
+        if offset_after_message_id(&path, &text)?.is_some() {
+            bail!(
+                "Message id {} is already in #{}; an id is used once",
+                id,
+                name
+            );
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

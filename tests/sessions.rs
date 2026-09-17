@@ -1945,3 +1945,173 @@ fn an_unknown_session_event_fails_closed() {
         "hook spawned over an unknown event"
     );
 }
+
+/// An abandoned reservation still owns its claim for the claim's TTL, and
+/// nothing may run another session command for hours. Hook admission
+/// reconciles it first, so a crashed launcher does not block a responder.
+#[test]
+fn hook_admission_reconciles_an_abandoned_reservation_before_deciding() {
+    let mut project = TestProject::with_name("sessions-abandoned-hook");
+    let marker = project.work_dir().join("spawned.txt");
+    let cwd = project.work_dir().display().to_string();
+    let cmd = format!("touch {}", marker.display());
+    project
+        .run_rite_with_env(
+            &[
+                "hooks",
+                "add",
+                "--channel",
+                "general",
+                "--claim",
+                "agent://responder",
+                "--claim-owner",
+                "responder",
+                "--ttl",
+                "600",
+                "--cwd",
+                &cwd,
+                "--",
+                "sh",
+                "-c",
+                &cmd,
+            ],
+            Some("ops"),
+        )
+        .assert_success();
+    // Launcher reserves with a one-second window and a long claim, then dies.
+    project
+        .agent("responder")
+        .run(&[
+            "sessions",
+            "reserve",
+            "--harness",
+            "codex",
+            "--ttl",
+            "1h",
+            "--window",
+            "1",
+        ])
+        .assert_success();
+    assert!(held_patterns(&project).contains(&"agent://responder".to_string()));
+    std::thread::sleep(Duration::from_millis(1500));
+
+    // No session command runs; ordinary channel traffic must be enough.
+    project
+        .agent("someone")
+        .send("general", "anyone home?")
+        .assert_success();
+    assert!(
+        wait_for_file(&marker, true, Duration::from_secs(10)),
+        "hook must acquire the identity once the reservation lapsed"
+    );
+}
+
+/// A reservation exists to hold the identity until the harness reports its
+/// session id. One with no window is abandoned the moment it is written, so
+/// it is refused up front, and nothing is held afterwards.
+#[test]
+fn reserve_refuses_a_window_shorter_than_a_second_and_holds_nothing() {
+    let mut project = TestProject::with_name("reserve-zero-window");
+    let agent = project.agent("launcher");
+    let out = agent.run(&[
+        "sessions",
+        "reserve",
+        "--harness",
+        "codex",
+        "--window",
+        "0",
+        "--ttl",
+        "60",
+    ]);
+    out.assert_failure();
+    assert!(
+        out.stderr_contains("--window must be at least 1s"),
+        "stderr: {}",
+        out.stderr_str()
+    );
+    assert!(
+        !held_patterns(&project).contains(&"agent://launcher".to_string()),
+        "a refused reservation left a claim behind"
+    );
+    let listed = agent.run(&["sessions", "list", "--all", "--format", "json"]);
+    assert!(
+        !listed.stdout_contains("launcher"),
+        "a refused reservation left a record behind: {}",
+        listed.stdout_str()
+    );
+}
+
+/// `--replace` names one of the caller's own attachments. Naming another
+/// agent's live attachment is refused, and that agent's session and claim
+/// are untouched: the successor would otherwise inherit the victim's claim
+/// id and re-tag the victim's occupancy as its own.
+#[test]
+fn replace_cannot_name_another_agents_attachment() {
+    let mut project = TestProject::with_name("sessions-replace-cross-agent");
+    let victim = json(&project.agent("alpha").run(&[
+        "sessions",
+        "attach",
+        "--harness",
+        "codex",
+        "--session",
+        "alpha-thread",
+        "--format",
+        "json",
+    ]));
+    let victim_id = victim["attachment_id"].as_str().unwrap().to_string();
+    let victim_claim = victim["claim"]["id"].as_str().unwrap().to_string();
+
+    let out = project.agent("beta").run(&[
+        "sessions",
+        "attach",
+        "--harness",
+        "codex",
+        "--session",
+        "beta-thread",
+        "--replace",
+        &victim_id,
+    ]);
+    out.assert_failure();
+    assert!(
+        out.stderr_contains("has no live attachment"),
+        "stderr: {}",
+        out.stderr_str()
+    );
+
+    let listed = json(
+        &project
+            .agent("alpha")
+            .run(&["sessions", "list", "--all", "--format", "json"]),
+    );
+    let sessions = listed["sessions"].as_array().unwrap();
+    let alpha: Vec<&serde_json::Value> =
+        sessions.iter().filter(|s| s["agent"] == "alpha").collect();
+    assert_eq!(alpha.len(), 1, "{listed}");
+    assert_eq!(alpha[0]["state"], "attached");
+    assert_eq!(alpha[0]["attachment_id"], victim_id.as_str());
+    assert!(
+        sessions
+            .iter()
+            .all(|s| s["agent"] != "beta" || s["state"] != "attached"),
+        "beta must not be attached: {listed}"
+    );
+
+    let claims = project.active_claims();
+    let alpha_claim = claims
+        .iter()
+        .find(|c| {
+            c["patterns"]
+                .as_array()
+                .is_some_and(|p| p.iter().any(|x| x == "agent://alpha"))
+        })
+        .expect("alpha still holds its claim");
+    assert_eq!(alpha_claim["id"], victim_claim.as_str());
+    assert!(
+        !claims.iter().any(|c| {
+            c["patterns"]
+                .as_array()
+                .is_some_and(|p| p.iter().any(|x| x == "agent://beta"))
+        }),
+        "beta holds nothing: {claims:?}"
+    );
+}

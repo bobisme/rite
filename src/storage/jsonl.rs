@@ -1,10 +1,12 @@
 use anyhow::{Context, Result};
 use fs2::FileExt;
 use serde::{Serialize, de::DeserializeOwned};
+use sha2::{Digest, Sha256};
 use std::collections::HashSet;
 use std::fmt;
 use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 
@@ -585,12 +587,175 @@ pub fn read_records_from_offset_limited<T: DeserializeOwned>(
     offset: u64,
     limit: Option<usize>,
 ) -> Result<(Vec<T>, u64)> {
+    let read = read_from_offset_inner::<T>(path, offset, limit)?;
+    report_issues(&read.issues);
+    Ok((read.records, read.new_offset))
+}
+
+/// What an offset read found, with nothing reported on the caller's behalf.
+struct OffsetRead<T> {
+    records: Vec<T>,
+    new_offset: u64,
+    issues: ScanIssues,
+}
+
+/// Where a reader that follows a file left off, and proof of what it read
+/// to get there: the file's identity and a running SHA-256 over every byte
+/// in `[0, offset)`. [`read_records_continuing`] resumes from it only when
+/// the same file still has that exact prefix.
+#[derive(Clone)]
+pub struct Continuation {
+    /// Byte offset after the last terminated line consumed. Never inside a
+    /// line.
+    pub offset: u64,
+    /// `(dev, ino)` of the file the offset belongs to.
+    pub identity: (u64, u64),
+    digest: Sha256,
+}
+
+impl fmt::Debug for Continuation {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Continuation")
+            .field("offset", &self.offset)
+            .field("identity", &self.identity)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What one locked pass of [`read_records_continuing`] found.
+pub struct ContinuedRead<T> {
+    /// Records parsed from terminated lines, in file order.
+    pub records: Vec<T>,
+    /// Whether parsing resumed from the continuation handed in. `false`
+    /// means the file was read from its start: no continuation, a different
+    /// file, a shorter one, or a prefix that no longer hashes to what was
+    /// consumed.
+    pub resumed: bool,
+    /// Where the next pass continues from, covering exactly the bytes that
+    /// were parsed in this and earlier resumed passes.
+    pub position: Continuation,
+    /// Terminated lines that could not be parsed, with their byte offsets.
+    pub issues: ScanIssues,
+    /// Byte offset of a final line with no terminating newline: a writer
+    /// mid-append, or a file copied in while incomplete. It was neither
+    /// parsed nor hashed, and `position` stops before it.
+    pub torn_tail: Option<u64>,
+}
+
+/// Read `path` under one shared lock as a follower: verify `from` against
+/// the file as it is now, parse every terminated line after it (or after
+/// the start, if it does not verify), and hash the bytes parsed, so that the
+/// returned position describes exactly the bytes whose records were
+/// returned and nothing observed at another moment.
+///
+/// The verification reads the whole prefix, so a pass costs the size of the
+/// file, not of the increment. A follower that must never step over a
+/// rewrite pays that; one that only wants the increment uses
+/// [`read_records_from_offset`].
+pub fn read_records_continuing<T: DeserializeOwned>(
+    path: &Path,
+    from: Option<&Continuation>,
+) -> Result<ContinuedRead<T>> {
+    let file =
+        File::open(path).with_context(|| format!("Failed to open file: {}", path.display()))?;
+    file.lock_shared()
+        .with_context(|| format!("Failed to acquire shared lock on: {}", path.display()))?;
+    let meta = file
+        .metadata()
+        .with_context(|| format!("Failed to stat: {}", path.display()))?;
+    let identity = (meta.dev(), meta.ino());
+
+    let mut reader = BufReader::new(&file);
+    let mut resumed = false;
+    let mut digest = Sha256::new();
+    let mut offset = 0u64;
+    if let Some(from) = from
+        && from.identity == identity
+        && meta.len() >= from.offset
+    {
+        let mut prefix = Sha256::new();
+        let mut remaining = from.offset;
+        let mut buf = [0u8; 64 * 1024];
+        let mut complete = true;
+        while remaining > 0 {
+            let want = (buf.len() as u64).min(remaining) as usize;
+            let n = reader
+                .read(&mut buf[..want])
+                .with_context(|| format!("Failed to read from: {}", path.display()))?;
+            if n == 0 {
+                complete = false;
+                break;
+            }
+            prefix.update(&buf[..n]);
+            remaining -= n as u64;
+        }
+        let expected: [u8; 32] = from.digest.clone().finalize().into();
+        let actual: [u8; 32] = prefix.finalize().into();
+        if complete && actual == expected {
+            resumed = true;
+            digest = from.digest.clone();
+            offset = from.offset;
+        }
+    }
+    if !resumed {
+        reader
+            .seek(SeekFrom::Start(0))
+            .with_context(|| format!("Failed to seek in: {}", path.display()))?;
+    }
+
+    let mut records = Vec::new();
+    let mut issues = ScanIssues::default();
+    let mut raw = Vec::new();
+    let mut torn_tail = None;
+    loop {
+        raw.clear();
+        let bytes_read = reader
+            .read_until(b'\n', &mut raw)
+            .with_context(|| format!("Failed to read from: {}", path.display()))?;
+        if bytes_read == 0 {
+            break;
+        }
+        if raw.last() != Some(&b'\n') {
+            torn_tail = Some(offset);
+            break;
+        }
+        let line_start = offset;
+        offset += bytes_read as u64;
+        digest.update(&raw);
+        if let Some(record) = parse_line::<T>(&raw, path, None, line_start, &mut issues) {
+            records.push(record);
+        }
+    }
+
+    Ok(ContinuedRead {
+        records,
+        resumed,
+        position: Continuation {
+            offset,
+            identity,
+            digest,
+        },
+        issues,
+        torn_tail,
+    })
+}
+
+fn read_from_offset_inner<T: DeserializeOwned>(
+    path: &Path,
+    offset: u64,
+    limit: Option<usize>,
+) -> Result<OffsetRead<T>> {
+    let empty = |new_offset| OffsetRead {
+        records: Vec::new(),
+        new_offset,
+        issues: ScanIssues::default(),
+    };
     if !path.exists() {
-        return Ok((Vec::new(), 0));
+        return Ok(empty(0));
     }
 
     if limit == Some(0) {
-        return Ok((Vec::new(), offset));
+        return Ok(empty(offset));
     }
 
     let mut file =
@@ -632,8 +797,6 @@ pub fn read_records_from_offset_limited<T: DeserializeOwned>(
         }
     }
 
-    report_issues(&issues);
-
     if limit.is_none() {
         // Get the new offset while still holding the shared lock. Reopening
         // after reading would leave a race where a concurrent append could be
@@ -641,7 +804,11 @@ pub fn read_records_from_offset_limited<T: DeserializeOwned>(
         new_offset = reader.seek(SeekFrom::End(0))?;
     }
 
-    Ok((records, new_offset))
+    Ok(OffsetRead {
+        records,
+        new_offset,
+        issues,
+    })
 }
 
 /// Count the number of records in a JSONL file.

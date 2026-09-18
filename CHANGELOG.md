@@ -5,6 +5,8 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+## [0.35.1] - 2026-09-18
+
 ### Changed
 
 - **`rite channel` takes over the launcher hook's placeholder attachment.**

@@ -5,6 +5,24 @@ All notable changes to this project are documented here. This project adheres to
 
 ## [Unreleased]
 
+### Changed
+
+- **`rite channel` takes over the launcher hook's placeholder attachment.**
+  edict's Claude hooks attach the agent as `pull` from SessionStart, so the
+  identity is held before the channel server exists; the channel then
+  found it "already attached" and refused. When its attach is refused and
+  the same agent holds a live `pull` attachment on a `claude` harness, the
+  channel attaches again with `--replace` for that one, holds occupancy
+  itself, and the placeholder is detached. The handoff is bound to the
+  Claude process: `sessions attach` records the pid of the nearest
+  ancestor process named for the harness (`host_pid`, or `RITE_HOST_PID`
+  when a launcher sets it), and the channel takes over only a placeholder
+  made under its own Claude process. Another Claude session of the same
+  agent, live in another terminal, keeps its identity and the channel
+  stops; a placeholder whose process is unknown is never taken. A
+  `stream` attachment is another channel server and is never taken over;
+  another agent's cannot be.
+
 ## [0.35.0] - 2026-09-17
 
 ### Added

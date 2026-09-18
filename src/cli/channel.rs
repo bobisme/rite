@@ -707,6 +707,27 @@ fn start_stream(server: &Arc<Server>, labels: Vec<String>) {
 /// Take the identity now that delivery works, and keep it only while
 /// renewals succeed. Failure either way ends the server rather than serving
 /// beside another holder.
+/// The id of `agent`'s live `pull` attachment made under the Claude process
+/// `host`, if it has one: what that process's launcher hook staked to hold
+/// the identity before a channel server existed. Read through `rite
+/// sessions list`, so it answers about the store, not about this process.
+/// An attachment made under another Claude process, or one whose process
+/// is unknown, is another session's and is never returned.
+fn pull_attachment_of(agent: &str, host: u32) -> Option<String> {
+    let listed = rite(&["sessions", "list", "--agent", agent, "--format", "json"]).ok()?;
+    listed["sessions"].as_array()?.iter().find_map(|s| {
+        (s["attached"].as_bool() == Some(true)
+            && s["harness"].as_str() == Some("claude")
+            && s["kind"].as_str() == Some("pull")
+            && s["host_pid"].as_u64() == Some(u64::from(host))
+            && s["agent"]
+                .as_str()
+                .is_some_and(|a| a.eq_ignore_ascii_case(agent)))
+        .then(|| s["attachment_id"].as_str().map(str::to_string))
+        .flatten()
+    })
+}
+
 fn attach_and_renew(server: &Arc<Server>, renew_secs: u64) {
     let session = server.session.clone();
     let ttl = format!("{}", (renew_secs * 2).max(3600));
@@ -714,7 +735,7 @@ fn attach_and_renew(server: &Arc<Server>, renew_secs: u64) {
     // stored, so a shutdown from another thread waits and then sees the id.
     let outcome = {
         let _gate = server.attach_gate.lock().unwrap_or_else(|e| e.into_inner());
-        let attached = rite(&[
+        let mut argv: Vec<&str> = vec![
             "sessions",
             "attach",
             "--agent",
@@ -729,7 +750,26 @@ fn attach_and_renew(server: &Arc<Server>, renew_secs: u64) {
             &ttl,
             "--format",
             "json",
-        ]);
+        ];
+        let mut attached = rite(&argv);
+        // The harness's own hooks may have attached this same agent first,
+        // as `pull`: a placeholder that holds the identity until something
+        // that can deliver arrives. That is this server, so it takes the
+        // attachment over, but only a placeholder made under the same
+        // Claude process as this server: another Claude session of the
+        // same agent, live in another terminal, keeps its identity and this
+        // server stops. A `stream` attachment is another channel server and
+        // is never taken; another agent's attachment cannot be.
+        let handoff;
+        if attached.is_err()
+            && let Some(host) = crate::core::session::host_pid("claude")
+            && let Some(placeholder) = pull_attachment_of(&server.agent, host)
+        {
+            handoff = placeholder;
+            argv.push("--replace");
+            argv.push(&handoff);
+            attached = rite(&argv);
+        }
         let outcome = match attached {
             Ok(v) => match v["attachment_id"].as_str() {
                 Some(id) => Ok(id.to_string()),

@@ -62,7 +62,7 @@ use crate::core::claim::{ClaimEvent, FileClaim};
 use crate::core::identity::{require_agent, resolve_agent};
 use crate::core::message::Message;
 use crate::core::project::{adapters_path, claims_path, data_dir, local_dir, sessions_path};
-use crate::core::session::{AdapterTable, builtin_adapters};
+use crate::core::session::{AdapterTable, builtin_adapters, host_pid};
 use crate::core::session::{
     SessionKind, SessionRecord, active_for_agent, fold, occupancy_pattern, reserved_for_agent,
     reserved_for_session,
@@ -888,7 +888,9 @@ fn bind_reservation(
             )));
         }
     };
-    let bound = pending.committed_with_session(session);
+    let bound = pending
+        .committed_with_session(session)
+        .with_host_pid(host_pid(&pending.harness));
     let outcome = commit_fenced(&bound, claim.id, attachment, &pattern)?;
     let committed = matches!(outcome, CommitOutcome::Committed);
     if let CommitOutcome::OccupancyLost = outcome {
@@ -1021,7 +1023,9 @@ pub fn attach(options: AttachOptions) -> Result<()> {
     if let Some(old) = replace {
         pending = pending.replacing(old);
     }
-    pending = pending.with_adapter(options.adapter.clone());
+    pending = pending
+        .with_adapter(options.adapter.clone())
+        .with_host_pid(host_pid(&harness));
     let (session_id, agent_name) = (options.session.clone(), agent.clone());
     let replaced_record: std::cell::RefCell<Option<SessionRecord>> = std::cell::RefCell::new(None);
     let reserved = append_session_if(&pending, |state| {
@@ -1415,6 +1419,9 @@ pub struct SessionInfo {
     /// `held`, `lapsed`, or `none`: the state of the `agent://` claim this
     /// attachment owns.
     pub occupancy: String,
+    /// The harness process this attachment was made under, if known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_pid: Option<u32>,
 }
 
 #[derive(Debug, Serialize)]
@@ -1481,6 +1488,7 @@ fn info_for(
         attached: r.is_attached(),
         since: r.ts,
         occupancy: occupancy.to_string(),
+        host_pid: r.host_pid,
     }
 }
 

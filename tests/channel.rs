@@ -16,9 +16,15 @@ struct Server {
 }
 
 fn start(project: &TestProject, agent: &str) -> Server {
+    start_with_env(project, agent, &[])
+}
+
+/// Like [`start`], with extra environment for the server and its children.
+fn start_with_env(project: &TestProject, agent: &str, env: &[(&str, &str)]) -> Server {
     let mut child = Command::new(common::rite_bin())
         .args(["channel", "--agent", agent, "--renew", "1m"])
         .env("RITE_DATA_DIR", project.data_path())
+        .envs(env.iter().copied())
         .current_dir(project.work_dir())
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
@@ -1050,4 +1056,177 @@ fn caller_supplied_ids_are_fenced_store_wide() {
         .map(|c| project.channel_messages(c).len())
         .sum();
     assert_eq!(landed, 1);
+}
+
+/// Attach `agent` as a `pull` placeholder, the way a launcher hook does,
+/// under the Claude process `host` (`RITE_HOST_PID` stands in for the
+/// process ancestry). Returns the attachment id.
+fn hook_attach(project: &TestProject, agent: &str, session: &str, host: &str) -> String {
+    let out = Command::new(common::rite_bin())
+        .args([
+            "sessions",
+            "attach",
+            "--agent",
+            agent,
+            "--harness",
+            "claude",
+            "--session",
+            session,
+            "--kind",
+            "pull",
+            "--ttl",
+            "600",
+            "--format",
+            "json",
+        ])
+        .env("RITE_DATA_DIR", project.data_path())
+        .env("RITE_HOST_PID", host)
+        .current_dir(project.work_dir())
+        .output()
+        .expect("run rite sessions attach");
+    assert!(
+        out.status.success(),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8_lossy(&out.stdout);
+    let v: serde_json::Value = serde_json::from_str(&text[text.find('{').unwrap()..]).unwrap();
+    v["attachment_id"].as_str().unwrap().to_string()
+}
+
+fn live_sessions(project: &mut TestProject, agent: &str) -> Vec<serde_json::Value> {
+    json(
+        &project
+            .agent(agent)
+            .run(&["sessions", "list", "--format", "json"]),
+    )["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| s["attached"] == true)
+        .cloned()
+        .collect()
+}
+
+/// A launcher hook that attaches the agent as `pull` before the channel
+/// server exists is holding the identity for it. The channel, started under
+/// the same Claude process, takes that attachment over and holds occupancy
+/// itself; the placeholder is detached.
+#[test]
+fn channel_takes_over_the_hooks_pull_attachment() {
+    let mut project = TestProject::with_name("channel-takeover-pull");
+    let placeholder = hook_attach(&project, "claude-a", "hook-1", "4242");
+
+    let mut server = start_with_env(&project, "claude-a", &[("RITE_HOST_PID", "4242")]);
+    server.send(serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}));
+    assert!(server.response(1)["result"].is_object());
+    server.send(serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+
+    // The channel is attached and the placeholder is not.
+    let deadline = std::time::Instant::now() + Duration::from_secs(10);
+    let sessions = loop {
+        let live = live_sessions(&mut project, "claude-a");
+        if live.len() == 1 && live[0]["kind"] == "stream" {
+            break live;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "channel did not take the identity over: {live:?}"
+        );
+        std::thread::sleep(Duration::from_millis(50));
+    };
+    assert_ne!(sessions[0]["attachment_id"], placeholder);
+    assert!(sessions[0]["session"].as_str().unwrap().starts_with("mcp:"));
+    assert_eq!(sessions[0]["host_pid"], 4242);
+
+    // Delivery works under the taken-over identity.
+    let msg_id = json(&project.agent("someone").run(&[
+        "send",
+        "general",
+        "@claude-a after the takeover",
+        "--format",
+        "json",
+    ]))["id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+    let event = server.event_for(&msg_id);
+    assert!(
+        event["params"]["content"]
+            .as_str()
+            .unwrap()
+            .contains("after the takeover")
+    );
+
+    drop(server.stdin);
+    assert!(server.child.wait().unwrap().success());
+}
+
+/// The placeholder of another Claude session of the same agent, live in
+/// another terminal, is that session's identity. A channel under a
+/// different Claude process refuses and stops; the first session keeps its
+/// attachment and its claim. So does a placeholder whose process is unknown.
+#[test]
+fn channel_never_takes_over_another_claude_sessions_placeholder() {
+    let mut project = TestProject::with_name("channel-no-takeover-other-host");
+    for (name, host) in [("claude-a", "1"), ("claude-b", "none")] {
+        let other = hook_attach(&project, name, &format!("{name}-hook"), host);
+
+        let mut server = start_with_env(&project, name, &[("RITE_HOST_PID", "4242")]);
+        server.send(serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}));
+        assert!(server.response(1)["result"].is_object());
+        server.send(serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+        let status = server.child.wait().unwrap();
+        assert!(!status.success(), "{name}: {status:?}");
+
+        let live = live_sessions(&mut project, name);
+        assert_eq!(live.len(), 1, "{name}: {live:?}");
+        assert_eq!(live[0]["attachment_id"], other, "{name}");
+        assert_eq!(live[0]["occupancy"], "held", "{name}");
+    }
+}
+
+/// A `stream` attachment is another channel server. It is never taken over:
+/// the second server refuses and the first keeps the identity.
+#[test]
+fn channel_never_takes_over_another_channels_stream_attachment() {
+    let mut project = TestProject::with_name("channel-no-takeover-stream");
+    let other = json(&project.agent("claude-a").run(&[
+        "sessions",
+        "attach",
+        "--harness",
+        "claude",
+        "--session",
+        "mcp:1",
+        "--kind",
+        "stream",
+        "--ttl",
+        "600",
+        "--format",
+        "json",
+    ]))["attachment_id"]
+        .as_str()
+        .unwrap()
+        .to_string();
+
+    let mut server = start(&project, "claude-a");
+    server.send(serde_json::json!({"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}));
+    assert!(server.response(1)["result"].is_object());
+    server.send(serde_json::json!({"jsonrpc":"2.0","method":"notifications/initialized"}));
+    let status = server.child.wait().unwrap();
+    assert!(!status.success(), "{status:?}");
+
+    let listed = json(
+        &project
+            .agent("claude-a")
+            .run(&["sessions", "list", "--format", "json"]),
+    );
+    let live: Vec<&serde_json::Value> = listed["sessions"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .filter(|s| s["attached"] == true)
+        .collect();
+    assert_eq!(live.len(), 1, "{listed}");
+    assert_eq!(live[0]["attachment_id"], other);
 }

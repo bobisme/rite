@@ -92,6 +92,47 @@ pub struct SessionRecord {
     /// sender's process executes. Absent means the harness's built-in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub adapter: Option<String>,
+
+    /// The pid of the harness process that hosts the session on this
+    /// machine, as [`host_pid`] found it when the attachment was made. It
+    /// binds the attachment to one live harness process: a channel server
+    /// takes over a placeholder attachment only when both were made under
+    /// the same harness process. Absent when it could not be determined,
+    /// which forbids the takeover.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_pid: Option<u32>,
+}
+
+/// The pid of the harness process this process runs under, on this
+/// machine: `RITE_HOST_PID` when set (a launcher or a test that knows
+/// better; anything unparseable means unknown, not a fallback), else the
+/// nearest ancestor process whose name is `harness`, read from `/proc`.
+/// `None` when there is no such ancestor or `/proc` cannot be read.
+pub fn host_pid(harness: &str) -> Option<u32> {
+    if let Ok(given) = std::env::var("RITE_HOST_PID") {
+        return given.trim().parse().ok();
+    }
+    let wanted = harness.trim().to_ascii_lowercase();
+    if wanted.is_empty() {
+        return None;
+    }
+    let mut pid = std::process::id();
+    for _ in 0..64 {
+        let stat = std::fs::read_to_string(format!("/proc/{pid}/stat")).ok()?;
+        // `pid (comm) state ppid ...`; comm may contain spaces and parens,
+        // so split after the last ')'.
+        let rest = &stat[stat.rfind(')')? + 1..];
+        let parent: u32 = rest.split_whitespace().nth(1)?.parse().ok()?;
+        if parent <= 1 {
+            return None;
+        }
+        let comm = std::fs::read_to_string(format!("/proc/{parent}/comm")).ok()?;
+        if comm.trim().eq_ignore_ascii_case(&wanted) {
+            return Some(parent);
+        }
+        pid = parent;
+    }
+    None
 }
 
 /// Host-configured push adapters by name. Each value is an argument vector
@@ -142,7 +183,14 @@ impl SessionRecord {
             replaces: None,
             pending_until: None,
             adapter: None,
+            host_pid: None,
         }
+    }
+
+    /// Bind this attachment to the harness process that hosts it.
+    pub fn with_host_pid(mut self, pid: Option<u32>) -> Self {
+        self.host_pid = pid;
+        self
     }
 
     /// Name the adapter that pushes into this session.
@@ -219,6 +267,7 @@ impl SessionRecord {
             replaces: None,
             pending_until: None,
             adapter: None,
+            host_pid: None,
         }
     }
 
@@ -498,6 +547,23 @@ pub fn reserved_for_session<'a>(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn host_pid_env_wins_and_unparseable_means_unknown() {
+        // Env is process-global: run the cases in one test, restoring after.
+        let saved = std::env::var("RITE_HOST_PID").ok();
+        // SAFETY: single-threaded within this test; restored below.
+        unsafe { std::env::set_var("RITE_HOST_PID", "4242") };
+        assert_eq!(host_pid("claude"), Some(4242));
+        unsafe { std::env::set_var("RITE_HOST_PID", "none") };
+        assert_eq!(host_pid("claude"), None);
+        unsafe { std::env::set_var("RITE_HOST_PID", "") };
+        assert_eq!(host_pid("claude"), None);
+        match saved {
+            Some(v) => unsafe { std::env::set_var("RITE_HOST_PID", v) },
+            None => unsafe { std::env::remove_var("RITE_HOST_PID") },
+        }
+    }
 
     #[test]
     fn roundtrip() {

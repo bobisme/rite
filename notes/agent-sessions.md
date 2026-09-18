@@ -159,11 +159,15 @@ and on SessionStart hook stdin.
    serve when the identity is held elsewhere, and stops when a replacement
    takes it.
 4. The launcher does not attach for Claude. edict's Claude hooks (edict
-   bn-3oml) attach by the hook payload's `session_id` as kind `pull`, which
-   the channel must take over; until rite bn-316s ships that takeover, the
-   channel refuses an identity those hooks already hold, so a Claude session
-   with both the edict hooks and the channel gets the hooks' occupancy and no
-   channel delivery.
+   0.30.0, bn-3oml) attach by the hook payload's `session_id` as kind
+   `pull` from SessionStart, so the identity is held before the channel
+   exists. The channel (rite 0.35.1, bn-316s) takes that placeholder over
+   with `--replace`, but only one made under its own Claude process: both
+   attachments record `host_pid`, the nearest ancestor process named
+   `claude` (or `RITE_HOST_PID` from a launcher), and an unknown or
+   different process forbids the takeover, so another Claude session of the
+   same agent in another terminal keeps its identity and the second channel
+   stops.
 
 Channels are a research preview and the flag syntax may change.
 
@@ -496,15 +500,17 @@ Numbered findings as recorded during the tests, kept for traceability.
 
 ## Loose ends
 
-- edict bn-3oml (review cr-2bkg32): the global Claude hooks attach by the hook
-  payload's `session_id` (kind `pull`, ten-minute claim renewed by tool
-  activity, detached at SessionEnd) instead of staking an ownerless claim,
-  which `rite channel` refused. The per-session bridge is gone from the
-  design. Still not built in edict: the Codex launcher side (`reserve` →
-  start → `attach --attachment`, a `.codex/hooks.json` SessionEnd detach);
-  edict installs no Codex hooks.
-- rite bn-316s: `rite channel` must take over the same agent's `pull`
-  attachment made by those hooks, or the two cannot share a session.
+- edict 0.30.0 (bn-3oml, review cr-2bkg32): the global Claude hooks attach
+  by the hook payload's `session_id` (kind `pull`, ten-minute claim renewed
+  by tool activity, detached at SessionEnd) instead of staking an ownerless
+  claim, which `rite channel` refused. The per-session bridge is gone from
+  the design. Still not built in edict: the Codex launcher side (`reserve`
+  → start → `attach --attachment`, a `.codex/hooks.json` SessionEnd
+  detach); edict installs no Codex hooks.
+- rite 0.35.1 (bn-316s, review cr-3brdcp): `rite channel` takes over the
+  same agent's `pull` placeholder made under its own Claude process.
+  Unverified with a real Claude Code launch: both orderings of the
+  SessionStart hook and the channel's `initialized` were driven by hand.
 - rite bn-v0qq: `rite sessions attach|detach -q` prints a Debug dump.
 - The security review of `rite channel` (cr-od7adl) ran twenty-three rounds;
   every fix is listed under 0.35.0 Fixed in CHANGELOG.md. The reviewer's

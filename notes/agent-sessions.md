@@ -1,9 +1,13 @@
 # Agent sessions: routing messages to live harnesses
 
-Status: interoperability demonstrated on 2026-09-15 with thin adapters. The
-session registry shipped on 2026-09-16 as `rite sessions` (bn-3c4d, merged in
-7aa978b; `rite send --format json` stdout fix bn-3lbh merged in cd83428). The
-first release is the thin local bridge, explicit thread identity, and
+Status: shipped in rite 0.35.0 on 2026-09-17. The session registry is
+`rite sessions` (bn-3c4d, 7aa978b). Delivery into Codex is push-at-send:
+`rite send` itself invokes the host-configured adapter for every live push
+attachment the message addresses (bn-36x1, fa557ee). Delivery into Claude is
+`rite channel`, a stdio MCP channel server Claude Code spawns, which attaches
+itself and replies through a tool (bn-1yya, 18d843c, security review
+cr-od7adl). There is no per-session bridge process. The first release is
+therefore push-at-send, the channel server, explicit thread identity, and
 occupancy claims owned by their attachment. Delivery is best-effort and
 occupancy is advisory, like every rite claim. The receipt ledger, durable
 replay, and coordinated hook admission remain deferred design options, kept in
@@ -116,17 +120,21 @@ The recipe that worked, and that a launcher such as edict would encode.
 4. Approval: `--approve-for-me` produced no prompt for `rite send` in one run.
    Treat that as a result from these runs, not a guarantee; the comparison was
    confounded by a previously saved "don't ask again" approval.
-5. Bridge, one per session: `rite mentions follow --agent <name> --format json`,
-   each record rendered and passed to `codex queue --thread <session_id>`.
+5. No bridge. Every `rite send` that mentions or DMs the agent runs the
+   `codex` adapter for the attachment's exact thread (`codex queue --thread
+   <session_id> --message <rendered>`), from the sender's host. A push that
+   finds the thread gone reports `session_gone`; it never detaches.
 6. Occupancy, in this order: `rite sessions reserve --harness codex` **before**
    starting the harness, then start it, then
    `rite sessions attach --attachment <id> --session <session_id>` once the id
    is known. The reservation already holds `agent://<name>`, so no responder can
    start in the gap. A direct `attach` after the harness is running cannot
    protect it from a responder that won the identity first; it refuses and
-   says so. The bridge calls `rite sessions renew --attachment <id>` before the
-   claim's TTL, and a generic SessionEnd hook runs
-   `rite sessions detach --session $session_id`.
+   says so. The launcher calls `rite sessions renew --attachment <id>` before
+   the claim's TTL or lets it lapse (default eight hours), and a SessionEnd
+   hook in the workspace's `.codex/hooks.json` runs
+   `rite sessions detach --session $session_id`. None of this is built in
+   edict yet; see [Loose ends](#loose-ends).
 
 The session id is created at the first prompt, not at TUI launch. It appears
 as the rollout filename under `~/.codex/sessions/` and in `session_index.jsonl`,
@@ -134,17 +142,28 @@ and on SessionStart hook stdin.
 
 ### Claude
 
-1. Register the channel server in the project `.mcp.json`. A server loaded
-   via `--mcp-config` is not found by `server:<name>`.
-2. Launch with `--dangerously-load-development-channels server:<name>`. The
+1. Register the channel server in the project `.mcp.json`:
+   `{"mcpServers": {"rite": {"command": "rite", "args": ["channel", "--agent", "<name>"]}}}`.
+   A server loaded via `--mcp-config` is not found by `server:<name>`.
+2. Launch with `--dangerously-load-development-channels server:rite`. The
    first launch shows a consent dialog for the new MCP server and a
    development-channels warning. Both are TUI prompts the launcher answers.
-3. The adapter is a stdio MCP server declaring
-   `capabilities.experimental["claude/channel"]`, consuming the same mention
-   stream, emitting one notification per record with `from_agent`,
-   `channel_name`, `reply_target`, `route`, and `msg_id` as meta, and
-   exposing a `reply` tool that runs `rite send --reply-to`. Seventy lines of
-   Python with no SDK was sufficient.
+3. `rite channel` is the adapter: a stdio MCP server declaring
+   `capabilities.experimental["claude/channel"]`, consuming the agent's
+   mention stream, emitting one notification per record with `from_agent`,
+   `channel_name`, `reply_target`, `route`, and `msg_id` as meta, and exposing
+   a `reply` tool. After `notifications/initialized` it attaches itself
+   (harness `claude`, kind `stream`, session `mcp:<pid>`), renews the claim
+   while it runs, delivers and replies only while its attachment still owns
+   `agent://<name>`, and detaches when Claude closes its stdin. It refuses to
+   serve when the identity is held elsewhere, and stops when a replacement
+   takes it.
+4. The launcher does not attach for Claude. edict's Claude hooks (edict
+   bn-3oml) attach by the hook payload's `session_id` as kind `pull`, which
+   the channel must take over; until rite bn-316s ships that takeover, the
+   channel refuses an identity those hooks already hold, so a Claude session
+   with both the edict hooks and the channel gets the hooks' occupancy and no
+   channel delivery.
 
 Channels are a research preview and the flag syntax may change.
 
@@ -216,12 +235,12 @@ Track three facts separately:
 |---|---|---|
 | Harness existence | Exact thread lifecycle evidence or matching SessionEnd | The attachment still names an existing session; a shared daemon pid is insufficient |
 | Recent activity | Stop and PostToolUse hooks | The session recently performed work |
-| Delivery readiness | The bridge process for that session is alive | This delivery path is available |
+| Delivery readiness | Codex: the app-server daemon answers `codex queue` for that thread. Claude: the channel process is alive and holds the attachment | This delivery path is available |
 
 A daemon pid identifies the daemon, which hosts many threads and outlives any
 one of them. Thread identity is authoritative. Record SessionEnd for the exact
 thread. A failed `codex queue` on that thread is evidence the thread is gone.
-If the bridge or daemon disappears without a session event, report the session
+If the channel or daemon disappears without a session event, report the session
 state as unknown. Do not release occupancy from activity silence alone, and do
 not keep it forever because the daemon survives. Never cold-spawn solely
 because an activity timestamp expired; long tools and approval waits look the
@@ -229,7 +248,8 @@ same.
 
 Transport kinds:
 
-- `push`: a local bridge invokes a bounded command for the exact session. Codex.
+- `push`: `rite send` invokes the host-configured adapter, a bounded command
+  for the exact session. Codex.
 - `stream`: a connected adapter writes harness notifications. The Claude
   channel server.
 - `pull`: a finishing-turn hook takes pending work. An idle session waits for
@@ -241,10 +261,12 @@ The deployed edict responders gate on `agent://<name>` via `claim_available`.
 Ordinary claims are therefore the integration path:
 
 - `sessions attach` stakes `agent://<name>` for the attachment.
-- Renewal is independent of model activity. The per-session bridge process
-  renews the claim while it runs, so an idle session stays occupied and a dead
-  bridge lets it lapse. Stop and PostToolUse hooks record activity but do not
-  renew.
+- Renewal depends on the attachment's kind. A `stream` attachment is renewed
+  by `rite channel` while it runs, so an idle Claude session stays occupied
+  and a dead channel lets it lapse. A Codex `push` attachment is renewed by
+  its launcher or lapses at its TTL. A `pull` attachment made by edict's
+  Claude hooks carries a ten-minute claim that tool activity renews, so an
+  idle pull session lapses; nothing can be delivered to it anyway.
 - `sessions detach` releases only the matching attachment's claim.
 - Enable this once live delivery works for that session, not on registration
   alone.
@@ -318,9 +340,9 @@ execution authority.
 
 | Case | Required behavior |
 |---|---|
-| Healthy session idle beyond activity TTL | Activity is not liveness; the bridge's renewal keeps occupancy |
-| Session crashes without SessionEnd | Bridge dies with it and the claim lapses; queue failure confirms; no speculative spawn on silence alone |
-| Bridge or stream disconnects | Mark that adapter unavailable; keep the attachment; a pull fallback still needs another turn |
+| Healthy session idle beyond activity TTL | Activity is not liveness; the channel's or launcher's renewal keeps occupancy; a pull attachment lapses by design |
+| Session crashes without SessionEnd | The channel dies with it and detaches; a Codex push attachment lapses at its TTL; queue failure confirms; no speculative spawn on silence alone |
+| Stream disconnects | The channel stops and detaches; the messages stay on the bus for `rite inbox` |
 | Adapter fails after possible submission | Record `failed` or `submitted` honestly; no automatic retry in the first release |
 | Old session emits a late SessionEnd | Detach matches on session id; a never-attached id is a no-op |
 | Channel disabled or blocked by policy | Notifications discard silently; report channel readiness and keep the Stop-hook pull fallback |
@@ -336,13 +358,22 @@ rite sessions reserve --harness <h> [--kind push|stream|pull] [--ttl 8h] [--wind
 rite sessions attach  --harness <h> --session <id> [--kind] [--ttl] [--replace <attachment-id>]
 rite sessions attach  --attachment <id> --session <id> [--ttl]      # bind a reservation
 rite sessions detach  --session <id> | --attachment <id>            # no identity needed
-rite sessions renew   --attachment <id> [--ttl]                      # from the bridge
+rite sessions renew   --attachment <id> [--ttl]                      # from the channel or the launcher
 rite sessions list    [--name <agent>] [--all]
+```
+
+Shipped in 0.35.0:
+
+```text
+rite send <target> <message> [--adapter <name>]   # pushes into live push attachments itself
+rite channel --agent <name> [--renew 5m] [--no-attach] [-L label]   # stdio MCP channel server
 ```
 
 Records live in `local/sessions.jsonl`, ignored by `sync init` and dropped
 from the index by `sync commit`. `rite agents` shows the live attachment.
-Bridges stay external scripts. `src/core/session.rs`, `src/cli/sessions.rs`.
+Adapters are named in `local/adapters.json`; `codex` is built in. There is
+no external bridge script. `src/core/session.rs`, `src/cli/sessions.rs`,
+`src/cli/send.rs` (push), `src/cli/channel.rs`.
 
 ### What the implementation guarantees
 
@@ -404,8 +435,8 @@ existed. Launchers that must never overlap a responder use `reserve` first.
 
 ## Deferred design options
 
-Kept from review 1 as options, not requirements. None is needed for the thin
-bridge.
+Kept from review 1 as options, not requirements. None is needed for
+push-at-send or the channel server.
 
 - **Receipt ledger.** Reservation tokens, `reserved` and `confirmed` and
   `uncertain` states, an explicit receipt tool, reconciliation of anchored
@@ -465,9 +496,20 @@ Numbered findings as recorded during the tests, kept for traceability.
 
 ## Loose ends
 
-- The launcher side is edict bone bn-3oml: adopt `reserve` → start → `attach
-  --attachment`, run a bridge per session, and install the SessionEnd detach
-  hook per workspace.
+- edict bn-3oml (review cr-2bkg32): the global Claude hooks attach by the hook
+  payload's `session_id` (kind `pull`, ten-minute claim renewed by tool
+  activity, detached at SessionEnd) instead of staking an ownerless claim,
+  which `rite channel` refused. The per-session bridge is gone from the
+  design. Still not built in edict: the Codex launcher side (`reserve` →
+  start → `attach --attachment`, a `.codex/hooks.json` SessionEnd detach);
+  edict installs no Codex hooks.
+- rite bn-316s: `rite channel` must take over the same agent's `pull`
+  attachment made by those hooks, or the two cannot share a session.
+- rite bn-v0qq: `rite sessions attach|detach -q` prints a Debug dump.
+- The security review of `rite channel` (cr-od7adl) ran twenty-three rounds;
+  every fix is listed under 0.35.0 Fixed in CHANGELOG.md. The reviewer's
+  scope grew to the mention cursor, `sessions --replace`, sync path quoting,
+  and reply lifecycle, all of which shipped.
 - `notes/agent-sessions.review.*.md` and Seal cr-3e1qze hold the review
   history; the last finding is recorded above as an accepted limitation.
 - Sync is unused in practice; removing it would also remove the advisory
